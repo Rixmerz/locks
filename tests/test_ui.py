@@ -3,6 +3,8 @@ from __future__ import annotations
 import http.client
 import http.server
 import json
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -873,3 +875,18 @@ def test_the_page_never_parses_html_nor_sets_inline_styles():
         text = path.read_text()
         assert "innerHTML" not in text and "outerHTML" not in text and "insertAdjacentHTML" not in text, path.name
         assert '"style"' not in text and "style:" not in text, path.name
+
+
+# --- the page's own scripts ------------------------------------------------------------
+
+STATIC = Path(server.__file__).parent / "static"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+@pytest.mark.parametrize("script", sorted(STATIC.glob("*.js")), ids=lambda p: p.name)
+def test_every_script_of_the_page_parses(script: Path, tmp_path: Path):
+    # A syntax error in one module blanks the whole board; node checks it as the browser would.
+    module = tmp_path / (script.stem + ".mjs")
+    module.write_text(script.read_text(encoding="utf-8"), encoding="utf-8")
+    checked = subprocess.run(["node", "--check", str(module)], capture_output=True, text=True)
+    assert checked.returncode == 0, checked.stderr

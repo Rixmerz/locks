@@ -89,7 +89,7 @@ function behaviorSection(b) {
       rows.map((r) => h("tr", {}, h("td", {}, kindChip(r.kind)), h("td", {}, r.outcome), num(r.attempts),
         num(median(r.calls_p50)), num(median(r.calls_before_edit_p50)), num(median(r.check_runs_p50)),
         num(median(r.fix_cycles_p50)), num(median(r.rereads_p50)), num(pct(r.failed_share)),
-        num(pct(r.unchecked_end_share)), num(pct(r.never_checked_share))))))];
+        num(pct(r.unchecked_end_share)), num(pct(r.never_checked_share)))))];
 }
 
 function armsSection(title, about, arms, names, said, now) {

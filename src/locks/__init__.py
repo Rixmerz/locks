@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from locks import legacy as _legacy
 
-__version__ = "0.69.1"
+__version__ = "0.69.2"
 
 # Every variable of the old name a person or an older process set reads as its `LOCKS_*`, before anything
 # else of the package looks at the environment.

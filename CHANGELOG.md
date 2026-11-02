@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.69.2] - 2026-11-02
+
+### Fixed
+
+- **The board loads again** ([#117](https://github.com/Rixmerz/locks/issues/117)). `analysis.js` closed one parenthesis too many in `behaviorSection`, so the browser refused the module (`Unexpected token ')'`) and, with it, every module `main.js` imports: the page stayed blank with no project and no task, though the API answered. A test now runs `node --check` on every script of the UI, so a syntax error there fails the suite instead of shipping.
+
 ## [0.69.1] - 2026-11-01
 
 ### Changed

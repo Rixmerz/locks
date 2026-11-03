@@ -187,7 +187,8 @@ _APPEND_ONLY_TRIGGERS = "".join(
     for table in _APPEND_ONLY for verb in ("update", "delete"))
 
 #: Events that keep the version that wrote them: what `locks doctor` reads a bug from.
-VERSIONED = frozenset({"planned", "attempt_started", "attempt_finished", "moved", "finished", "check_preexisting"})
+VERSIONED = frozenset({"briefed", "planned", "attempt_started", "attempt_finished", "moved", "finished",
+                       "check_preexisting"})
 
 #: Words a query and a problem must share for a strict match.
 STRICT_OVERLAP = 3

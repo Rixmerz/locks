@@ -639,6 +639,9 @@ def test_a_run_leaves_an_event_trail_a_watcher_can_follow(git_repo, store):
     assert events[0]["data"]["plan_s"] >= 0 and events[0]["data"]["queued_s"] is None
     assert events[1]["data"] == {"session": None, "dead_ends": 0, "areas": [],
                                  "context_chars": events[1]["data"]["context_chars"],
+                                 # The brief's footprint (`locks.footprint`), and the release that wrote it.
+                                 "kind": "implement", "system_chars": events[1]["data"]["system_chars"],
+                                 "skills": events[1]["data"]["skills"], "version": events[1]["data"]["version"],
                                  # Which role it wore, and which version of its text (`roles.version`).
                                  "role": "implementer", "role_version": events[1]["data"]["role_version"],
                                  # Where each of its skills was read from: bundled here, no plugin installed.

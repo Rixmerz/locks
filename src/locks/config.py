@@ -127,6 +127,10 @@ DEFAULTS: dict[str, Any] = {
     # output, secrets masked) and locks event of a session, tagged, in the locks home's
     # `traces/`, and the session's transcript copied beside it. Off unless the person turns it on.
     "trace": False,
+    # A session's notes are filed by a fork of the session itself, tried against Haiku in turns per
+    # project and kept where it kept no fewer facts a filing (`locks.notes_fork`). Off unless the
+    # person turns it on: a fork runs on the session's model.
+    "notes_fork": False,
     # When a session should compact, and what `/compact` should keep (`locks.compaction`):
     # `orchestrator` tells the session at a good moment and it decides, compacting with
     # the mod's `compact` tool; `suggest` shows the person the line, `auto` has the mod

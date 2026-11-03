@@ -1373,15 +1373,21 @@ def run(
         if side == "with":
             context.append(method.lines)
     the_plan.seen_risks = tuple(methods_mod.lines_for(methods_mod.run_risks(store, task)))
+    # The brief's fixed weight, per kind and release (`locks.footprint`): what a worker reads
+    # before its task, so a brief that grows release after release is seen, not guessed.
+    worn_brief = roles.brief(the_plan.role) if the_plan.role is not None else None
     store.add_event(task["id"], "briefed", session=got, dead_ends=len(dead), areas=list(reach),
-                    context_chars=sum(len(line) for line in context), **primed, **worn, **trunked, **evidenced,
+                    context_chars=sum(len(line) for line in context), kind=the_plan.kind,
+                    system_chars=len(worn_brief.system_prompt) if worn_brief is not None else 0,
+                    skills=len(worn_brief.skills) if worn_brief is not None else 0,
+                    **primed, **worn, **trunked, **evidenced,
                     **methodical, **(the_plan.recalled or {}),
                     **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
                     **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
     # The runtime the project declares goes first on the worker's PATH, and on its
     # check's: a worker given the wrong Node hunts for another and is refused each one.
     run_env = runtime.env_for(workdir)
-    briefing = roles.brief(the_plan.role) if the_plan.role is not None else None
+    briefing = worn_brief
     # The independent check: what it found first, and how many corrections it has had.
     verifying = writes and not declared_read_only and config.enabled("verifier", os.environ) \
         and not options.reviewed_next

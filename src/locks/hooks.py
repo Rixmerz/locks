@@ -952,9 +952,35 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
             lines.append(f"  its lane is paused on it: {waiting} queued task(s) wait. Dismissing or resuming it "
                          "opens the lane; when the queued work does not depend on it, tell the person and "
                          f"run `locks lanes --unpause {t.get('repo')}` to let them start now")
+    if (split := session_split(store, str(session_id))) is not None:
+        lines.append(split)
     if paused:
         lines += ["", paused]
     return "\n".join(lines), [t["id"] for t in ended]
+
+
+def session_split(store: Store, session_id: str) -> str | None:
+    """What this session cost so far, its own turns apart from the work it sent locks (issue #118):
+    so it can tell when delegating paid. Observed from the usage it ingested and the tasks' costs;
+    None when neither is known. Never fails an ending."""
+    try:
+        from locks import usage
+
+        own = 0.0
+        for model, inp, out, read, write in store._conn.execute(
+                "SELECT model, SUM(input_tokens), SUM(output_tokens), SUM(cache_read), SUM(cache_write) "
+                "FROM usage WHERE session_id = ? AND sidechain = 0 GROUP BY model", (session_id,)):
+            own += usage.dollars(model or "", inp or 0, out or 0, cache_read=read or 0, cache_write=write or 0)
+        (sent,) = store._conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM tasks WHERE session_id = ? AND source IN ('locks', 'queue')",
+            (session_id,)).fetchone()
+    except Exception:
+        return None
+    if not own and not sent:
+        return None
+    whole = own + float(sent or 0)
+    return (f"This session so far: ${own:.2f} its own turns, ${float(sent or 0):.2f} the work it sent locks "
+            f"({own / whole:.0%} the session's own).")
 
 
 #: This many endings at once are told in short: each pass in one line.

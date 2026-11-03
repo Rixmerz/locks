@@ -106,7 +106,9 @@ class Capability:
         if isinstance(self.when, tuple) and kind in self.when:
             return True
         if failed_before and kind in self.after_failure:
-            return True
+            # One that is about some files comes after a failure only to work that touches them, or
+            # whose files are not known: an API change is no page to measure (issue #123).
+            return not self.touches or not paths or self.touched(paths) is not None
         # By what the work touches: reading work only gets one that measures.
         return (self.measures or not reading) and self.touched(paths) is not None
 

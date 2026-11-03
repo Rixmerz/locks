@@ -1061,6 +1061,13 @@ class Store:
         row = self._conn.execute("SELECT * FROM attempts WHERE task_id = ? AND seq = ?", (task_id, seq)).fetchone()
         return dict(row) if row else None
 
+    def notes_since(self, project: str, since: str, *, limit: int = 5) -> list[dict]:
+        """A project's live notes filed at `since` or after, newest first."""
+        rows = self._conn.execute(
+            "SELECT topic, title, text FROM notes WHERE project = ? AND state IN ('current', 'candidate') "
+            "AND created_at >= ? ORDER BY id DESC LIMIT ?", (project, since, limit)).fetchall()
+        return [dict(r) for r in rows]
+
     def last_event(self, task_id: int, kind: str) -> dict | None:
         row = self._conn.execute(
             "SELECT * FROM events WHERE task_id = ? AND kind = ? ORDER BY id DESC LIMIT 1", (task_id, kind)).fetchone()

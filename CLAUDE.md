@@ -957,6 +957,8 @@ yields the default kind, not a guess.
 - The trace (`locks.trace`) is the one record that keeps a tool's arguments and output: the person's
   opt-in (`trace`, off by default), in their locks home only, secrets masked, written by its own
   `hook-trace` entry or the existing fast path, never read by a rule; a trace never fails a hook or a write.
+- A stray path outside a task's surfaces is a finding of its own: it never rewrites an `environment` failure, nor a `code_bug` with the check's output, as `approach`, and never empties `check_tail`. Surfaces are read from inside the repository as well as from the folder, and a dependency folder is never offered as one. A container stack a worker started in its worktree is stopped when its task ends (`isolate.stop_stacks`).
+- A resume's brief carries the notes filed since its last attempt and the instruction a session passed with `locks resume N -` (`orchestrate.resume_context`), quoted as context, never the task.
 - Forensics, the footprint and skill use read a copy of the store, never the live file, and say what
   they observed, never a modeled figure; a dormant skill is said, never archived by locks. The notes
   fork is judged by facts kept per filing, never by its cost, which is shown beside it.

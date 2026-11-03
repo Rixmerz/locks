@@ -69,9 +69,29 @@ def _regex(surface: str) -> re.Pattern[str]:
     return re.compile(out + ("(?:/.*)?" if not _GLOB.search(surface) else "") + r"\Z")
 
 
+def _norm(surface: str) -> str:
+    while surface.startswith("./"):
+        surface = surface[2:]
+    return surface.rstrip("/") or surface
+
+
+#: Folders a tool installs: never a surface to offer (issue #123).
+DEPENDENCY_DIRS = frozenset({"node_modules", "vendor", ".venv", "venv", "__pycache__"})
+
+
+def dependency(path: str) -> bool:
+    """Whether a path lies in a folder a package manager fills."""
+    return any(part in DEPENDENCY_DIRS for part in path.strip("/").split("/"))
+
+
 def allows(surfaces: Sequence[str], path: str) -> bool:
-    """Whether a changed path is inside the surfaces."""
-    return any(_regex(s).match(path) for s in surfaces)
+    """Whether a changed path is inside the surfaces. A path named from a folder of several
+    repositories (`api/src/x.py`) is also read from inside its repository (`src/x.py`): surfaces
+    are written from where the work is, the repository's root or the folder (issue #123)."""
+    forms = [path]
+    if "/" in path:
+        forms.append(path.split("/", 1)[1])
+    return any(_regex(_norm(s)).match(f) for s in surfaces for f in forms)
 
 
 def outside(surfaces: Sequence[str], changed: Iterable[str]) -> list[str]:

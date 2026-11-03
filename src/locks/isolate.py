@@ -39,7 +39,7 @@ from locks import legacy
 
 #: Folders a build needs and git does not carry. Linked, not copied: shared with
 #: the checkout, which is why the brief tells the worker not to reinstall them.
-DEPENDENCY_DIRS = frozenset({"node_modules", ".venv", "venv"})
+DEPENDENCY_DIRS = frozenset({"node_modules", ".venv", "venv", "vendor"})
 #: How the commit of work kept without a pass is marked: a trailer, so the
 #: subject stays the change's. `UNVERIFIED_BEFORE` is how a subject said it once.
 UNVERIFIED = "Locks-Verified: no"
@@ -284,6 +284,7 @@ LOCKFILES = {
                      "bun.lockb"),
     ".venv": ("uv.lock", "poetry.lock", "Pipfile.lock", "requirements.txt"),
     "venv": ("uv.lock", "poetry.lock", "Pipfile.lock", "requirements.txt"),
+    "vendor": ("composer.lock",),
 }
 
 
@@ -1198,3 +1199,30 @@ def in_place(root: Path, checkout: Path, task_id: int, *, waiting: Callable[[str
             fh.seek(0)
             fh.truncate()
             fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+#: The files that make a folder a Docker Compose project.
+COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml")
+
+
+def has_compose(path: Path) -> bool:
+    return any((path / name).is_file() for name in COMPOSE_FILES)
+
+
+def stop_stacks(path: Path, *, runner: Any = subprocess.run) -> list[str]:
+    """Stop the Compose project named after a worktree's folder (what `sail up` or `docker compose
+    up` starts there), when one runs: a worker's stack must not outlive its task (issue #119).
+    Best effort: no docker, no compose file or a timeout stops nothing. The project names stopped."""
+    if not has_compose(path) or shutil.which("docker") is None:
+        return []
+    project = re.sub(r"[^a-z0-9_-]", "", path.name.lower())
+    try:
+        running = runner(["docker", "compose", "-p", project, "ps", "-q"], cwd=str(path), capture_output=True,
+                         text=True, timeout=30, check=False)
+        if running.returncode != 0 or not running.stdout.strip():
+            return []
+        runner(["docker", "compose", "-p", project, "down", "--remove-orphans"], cwd=str(path),
+               capture_output=True, text=True, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [project]

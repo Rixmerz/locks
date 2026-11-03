@@ -73,11 +73,11 @@ def test_forensics_reads_a_copy_and_counts_friction() -> None:
 
 def test_forensics_cli_runs(tmp_path: Path) -> None:
     _store().close()
-    out = subprocess.run([".venv/bin/python", "-m", "locks", "forensics", "--json"], cwd=ROOT, text=True,
+    out = subprocess.run([sys.executable, "-m", "locks", "forensics", "--json"], cwd=ROOT, text=True,
                          capture_output=True, check=True).stdout
     assert json.loads(out)["label"] == "observed"
     for cmd in (["footprint"], ["skills"]):
-        subprocess.run([".venv/bin/python", "-m", "locks", *cmd], cwd=ROOT, check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "locks", *cmd], cwd=ROOT, check=True, capture_output=True)
 
 
 def test_notes_fork_alternates_then_keeps_the_better_arm() -> None:

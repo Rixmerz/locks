@@ -14,10 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_every_hook_registered_is_one_locks_handles():
     registered = json.loads((ROOT / "hooks" / "hooks.json").read_text())["hooks"]
-    assert set(registered) == {*hooks.WITH_ENV, *hooks.HANDLERS}
+    traced_only = {"SubagentStop", "Notification"}  # the opt-in trace's own entries (`locks.trace`)
+    assert set(registered) == {*hooks.WITH_ENV, *hooks.HANDLERS, *traced_only}
     for event, entries in registered.items():
-        command = entries[0]["hooks"][0]["command"]
-        assert command.endswith(f"hook {event}") and "${CLAUDE_PLUGIN_ROOT}/bin/locks" in command
+        commands = [h["command"] for e in entries for h in e["hooks"]]
+        assert all("${CLAUDE_PLUGIN_ROOT}/bin/locks" in c for c in commands)
+        assert all(c.endswith((f"hook {event}", f"hook-trace {event}")) for c in commands)
+        assert any(c.endswith(f"hook {event}") for c in commands) or event in traced_only
 
 
 def test_versions_agree():

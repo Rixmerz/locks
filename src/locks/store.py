@@ -1325,7 +1325,22 @@ class Store:
         )
         if event == "finished":
             self.pulse()
+        self._trace(task_id, event, data)
         return int(cur.lastrowid)
+
+    def _trace(self, task_id: int, event: str, data: dict[str, Any]) -> None:
+        """The opt-in trace (`locks.trace`): the event under the session that sent the task."""
+        try:
+            from locks import trace
+
+            env = os.environ
+            if not trace.enabled(env):
+                return
+            row = self._conn.execute("SELECT session_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            session = (row[0] if row else None) or env.get("LOCKS_SESSION_ID")
+            trace.locks_event(env, session, task_id, event, data)
+        except Exception:  # noqa: S110 - a trace never fails what it watches
+            pass
 
     @property
     def pulse_path(self) -> Path:

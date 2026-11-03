@@ -38,13 +38,15 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/phase.py` | what a running worker is doing (exploring, implementing, checking), read from the tail of the tool-call log |
 | `src/locks/progress.py` | how far a running task got: time against its kind's usual here, its stage (worker, locks' check, the independent check), what its worker wrote so far (its worktree's git: counts, names, `peek`'s diff, `texts` before and after), the request's items as its subtasks, a worker gone quiet; read only, no model |
 | `src/locks/roles_internal/` | roles locks runs itself and no team holds: the independent `verifier`, and the `surveyor` that investigates for `/locks:init` |
+| `skills/insight/` | `/locks:insight`: what locks claims against what its trace, analysis, evolution, trust and doctor show it did; read only, proposals for the person |
 | `skills/init/` | the plugin's one skill (`/locks:init`): scope and an estimate of its cost agreed with the person, `locks investigate` digs, and from the reports one team for every flow, one workflow per flow, and the memory of what was solved, through locks' own commands only |
 | `docs/images/` | the README's screenshots of `locks ui`, taken on demo data with generic project names |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `engram`, `engram_write`, `delegate`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `engram`, `engram_write`, `delegate`, `trace`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
+| `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
 | `src/locks/signature.py` | the tool-call signature and the append-only log the PostToolUse fast path writes; imports nothing heavy |
 | `src/locks/habits.py` | mining sequences per repository (and the ones several repositories share), recipes for the brief, and approval-gated habit hooks |
 | `src/locks/usage.py` | tokens per model from session transcripts and their subagents' (counted to the delegation that started each), spend by model and cell, and what a task's or a session's own turns cost |
@@ -947,6 +949,9 @@ yields the default kind, not a guess.
 - `PostToolUse` runs on every tool call: its fast path in `__main__.py`
   imports only `locks.signature` and appends one line. Do not add a database
   write, a git call or an orchestrator import to it.
+- The trace (`locks.trace`) is the one record that keeps a tool's arguments and output: the person's
+  opt-in (`trace`, off by default), in their locks home only, secrets masked, written by its own
+  `hook-trace` entry or the existing fast path, never read by a rule; a trace never fails a hook or a write.
 - A signature never holds an argument. The final `[a-z0-9:._-]` filter stays
   last, after the semantic scrubbing.
 - A compaction digest is read from the transcript and git, never written by

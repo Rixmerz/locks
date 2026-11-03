@@ -201,6 +201,12 @@
       "description": "What a passing worker learned (the facts locks keeps in its own notes: never a secret, never a failed attempt's, never text marked <private>) is also saved in engram as learning observations of the project, one session per task, so your team's agents find it. Off by default: it writes to a store that is not locks'.",
       "default": false
     },
+    "trace": {
+      "type": "boolean",
+      "title": "Trace sessions for observability",
+      "description": "Keep a tagged copy of every session in the locks home (traces/<session>.jsonl): every hook event, every tool call with its input and output, the context locks injected, and every event locks recorded on its tasks (the livespec index, the notes a brief recalled, each attempt's tokens), plus the session's transcript when a turn ends. Read it with locks trace or the insight skill. Off by default: it keeps arguments and outputs (secrets masked) and grows with every call.",
+      "default": false
+    },
     "compact": {
       "type": "string",
       "title": "Compact at the right moment",

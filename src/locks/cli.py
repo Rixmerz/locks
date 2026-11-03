@@ -2605,6 +2605,51 @@ def cmd_compaction(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_trace(args: argparse.Namespace) -> int:
+    """`locks trace`: the traced sessions, or what one session's trace shows."""
+    from locks import trace
+
+    on = trace.enabled(os.environ)
+    if not args.session:
+        rows = trace.sessions(os.environ)[: args.limit]
+        if args.json:
+            print(json.dumps({"enabled": on, "sessions": rows}, ensure_ascii=False))
+            return 0
+        if not on:
+            print("tracing is off: locks config trace on (or the plugin's option) turns it on")
+        if not rows:
+            print("no session traced yet")
+        for r in rows:
+            print(f"{r['updated']}  {r['session_id']}  {r['bytes']} bytes"
+                  + ("  +transcript" if r["transcript"] else ""))
+        return 0
+    if args.raw:
+        for record in trace.records(os.environ, args.session):
+            if not args.tag or str(record.get("tag", "")).startswith(args.tag):
+                print(json.dumps(record, ensure_ascii=False))
+        return 0
+    info = trace.summary(os.environ, args.session)
+    if args.json:
+        print(json.dumps(info, ensure_ascii=False))
+        return 0
+    print(f"session {info['session_id']}: {info['records']} records")
+    for title, key in (("by tag", "by_tag"), ("tools called", "tools"), ("livespec tools called", "livespec_calls"),
+                       ("locks events", "locks_events")):
+        print(f"{title}:" + ("" if info[key] else " none"))
+        for name, count in info[key].items():
+            print(f"  {count:>5}  {name}")
+    print(f"context injected by hooks: {info['injected']}")
+    print(f"livespec index events: {len(info['livespec_events'])}")
+    for e in info["livespec_events"]:
+        print(f"  task {e.get('task_id')}: {clip(json.dumps(e, ensure_ascii=False), 200)}")
+    print(f"briefs that carried notes: {len(info['notes_briefed'])}")
+    print("tokens:" + ("" if info["tokens"] else " no transcript kept yet"))
+    for model, t in info["tokens"].items():
+        print(f"  {model}: in {t['input']}, out {t['output']}, cache read {t['cache_read']}, "
+              f"cache write {t['cache_write']} over {t['messages']} messages")
+    return 0
+
+
 def cmd_hook(args: argparse.Namespace) -> int:
     return hooks.main(args.event, sys.stdin, sys.stdout, os.environ)
 
@@ -2990,6 +3035,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("transcript")
     p.add_argument("cwd")
     p.set_defaults(func=cmd_extract_notes)
+
+    p = sub.add_parser("trace", help="the opt-in observability trace: traced sessions, or one session's "
+                                     "hooks, tools, livespec calls, notes, injected context and tokens")
+    p.add_argument("session", nargs="?", help="a traced session's id")
+    p.add_argument("--raw", action="store_true", help="every record, one JSON line each")
+    p.add_argument("--tag", help="with --raw, only records whose tag starts with this (hook:, tool:, locks:…)")
+    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_trace)
 
     p = sub.add_parser("spend", help="tokens and dollars by model and by cell")
     p.add_argument("--days", type=int, default=7)

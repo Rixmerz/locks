@@ -44,7 +44,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TextIO
 
-from locks import after, config, legacy, orchestrator, project, repo, specs, stops
+from locks import after, config, legacy, orchestrator, project, repo, specs, stops, trace
 from locks import findings as findings_mod
 from locks.notes import _SECRET
 from locks.store import OPEN_FOR_A_RELAY, Store, home
@@ -1379,16 +1379,32 @@ def main(event_name: str, stdin: TextIO, stdout: TextIO, env: Mapping[str, str])
         event = json.load(stdin)
         if not isinstance(event, dict):
             return 0
+        traced = trace.enabled(env)
+        if traced:
+            _trace_hook(event_name, event, env)
         store = Store(legacy.database(root))
         try:
             answer = handle(event_name, event, store, root, env)
         finally:
             store.close()
+        if traced:
+            with contextlib.suppress(Exception):
+                trace.injected(event_name, event, answer, env)
         if answer:
             stdout.write(json.dumps(answer))
     except Exception:  # the contract: a hook never takes the session down
         note_error(root, event_name)
     return 0
+
+
+def _trace_hook(event_name: str, event: Mapping[str, Any], env: Mapping[str, str]) -> None:
+    """The opt-in trace (`locks.trace`): the event whole, and the transcript copied when a turn
+    or the session ends. Never fails the hook."""
+    with contextlib.suppress(Exception):
+        if event_name not in trace.OWN_PATH:
+            trace.hook(event_name, event, env)
+        if event_name in ("Stop", "SessionEnd", "PreCompact"):
+            trace.keep_transcript(event, env)
 
 
 def note_error(root: Path, event_name: str) -> None:

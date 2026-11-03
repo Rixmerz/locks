@@ -123,6 +123,10 @@ DEFAULTS: dict[str, Any] = {
     # What a passing worker learned is also saved in engram, for the team. Off
     # unless the person turns it on: it writes to a store that is not locks'.
     "engram_write": False,
+    # The observability trace (`locks.trace`): every hook event, tool call (with its input and
+    # output, secrets masked) and locks event of a session, tagged, in the locks home's
+    # `traces/`, and the session's transcript copied beside it. Off unless the person turns it on.
+    "trace": False,
     # When a session should compact, and what `/compact` should keep (`locks.compaction`):
     # `orchestrator` tells the session at a good moment and it decides, compacting with
     # the mod's `compact` tool; `suggest` shows the person the line, `auto` has the mod

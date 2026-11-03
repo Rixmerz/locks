@@ -58,6 +58,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/locks\" hook-trace PreToolUse",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -100,6 +110,28 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/locks\" hook SessionEnd",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/locks\" hook-trace SubagentStop",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/locks\" hook-trace Notification",
             "timeout": 5
           }
         ]

@@ -71,16 +71,8 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`.
    other word is refused with this list, and leaving it out lets locks
    classify. More in `locks guide dispatch`.
 
-   **Where the check runs.** A worker works in a worktree: a fresh copy with
-   only what git carries. A check that needs what the checkout holds and git
-   does not (a running Docker Compose or Sail stack named after the folder, a
-   gitignored `.env`, a local database) cannot run there: add `--no-isolate`,
-   and chain such tasks `--after` so one works in the checkout at a time. Not
-   sure? `locks run --dry-run` says what keeps the check from starting. Describe
-   the environment as the worker will find it, not as you see it ("the server
-   is up" is true in your checkout, not in a worktree). A surface covers every
-   file the request implies: deployment or proxy work holds its compose and CI
-   files too. To steer a resume, add to it: `locks resume N --unattended - <<'EOF'`.
+   A check bound to the checkout (a Docker or Sail stack, an ignored `.env`)
+   needs `--no-isolate`: `locks guide dispatch`.
 
 4. **Decide on each ending, at once.** You are the orchestrator: every stop is
    yours to carry. Ask the person only for what only they can grant (a refused
@@ -98,7 +90,6 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`.
    | `blocked`, `decision` (exit 4) | the work is done and kept; tell the person the point, then act on it |
    | `blocked`, `review` | read the blockers (`locks show N`); resume `--unattended`, or dismiss with why |
    | `blocked`, environment or network | fix or wait, then `locks resume N --unattended` |
-   | changed outside its surfaces | read the attempt's summary and check output (`locks show N`) before the label: the check may not have run at all |
    | `blocked`, `limit` | nothing: locks resumes it after the account's limit resets |
    | `needs_approval` | ask; on a yes, the person runs the resume with `--allow-approval` |
    | `failed` | report what each attempt found (`locks show N`); never redo it by hand |

@@ -110,3 +110,16 @@ one on the base). Only when it says `locks work` runs the queue (the
 person turned `autowork` off) start `locks work` in the background. Whether
 a queued task runs beside the others or waits its turn is decided there,
 not here.
+
+## Where the check runs
+
+A worker works in a worktree: a fresh copy with
+only what git carries. A check that needs what the checkout holds and git
+does not (a running Docker Compose or Sail stack named after the folder, a
+gitignored `.env`, a local database) cannot run there: add `--no-isolate`,
+and chain such tasks `--after` so one works in the checkout at a time. Not
+sure? `locks run --dry-run` says what keeps the check from starting. Describe
+the environment as the worker will find it, not as you see it ("the server
+is up" is true in your checkout, not in a worktree). A surface covers every
+file the request implies: deployment or proxy work holds its compose and CI
+files too. To steer a resume, add to it: `locks resume N --unattended - <<'EOF'`.

@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-11-03
+
 ### Added
 
 - **An observability trace, opt-in** (the `trace` option, off by default). Every hook event of a session (`hook:<Event>`, PreToolUse on every tool, SubagentStop and Notification included), every tool call with its input and output (`tool:<name>`, livespec's MCP tools marked `livespec_tool`), the context a locks hook injected (`inject:<Event>`) and every event locks recorded on the session's tasks (`locks:<event>`: the plan, the brief and the notes it carried, each attempt and its livespec calls) go to `traces/<session>.jsonl` in the locks home, with the session's transcript copied beside it at each Stop for its tokens. Secrets are masked. `locks trace [session] [--raw --tag …] [--json]` reads it, and the new `insight` skill audits locks against it and against `stats`, `evolution`, `trust` and `doctor`.

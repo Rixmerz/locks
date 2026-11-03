@@ -71,3 +71,5 @@ the work ahead. The call is made again once that work ends; when you know it
 is independent of what runs now (other files, another area), run
 `locks lanes --beside N` and it starts beside it. A task held `--after` other
 work waits for it to pass: that is its order, and `--beside` leaves it.
+
+An attempt that changed outside its surfaces: read its summary and check output (`locks show N`) before its label; the check may not have run at all.

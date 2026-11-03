@@ -280,7 +280,11 @@ joined after. Beside the fields above, your result block carries:
   joined, each `{"id": "short-name", "prompt": "what this part builds",
   "surfaces": ["src/area/**", "tests/test_area.py"]}`. A part's surfaces are the
   only files its worker may change, and no other part's surfaces may reach them:
-  never one file, folder or glob in two parts. Its prompt stands on its own (its
+  never one file, folder or glob in two parts. A part's surfaces hold the
+  existing tests its change will break or must adjust (the fixtures and
+  assertions of the code it changes: the code index's `git_diff_impact` or
+  the callers' tests name them), never a dependency folder such as
+  `node_modules/` or `vendor/`. Its prompt stands on its own (its
   worker reads it, not your reasoning) and lists, verbatim, the request's
   criteria that part answers.
 - A part that builds on another's work (the screens on the endpoints, the

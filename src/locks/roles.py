@@ -511,10 +511,11 @@ class Briefing:
 VERSION_CHARS = 12
 
 
-def skill_sources(role: Role, env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Where each skill the role carries or offers is read from on this machine."""
+def skill_sources(role: Role, env: Mapping[str, str] | None = None, *,
+                  held: frozenset[str] | None = None) -> dict[str, str]:
+    """Where each skill the role carries or offers here is read from on this machine."""
     out = {}
-    for name in dict.fromkeys((*role.skills, *role.on_demand)):
+    for name in dict.fromkeys((*role.skills, *(n for n in role.on_demand if fits(n, held)))):
         skill = find_skill(name, env)
         out[name] = skill.source if skill is not None else "missing"
     return out
@@ -535,7 +536,42 @@ def version(role: Role, env: Mapping[str, str] | None = None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:VERSION_CHARS]
 
 
-def brief(role: Role, env: Mapping[str, str] | None = None) -> Briefing:
+#: The files a language's rules skill is about, by the skill's name (issue #123): a rules skill of
+#: a language the repository holds no file of is not listed in its workers' briefs.
+LANGUAGE_FILES: dict[str, tuple[str, ...]] = {
+    "python-rules": (".py", ".pyi"), "typescript-rules": (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"),
+    "go-rules": (".go",), "rust-rules": (".rs",), "java-rules": (".java",), "kotlin-rules": (".kt", ".kts"),
+    "csharp-rules": (".cs",), "ruby-rules": (".rb", ".rake"), "php-rules": (".php",), "swift-rules": (".swift",),
+    "lua-rules": (".lua",), "cpp-rules": (".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"),
+    "bash-rules": (".sh", ".bash"), "sql-rules": (".sql",),
+}
+
+
+def languages(repo_dir: Path | None) -> frozenset[str] | None:
+    """The file suffixes git tracks in a repository (or the folders right inside one that holds
+    several); None when it cannot tell, and then every rules skill is offered."""
+    import subprocess
+
+    if repo_dir is None:
+        return None
+    try:
+        out = subprocess.run(["git", "ls-files", "-z"], cwd=repo_dir, capture_output=True, text=True,
+                             timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    return frozenset(Path(f).suffix.lower() for f in out.stdout.split("\0") if Path(f).suffix)
+
+
+def fits(name: str, held: frozenset[str] | None) -> bool:
+    """Whether an on-demand skill applies to a repository holding files of `held` suffixes."""
+    wants = LANGUAGE_FILES.get(name)
+    return held is None or wants is None or any(w in held for w in wants)
+
+
+def brief(role: Role, env: Mapping[str, str] | None = None, *,
+          held: frozenset[str] | None = None) -> Briefing:
     """The role's instructions and the text of its skills, for the worker's system
     prompt. A skill that is not found is named as missing; it never stops a run."""
     parts = [f"You work as the `{role.name}` role: {role.description}"]
@@ -559,8 +595,8 @@ def brief(role: Role, env: Mapping[str, str] | None = None) -> Briefing:
         where = f" Its other files are in {skill.folder}: {', '.join(others)}." if others else ""
         parts.append(f"## Skill `{name}`\n{where.strip()}\n\n{skill.body}".replace("\n\n\n", "\n\n"))
     for name in role.on_demand:
-        if name in role.skills:
-            continue  # carried whole already
+        if name in role.skills or not fits(name, held):
+            continue  # carried whole already, or a language the repository holds none of
         skill = find_skill(name, env)
         if skill is None:
             missing.append(name)

@@ -71,6 +71,9 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`.
    other word is refused with this list, and leaving it out lets locks
    classify. More in `locks guide dispatch`.
 
+   A check bound to the checkout (a Docker or Sail stack, an ignored `.env`)
+   needs `--no-isolate`: `locks guide dispatch`.
+
 4. **Decide on each ending, at once.** You are the orchestrator: every stop is
    yours to carry. Ask the person only for what only they can grant (a refused
    command's rule, a cell's approval, a merge), and on their yes run the line.

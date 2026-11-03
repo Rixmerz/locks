@@ -258,6 +258,25 @@ def _python_package(workdir: Path, seen: set[str], result: Result) -> None:
                                "at this one")
 
 
+#: A check that runs through a container stack named after its folder (issue #119).
+_CONTAINER_CHECK = re.compile(r"(^|[\s;&|(])(\./vendor/bin/sail|sail|docker[ -]compose|docker\s+compose|"
+                              r"podman[ -]compose|make\s+up)\b")
+_COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml")
+
+
+def _container(command: str, workdir: Path, result: Result) -> None:
+    """A warning when the check runs through a container stack in a worktree: the stack the
+    person runs is named after their checkout's folder, and a worktree has none up (nor its
+    ignored `.env`). Said, never a stop: a stack may well start here."""
+    if not _CONTAINER_CHECK.search(command) or not (workdir / ".git").is_file():
+        return
+    if any((workdir / name).is_file() for name in _COMPOSE_FILES):
+        result.warnings.append(
+            f"`{command}` runs through a container stack, and this is a worktree: the stack that is up is "
+            "named after the person's checkout, and a worktree has neither it nor its ignored `.env`. If the "
+            "check can only run there, send the task with --no-isolate")
+
+
 def check(command: str, workdir: Path, *, asked: str = "", env: Mapping[str, str] | None = None,
           installing: bool = False) -> Result:
     """What would keep `command` from running in `workdir`, read without running it. `asked` is the
@@ -274,6 +293,7 @@ def check(command: str, workdir: Path, *, asked: str = "", env: Mapping[str, str
         if named or seen & _NODE_TOOLS:
             _node(workdir, env, path, result)
         _python_package(workdir, seen, result)
+        _container(command, workdir, result)
     except Exception as exc:  # a preflight that breaks is one that could not tell
         result.blockers.clear()
         result.unknown.append(f"the preflight itself failed ({type(exc).__name__})")

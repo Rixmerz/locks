@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-11-03
+
+### Fixed
+
+- **A check whose container runtime is not up could not run** (#119): `Sail is not running.`, `Docker or Podman is not running.`, `Cannot connect to the Docker daemon`, `service "…" is not running` and `no configuration file provided` are `environment`, never a `code_bug`.
+- **A stray path no longer hides how the check failed** (#119): an attempt that changed a file outside its surfaces keeps its `environment` class, or its `code_bug` and the check's output, with the stray paths added to its evidence. Only a pass or a failure with nothing to show reads as `approach`.
+- **Composer's `vendor/`** is a dependency folder, linked into a worktree and checked against `composer.lock` as `node_modules` is (#119).
+- **Container stacks a worker starts are stopped** when its task ends (the Compose project named after the worktree, a `stacks_stopped` event), and a writing brief in a worktree with a compose file says not to start one (#119).
+- **Surfaces are read from inside the repository** (#123): in a folder of several repositories, `db/**` allows `api/db/…`, and a leading `./` is ignored. A dependency folder (`node_modules/`, `vendor/`) is never offered as a surface to widen.
+- **A capability about some files comes after a failure only to work that touches them** (#123): an API task no longer gets `layout-inspector` on its second attempt.
+- **An unreadable livespec index is rebuilt** before the worker starts, as a missing one is (#123).
+- **A resume hears what changed since its last attempt** (#123): the project's notes filed since then, and an instruction passed with `locks resume N -` on stdin, quoted as context.
+- **The reset to the base before a new model** is told as locks' own move, never a spec point to report (#124).
+
+### Changed
+
+- **Compaction advice** (#124): from 90% of the context it is `now` whatever else holds it back, and a "not now" is recorded at most once in ten minutes per session.
+- **Routing** (#124): a small request that leans on the conversation (a hotfix, an incident, a diagnosis or a decision just reached) stays with the session.
+- **Briefs offer only the rules skills of languages the repository tracks** (#123), so a JavaScript repository's workers no longer read a list of C++, Lua or Ruby rules.
+- **A plan's parts** are told to hold in their surfaces the existing tests their change will break, never a dependency folder (#123).
+- **The plan says when a request's length alone adds to its size**, and `locks run --dry-run` runs the check's preflight (#118).
+- **An ending says what the session cost so far**, its own turns apart from the work it sent locks (#118).
+- **The orchestration skill** says where a check runs: a check bound to the checkout needs `--no-isolate`, and the environment is described as the worker finds it (#119).
+
 ## [0.71.0] - 2026-11-03
 
 ### Added

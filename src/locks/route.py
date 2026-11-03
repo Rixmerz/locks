@@ -94,6 +94,17 @@ _REPORT_CHANGES = re.compile(r"\b(?:arregl\w*|corrij\w*|corrig\w*|implement\w*|a
                              re.I)
 
 
+#: Work that leans on what this conversation holds: a live incident, a hotfix, a diagnosis or a
+#: decision just reached, a correction the person just made (issue #124). A worker sees none of it.
+_CONVERSATION = re.compile(
+    r"\b(hot ?fix\w*|incident\w*|incidente\w*|outage|ca[ií]d[oa] en producci[oó]n|prod(?:uction|ucci[oó]n)? "
+    r"(?:is |est[aá] )?(?:down|ca[ií]d[oa])|urgent\w*|urgente\w*|right now|ahora mismo|ya mismo|"
+    r"as (?:we|you) (?:said|discussed|found|agreed)|como (?:dijiste|dijimos|vimos|acordamos|hablamos)|"
+    r"(?:the|esa|la|this|esta) (?:hypothesis|hip[oó]tesis|diagnosis|diagn[oó]stico)|"
+    r"(?:what|lo que) (?:we|you|acabamos de|acabas de) (?:just )?(?:found|saw|encontr\w*|vi\w*|decid\w*))\b",
+    re.IGNORECASE)
+
+
 def _sentence(text: str, at: int) -> str:
     start = max(text.rfind(mark, 0, at) for mark in ".!?\n")
     ends = [i for i in (text.find(mark, at) for mark in ".!?\n") if i >= 0]
@@ -237,6 +248,9 @@ def choose(text: str, *, context_tokens: int | None = None, context_share: float
         if pieces >= PARALLEL_PIECES:
             why.append(f"{pieces} listed pieces in separate folders")
         return Route(PARALLEL, tuple(why), **base)
+    if (leans := _CONVERSATION.search(text)) and size.points <= MAIN_POINTS + 1:
+        return Route(MAIN, (f"it leans on this conversation (\"{leans.group(0)}\"), which a worker does not see",),
+                     **base)
     if _DEICTIC.search(text):
         return Route(MAIN, ("it points back into this conversation, which a worker does not see",), **base)
     if footprint and context_tokens:

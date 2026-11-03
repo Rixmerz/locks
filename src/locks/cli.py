@@ -415,6 +415,16 @@ def cmd_resume(args: argparse.Namespace) -> int:
         if args.unattended and (refusal := _needs_a_person(store, task, args)):
             print(refusal, file=sys.stderr)
             return 3
+        if args.instruction not in (None, "-"):
+            print(f"locks resume takes `-` (an instruction on stdin), not {args.instruction!r}", file=sys.stderr)
+            return 2
+        if args.instruction == "-":
+            # What the session adds for this resume (`locks resume N -`), kept on the task so a
+            # detached resume reads it too; its brief quotes it as context (issue #123).
+            text = sys.stdin.read().strip()
+            if text:
+                store.add_event(args.id, orchestrate.RESUME_INSTRUCTION, text=text)
+            args.instruction = None
         if args.detach:
             return _detach(args)
         options = flow.queued_options(task, orchestrate.Options(use_model_classifier=not args.no_model))
@@ -2838,6 +2848,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("resume", help="run a task that stopped again: from its kept work and the cell it stopped at")
     p.add_argument("id", type=int)
+    p.add_argument("instruction", nargs="?", metavar="-",
+                   help="`-` reads what to add for this resume from stdin: quoted in its brief as context")
     p.add_argument("--allow", action="append", metavar="RULE", help=ALLOW_HELP)
     p.add_argument("--verify", help="command whose exit code decides a claimed pass (default: the task's own)")
     p.add_argument("--start", help="the cell to resume at (default: where it stopped)", type=_cell)

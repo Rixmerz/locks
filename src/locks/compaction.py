@@ -65,6 +65,12 @@ WORTH_SHARE = 0.5
 #: From this share a compaction is near anyway (the harness's own, at a moment nobody
 #: chose): a natural break is no longer waited for.
 PRESSING_SHARE = 0.8
+#: From this share the advice is now whatever else holds it back: the harness's own compaction is
+#: a few turns away, and a cold cache or a run holding the checkout costs less than losing the
+#: moment (issue #124).
+URGENT_SHARE = 0.9
+#: A decision that says "not now" is recorded at most once in this many seconds per session.
+QUIET_S = 10 * 60
 #: A model's context window, unless the transcript shows a larger one.
 WINDOW = 200_000
 #: The window of a model run with a million-token context: named so in its id
@@ -319,6 +325,11 @@ def decide(signals: Signals, at: datetime) -> Decision:
     else:
         held.append(f"nothing compacted or suggested in the last {COOLDOWN_S // 60}m")
     warm, cold = cost(c.model, c.tokens)
+    if not_held and share >= URGENT_SHARE:
+        held.append(f"from {URGENT_SHARE:.0%} it is now whatever else holds it back")
+        not_held = [f"(overridden) {r}" for r in not_held]
+        return Decision(True, (*held, *not_held), worth=True, tokens=c.tokens, window=c.window,
+                        ttl_s=c.ttl_s, age_s=age, warm_until=warm_until, warm_usd=warm, cold_usd=cold)
     return Decision(not not_held, (*held, *(f"not now: {r}" for r in not_held)), worth=True, tokens=c.tokens,
                     window=c.window, ttl_s=c.ttl_s, age_s=age, warm_until=warm_until, warm_usd=warm, cold_usd=cold)
 
@@ -503,6 +514,8 @@ def consider(store: Store, root: Path, *, session_id: str, transcript: Path, cwd
     decision = decide(gather(store, root, session_id=session_id, transcript=transcript, cwd=cwd, at=at), at)
     if not decision.worth:
         return None
+    if not decision.now and _said_not_now(store, session_id, at):
+        return None
     data = {**decision.data(), "mode": mode, "cwd": cwd}
     if decision.now:
         work, branches = what_is_open(store, session_id, cwd)
@@ -510,6 +523,13 @@ def consider(store: Store, root: Path, *, session_id: str, transcript: Path, cwd
                                             branches=branches)
     data["id"] = store.add_event(task_id, DECIDED, **data)
     return data
+
+
+def _said_not_now(store: Store, session_id: str, at: datetime) -> bool:
+    """Whether a "not now" was recorded for the session within `QUIET_S`: the next one adds
+    nothing but noise (issue #124)."""
+    events = store.session_events(session_id, (DECIDED,), since=_iso(at - timedelta(seconds=QUIET_S)))
+    return any(not e["data"].get("now") for e in events)
 
 
 def request(store: Store, root: Path, *, session_id: str, cwd: str | None, why: str = "", keep: str = "",

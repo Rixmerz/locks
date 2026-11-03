@@ -43,10 +43,15 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/` | the README's screenshots of `locks ui`, taken on demo data with generic project names |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `engram`, `engram_write`, `delegate`, `trace`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
+| `src/locks/forensics.py` | `locks forensics`: where money, the cache and tool friction went, read from a copy of the store (a SQLite backup, or `--db`), never the live file; every figure observed, none modeled; no model (`docs/observability.md`) |
+| `src/locks/footprint.py` | `locks footprint`: each `briefed` event's footprint (context and system characters, skills, the release) as the median per kind and release, and a release that grew it `GROWTH` times named; said, never acted on |
+| `src/locks/skill_use.py` | `locks skills`: per skill, the briefs that carried it, their pass-first and when last carried; `active`, `stale`, `dormant` or `pinned` (`--pin`, in the locks home); a dormant one is said, never moved or deleted |
+| `src/locks/notes_fork.py` | `notes_fork` (off by default): a session's notes filed by a fork of the session instead of Haiku, tried in turns per project and kept where it kept no fewer facts a filing; its cost recorded, never the criterion |
+| `bench/ab/` | the A/B of two locks checkouts on trap tasks (one waste class each), judged by the store's records and a hidden check (real money: run on purpose) |
 | `src/locks/signature.py` | the tool-call signature and the append-only log the PostToolUse fast path writes; imports nothing heavy |
 | `src/locks/habits.py` | mining sequences per repository (and the ones several repositories share), recipes for the brief, and approval-gated habit hooks |
 | `src/locks/usage.py` | tokens per model from session transcripts and their subagents' (counted to the delegation that started each), spend by model and cell, and what a task's or a session's own turns cost |
@@ -952,6 +957,9 @@ yields the default kind, not a guess.
 - The trace (`locks.trace`) is the one record that keeps a tool's arguments and output: the person's
   opt-in (`trace`, off by default), in their locks home only, secrets masked, written by its own
   `hook-trace` entry or the existing fast path, never read by a rule; a trace never fails a hook or a write.
+- Forensics, the footprint and skill use read a copy of the store, never the live file, and say what
+  they observed, never a modeled figure; a dormant skill is said, never archived by locks. The notes
+  fork is judged by facts kept per filing, never by its cost, which is shown beside it.
 - A signature never holds an argument. The final `[a-z0-9:._-]` filter stays
   last, after the semantic scrubbing.
 - A compaction digest is read from the transcript and git, never written by

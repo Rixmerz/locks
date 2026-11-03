@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-11-03
+
+### Added
+
+- **`locks forensics`**: where the money, the cache and the friction went, read from a copy of the store (a SQLite backup, or `--db`). It reports spend by kind and cell, with the dollars of attempts that did not pass; the share of input the cache served, by model; tool calls that failed or were repeated back to back with the same arguments; brief growth; the notes-fork trial; and what the trace shows. Every figure is observed. Idea taken from hermes-agent's post-mortem harness.
+- **`locks footprint`**: every `briefed` event records its footprint (context and system characters, skills carried, the release). The report gives the median per kind and release, and names a release that made a kind's brief 1.2 times heavier.
+- **`locks skills`**: how the skills roles carry are used (briefs, pass-first, last carried), and their state: `active`, `stale`, `dormant`, or `pinned` with `--pin`. A dormant skill is only reported; locks never moves or deletes one.
+- **`notes_fork`** (off by default): a session's notes are filed by a fork of the session, which already holds the conversation and may read it from the cache, tried in turns against Haiku per project. It is kept where it keeps no fewer facts per filing; its cost is recorded beside it.
+- **`bench/ab/traps.py`**: an A/B of two locks checkouts on five trap tasks, one waste class each, judged by the store's records and a hidden check. Real money: run it on purpose.
+- `docs/observability.md` describes all of this; the `insight` skill reads it.
+
 ## [0.70.0] - 2026-11-03
 
 ### Added

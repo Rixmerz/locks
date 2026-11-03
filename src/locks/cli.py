@@ -2212,8 +2212,22 @@ def cmd_extract_notes(args: argparse.Namespace) -> int:
             return 0
         store = Store.open()
         try:
+            from locks import notes_fork
+
+            ask, side, answered = None, None, []
+            if notes_fork.enabled():
+                side, _why = notes_fork.arm(store, key)
+                base = notes_fork.ask_fork(args.session, where) if side == "fork" else notes._ask(None)
+
+                def ask(*a, **kw):  # the cost of the one answer, for the trial's record
+                    got = base(*a, **kw)
+                    answered.append(got)
+                    return got
             filed = notes.extract(store, key, args.session, Path(args.transcript), repo_dir=where,
-                                  symbols_of=notes.livespec_symbols(where))
+                                  symbols_of=notes.livespec_symbols(where), ask=ask)
+            if side and answered and answered[0][0] is not None:
+                notes_fork.tally(store, key, side, kept=sum(1 for f in filed if f.get("new")),
+                                 usd=float(answered[0][1]))
         finally:
             store.close()
     for f in filed:
@@ -2650,6 +2664,111 @@ def cmd_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def _store_copy(args: argparse.Namespace):
+    """A read-only connection to a copy of the store: the one passed with --db, else a fresh
+    backup of the live file (`forensics.snapshot`)."""
+    from locks import forensics
+
+    path = Path(args.db) if args.db else forensics.snapshot(legacy.database(home()))
+    return forensics.open_copy(path), path
+
+
+def cmd_forensics(args: argparse.Namespace) -> int:
+    """`locks forensics`: where money, the cache and friction went, observed from a copy of the store."""
+    from locks import forensics
+
+    conn, path = _store_copy(args)
+    try:
+        info = forensics.report(conn, os.environ, days=args.days)
+    finally:
+        conn.close()
+    info["db"] = str(path)
+    if args.json:
+        print(json.dumps(info, ensure_ascii=False))
+        return 0
+    s = info["spend"]
+    print(f"OBSERVED over {args.days} days, read from a copy ({path})")
+    share = f" ({s['unpassed_share']:.0%})" if s["unpassed_share"] is not None else ""
+    print(f"spend: ${s['usd']:.2f}, of it ${s['unpassed_usd']:.2f} on attempts that did not pass{share}")
+    for c in s["cells"][:args.limit]:
+        print(f"  {c['kind']:<14} {c['cell']:<16} {c['attempts']:>4} attempts {c['passed']:>4} passed "
+              f"${c['usd']:.2f} (unpassed ${c['unpassed_usd']:.2f})")
+    print("cache, by model:" + ("" if info["cache"] else " no usage recorded"))
+    for m in info["cache"]:
+        read = f"{m['read_share']:.0%}" if m["read_share"] is not None else "n/a"
+        print(f"  {m['model']}: {read} of input read from the cache over {m['messages']} messages")
+    f = info["friction"]
+    print(f"tool friction: {f['failed']} of {f['calls']} calls failed, {f['repeated']} repeated back to back")
+    for t in f["tools"][:args.limit]:
+        if t["failed"] or t["repeated"]:
+            print(f"  {t['tool']}: {t['failed']} failed, {t['repeated']} repeated of {t['calls']}")
+    for kind, row in info["footprint"].items():
+        for g in row["grew"]:
+            print(f"brief footprint: {kind} grew {g['ratio']}x from {g['from']} to {g['to']}")
+    tr = info["trace"]
+    if tr["sessions"]:
+        print(f"trace: {tr['sessions']} sessions, {tr['injected']} injections, livespec calls "
+              + (", ".join(f"{k} {v}" for k, v in tr["livespec_calls"].items()) or "none"))
+    for place, arms in info["notes_fork"]["projects"].items():
+        print(f"notes fork trial {place}: " + ", ".join(
+            f"{a} {v.get('filings', 0)} filings, {v.get('kept', 0)} kept, ${v.get('usd', 0):.2f}"
+            for a, v in arms.items()))
+    return 0
+
+
+def cmd_footprint(args: argparse.Namespace) -> int:
+    """`locks footprint`: the median brief per kind and release, and the releases that grew it."""
+    from locks import footprint
+
+    conn, _path = _store_copy(args)
+    try:
+        info = footprint.report(conn, days=args.days)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps(info, ensure_ascii=False))
+        return 0
+    if not info:
+        print("no brief recorded its footprint yet")
+    for kind, row in info.items():
+        print(kind)
+        for r in row["releases"]:
+            print(f"  {r['version']:<10} {r['tasks']:>4} tasks  context {r['context_chars']:>6}  "
+                  f"system {r['system_chars']:>6} chars")
+        for g in row["grew"]:
+            print(f"  grew {g['ratio']}x from {g['from']} to {g['to']}")
+    return 0
+
+
+def cmd_skills(args: argparse.Namespace) -> int:
+    """`locks skills`: how the skills roles carry are used, and their state; --pin keeps one active."""
+    from locks import skill_use
+
+    if args.pin or args.unpin:
+        held = skill_use.pin(home(), args.pin or args.unpin, on=bool(args.pin))
+        print("pinned: " + (", ".join(sorted(held)) or "none"))
+        return 0
+    conn, _path = _store_copy(args)
+    try:
+        rows = skill_use.report(conn, home())
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False))
+        return 0
+    if not rows:
+        print("no brief has carried a skill yet")
+    for r in rows:
+        rate = f"{r['pass_first']:.0%}" if r["pass_first"] is not None else "n/a"
+        print(f"{r['state']:<8} {r['skill']:<28} {r['briefs']:>4} briefs  pass-first {rate:>4}  "
+              f"last {r['last'] or 'never'}  ({r['source']})")
+    dormant = [r["skill"] for r in rows if r["state"] == "dormant"]
+    if dormant:
+        print(f"{len(dormant)} dormant: carried by no brief in {skill_use.ARCHIVE_DAYS} days; locks moves "
+              "nothing, a role's skills are changed by a person")
+    return 0
+
+
 def cmd_hook(args: argparse.Namespace) -> int:
     return hooks.main(args.event, sys.stdin, sys.stdout, os.environ)
 
@@ -3035,6 +3154,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("transcript")
     p.add_argument("cwd")
     p.set_defaults(func=cmd_extract_notes)
+
+    p = sub.add_parser("forensics", help="where money, the cache and tool friction went, observed from a copy "
+                                         "of the store (never the live file)")
+    p.add_argument("--db", help="a copy of the store to read; default: a fresh backup of the live one")
+    p.add_argument("--days", type=int, default=30)
+    p.add_argument("--limit", type=int, default=12)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_forensics)
+
+    p = sub.add_parser("footprint", help="the median brief per kind and release, and the releases that grew it")
+    p.add_argument("--db")
+    p.add_argument("--days", type=int)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_footprint)
+
+    p = sub.add_parser("skills", help="how the skills roles carry are used: briefs, pass-first, state")
+    p.add_argument("--db")
+    p.add_argument("--pin", metavar="NAME", help="keep this skill active whatever its use")
+    p.add_argument("--unpin", metavar="NAME")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_skills)
 
     p = sub.add_parser("trace", help="the opt-in observability trace: traced sessions, or one session's "
                                      "hooks, tools, livespec calls, notes, injected context and tokens")

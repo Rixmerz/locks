@@ -47,6 +47,11 @@ tokens are in the summary's `tokens`.
   (`inject:*`), and was it relevant to the request?
 - **Capabilities and evidence**: were the handed MCP servers called (`capability_calls`)?
 - **Cost**: tokens per model in the session; per task `locks spend --json`, `locks stats`.
+- **Forensics**: `locks forensics --json` (from a copy of the store, every figure observed): the
+  dollars of attempts that did not pass, the cache's share by model, tool friction.
+- **Brief weight**: `locks footprint`: did a release make a kind's brief heavier?
+- **Skills**: `locks skills`: which skills briefs carry, their pass-first, which are dormant.
+- **Notes fork trial**: in `locks forensics`, facts kept and cost per arm, where `notes_fork` is on.
 - **Health**: `locks doctor` (states the store should never hold), `locks stats --expensive`.
 - **Learning**: `locks evolution`, `locks trust`, `locks roles revisions`: did standards,
   trust and trials move, and on what evidence?

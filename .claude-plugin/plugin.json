@@ -1,6 +1,6 @@
 {
   "name": "locks",
-  "version": "0.70.0",
+  "version": "0.71.0",
   "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
   "author": {
     "name": "Rixmerz"
@@ -205,6 +205,12 @@
       "type": "boolean",
       "title": "Trace sessions for observability",
       "description": "Keep a tagged copy of every session in the locks home (traces/<session>.jsonl): every hook event, every tool call with its input and output, the context locks injected, and every event locks recorded on its tasks (the livespec index, the notes a brief recalled, each attempt's tokens), plus the session's transcript when a turn ends. Read it with locks trace or the insight skill. Off by default: it keeps arguments and outputs (secrets masked) and grows with every call.",
+      "default": false
+    },
+    "notes_fork": {
+      "type": "boolean",
+      "title": "File session notes from a fork of the session",
+      "description": "Instead of sending the conversation to Haiku, a fork of the session (which already holds it, and may read it from the cache) files its notes. Tried in turns against Haiku per project and kept where it keeps no fewer facts per filing; each filing's cost is shown in locks forensics. Off by default: a fork runs on the session's model.",
       "default": false
     },
     "compact": {

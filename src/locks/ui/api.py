@@ -316,7 +316,12 @@ def _live(store: Store, task: dict[str, Any], attempts: list[dict] | None = None
         ran = attempts if attempts is not None else store.attempts(task["id"])
         seq = ran[-1]["seq"] + 1 if ran else 1
     found = progress.of(store, task)
+    # With the person's trace on, what each call ran and printed, from their own trace.
+    from .. import trace as tracing
+
+    traced = tracing.worker_calls(os.environ, phase.session_of(task["id"], seq), task["id"])
     return {"attempt_now": seq, "phase": phase.of(task["id"], seq), "recent_calls": phase.calls(task["id"], seq),
+            "traced": traced, "trace_on": tracing.enabled(os.environ),
             "progress": found, "progress_line": progress.line(found), "files_line": progress.files_line(found)}
 
 

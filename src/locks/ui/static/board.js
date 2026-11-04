@@ -1,3 +1,4 @@
+import { workshop } from "./workers.js";
 import { get, post } from "./net.js";
 import { stopCard } from "./stop.js";
 import { cellChip, cost, h, kindChip, pointsChip, short, statusBadge, when } from "./util.js";
@@ -74,6 +75,7 @@ export async function renderBoard(ctx) {
   const answering = chosen ? b.answering.filter(keep).length : b.counts.answering;
   return h("div", {},
     h("div", { class: "toolbar" }, picker),
+    workshop(running, ctx.openTask, b.queued.reduce((n, lane) => n + lane.tasks.filter(keep).length, 0)),
     h("div", { class: "columns" },
       // Nothing waits on the person here: the orchestrating session decides, or asks them in its conversation.
       column("For the orchestrator", needs.length + deciding.length, [

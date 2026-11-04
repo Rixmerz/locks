@@ -232,3 +232,43 @@ def summary(env: Mapping[str, str], session_id: str) -> dict[str, Any]:
         "locks_events": dict(Counter(str(r["tag"])[6:] for r in locks_events).most_common()),
         "tokens": tokens(transcript) if transcript.is_file() else {},
     }
+
+
+#: How much of one call's input and output the board's terminal shows (`text.clip`): the trace keeps it whole.
+SHOWN_INPUT = 400
+SHOWN_OUTPUT = 1200
+
+
+def _said(value: Any) -> str:
+    """A tool's input or output as a terminal would show it: a command, a path, else its text."""
+    if isinstance(value, Mapping):
+        for key in ("command", "file_path", "path", "pattern", "url", "query", "stdout", "content", "output"):
+            if isinstance(value.get(key), str) and value[key]:
+                said = value[key]
+                if key == "stdout" and isinstance(value.get("stderr"), str) and value["stderr"]:
+                    said += "\n" + value["stderr"]
+                return said
+        return json.dumps(value, ensure_ascii=False, default=str)
+    if isinstance(value, list):
+        return "\n".join(_said(v) for v in value)
+    return "" if value is None else str(value)
+
+
+def worker_calls(env: Mapping[str, str], session_id: str | None, task_id: int, *, limit: int = 20) -> list[dict]:
+    """A worker's last finished calls from its session's trace, for the board's terminal: when, the
+    tool, its input and its output, masked as written and clipped for the view. Empty with the trace
+    off or no session yet; it is the person's opt-in, read from their locks home only."""
+    if not session_id or not enabled(env):
+        return []
+    from .text import clip
+
+    out = []
+    for r in records(env, session_id):
+        if not str(r.get("tag", "")).startswith("tool:") or r.get("phase") != "PostToolUse":
+            continue
+        if r.get("worker_task") not in (None, task_id):
+            continue
+        out.append({"ts": r.get("ts"), "tool": str(r["tag"])[5:],
+                    "input": clip(_said(r.get("input")), SHOWN_INPUT),
+                    "output": clip(_said(r.get("response")), SHOWN_OUTPUT)})
+    return out[-limit:]

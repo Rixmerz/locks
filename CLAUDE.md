@@ -86,7 +86,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/project.py` | a project's `.locks/` folder: enrollment (only enrolled projects show in the UI) and `sessions.json`, the session names; stdlib, no git call |
 | `src/locks/workspaces.py` | a folder of repositories that is one project (`locks workspace`): declared in the person's locks home, read by `repo.key` and `project.find`; a member's files are named with it in front in the notes |
 | `src/locks/naming.py` | Haiku names a session, started detached by the Stop hook; a name a person wrote is never replaced |
-| `src/locks/ui/` | `locks ui`: `api.py` turns the store into JSON (testable without a socket), `server.py` is the envelope and the routes, `static/` one ES module per screen, no build step; `svg.js` draws the workflow graphs and the project map node by node |
+| `src/locks/ui/` | `locks ui`: `api.py` turns the store into JSON (testable without a socket), `server.py` is the envelope and the routes, `static/` one ES module per screen, no build step; `svg.js` draws the workflow graphs and the project map node by node; `workers.js` the board's pixel-art workshop, one scene per running task from its phase and stage |
 | `src/locks/compact.py` | the facts of a session (requests verbatim, failed calls, changed files), written before a compaction and put back after it; no model call |
 | `src/locks/scribe.py` | the scribe: at every turn's end, what a session's transcript gained (requests verbatim, corrections, files written, failed calls and the one that passed after), kept in the locks home; the thread a task the session sent gets in its brief, when the notes are due, and the relay to a fresh session; no model call |
 | `src/locks/analysis.py` | where locks' time and money go (`locks stats`, the UI's Analysis): runs from `planned` to `finished`, their timed phases (and the gaps before them: advance, pickup, spawn), attempts by cell, the session's thread in briefs, a session's own turns; read only, no model |
@@ -941,7 +941,9 @@ yields the default kind, not a guess.
 - A task page polls only while it shows a running task (`/api/tasks/N/live`,
   every 5 s; tool calls write no events), and what it shows of a worker's calls
   is what `phase.calls` keeps: when, the tool, its signature, whether it went
-  through; never an argument nor its hash. A desktop notification is asked for
+  through; never an argument nor its hash. The one exception is the person's own trace: with `trace` on, the board's
+  terminal also shows each call's input and output from it (`trace.worker_calls`, masked as written,
+  clipped by `text.clip`), read from their locks home only. A desktop notification is asked for
   only from a person's click, kept per viewer in the browser, and never fires
   for the state a tab opened with.
 - The UI builds every node with `textContent` (`h()` in `static/util.js`,

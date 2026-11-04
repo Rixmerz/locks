@@ -2,9 +2,12 @@
    ochre for what waits on a person, iron oxide for what stopped. One family of
    type; monospace only for real code (commands, paths, ids). */
 :root {
-  --bg: #e9ece6; --panel: #f7f8f5; --sunk: #dfe4dd; --ink: #1d2622; --muted: #4f5b55; --line: #d3d9d2;
-  --accent: #0f6155; --accent-soft: #d5e6e0; --ok: #25663a; --warn: #875207; --warn-soft: #f1e3c8;
-  --bad: #a3321f; --bad-soft: #f2d8d2; --queue: #4f6a86; --queue-soft: #dde5ee; --ok-soft: #d6eadb;
+  /* Base tones from Radix Colors (MIT, github.com/radix-ui/colors): sage for the stone,
+     teal for the water, amber, tomato, grass and slate for state. Steps 1-3 grounds, 6 lines,
+     11 text that must read, 12 ink. */
+  --bg: #eef1f0; --panel: #fbfdfc; --sunk: #e6e9e8; --ink: #1a211e; --muted: #5f6563; --line: #d7dad9;
+  --accent: #008573; --accent-soft: #e0f8f3; --ok: #2a7e3b; --warn: #ab6400; --warn-soft: #fff7c2;
+  --bad: #d13415; --bad-soft: #ffdcd3; --queue: #60646c; --queue-soft: #f0f0f3; --ok-soft: #e9f6e9;
   /* The kind of work, by family (see util.js): fixed order, colour-blind checked. */
   --k-read: #2a78d6; --k-debug: #eb6834; --k-test: #1baf7a; --k-docs: #eda100; --k-ui: #e87ba4;
   --k-build: #008300; --k-plan: #6250d6; --k-review: #e34948; --k-other: #7a8580;
@@ -17,9 +20,9 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #121816; --panel: #19211e; --sunk: #0f1412; --ink: #e3eae6; --muted: #8e9c96; --line: #27322e;
-          --accent: #5cc3aa; --accent-soft: #173a33; --ok: #6bcb8b; --warn: #e2a847; --warn-soft: #3a2c12;
-          --bad: #ef7a66; --bad-soft: #3d1d18; --queue: #93acc8; --queue-soft: #1f2a36; --ok-soft: #173322;
+  :root { --bg: #101211; --panel: #171918; --sunk: #202221; --ink: #eceeed; --muted: #adb5b2; --line: #373b39;
+          --accent: #0bd8b6; --accent-soft: #0d2d2a; --ok: #71d083; --warn: #ffca16; --warn-soft: #302008;
+          --bad: #ff977d; --bad-soft: #391714; --queue: #b0b4ba; --queue-soft: #212225; --ok-soft: #1b2a1e;
           --k-read: #3987e5; --k-debug: #d95926; --k-test: #199e70; --k-docs: #c98500; --k-ui: #d55181;
           --k-build: #008300; --k-plan: #9085e9; --k-review: #e66767; --k-other: #8e9c96;
           --m-haiku: #33413b; --m-sonnet: #56706a; --m-opus: #9fbdb3; --m-fable: #e3eae6;
@@ -412,3 +415,45 @@ pre.diff .file { font-weight: 600; }
 .ph-wait { background: var(--bad); }
 .ph-other { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
 .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--gap); }
+
+/* The workshop: a pixel-art scene per running task (workers.js). */
+.workshop { display: flex; flex-wrap: wrap; gap: var(--gap); margin: 0 0 var(--gap); }
+.worker-scene { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; align-content: center;
+                padding: 8px; text-align: left; border: 1px solid var(--line); border-left: 4px solid var(--accent);
+                border-radius: var(--radius); background: var(--panel); }
+.scene-pick { grid-row: span 6; padding: 0; border: 0; background: none; }
+.worker-scene canvas { image-rendering: pixelated; border-radius: var(--radius-sm);
+                       width: 144px; height: 96px; }
+.worker-id { font-weight: 600; } .worker-state, .worker-files { color: var(--muted); font-size: 12px; }
+.worker-scene.s-quiet { border-left-color: var(--warn); }
+.worker-scene.s-verifier, .worker-scene.s-check { border-left-color: var(--k-plan); }
+.terminal:empty { display: none; }
+.terminal { background: #101211; color: #d7dad9; font: 12px/1.5 var(--mono); border-radius: var(--radius);
+            padding: 12px 14px; margin: 0 0 var(--gap); max-height: 420px; border: 1px solid var(--line); overflow: auto; }
+.term-head { color: #0bd8b6; font-weight: 600; } .term-title { color: #868e8b; margin-top: 10px; text-transform: uppercase; }
+.term-line { display: grid; grid-template-columns: 80px 90px 1fr auto; gap: 8px; }
+.term-at, .term-sig { color: #868e8b; } .term-tool { color: #ffca16; } .term-ok { color: #71d083; }
+.term-line.bad .term-ok { color: #ff977d; }
+.term-diff { margin: 0; background: none; color: inherit; padding: 0; white-space: pre-wrap; word-break: break-all; }
+.d-add { color: #71d083; } .d-del { color: #ff977d; } .d-hunk { color: #9b8afb; } .d-file { color: #0bd8b6; font-weight: 600; }
+.worker-scene button:not(.scene-pick) { padding: 2px 10px; font-size: 12px; }
+.workshop-sum { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.bubble { justify-self: start; background: var(--accent-soft); color: var(--ink); font-size: 12px;
+          padding: 1px 8px; border-radius: 10px 10px 10px 2px; }
+.time-bar { display: block; height: 6px; background: var(--sunk); border-radius: 3px; overflow: hidden; width: 160px; }
+.time-fill { display: block; height: 100%; background: var(--ok); } .time-fill.over { background: var(--warn); }
+.term-head { display: flex; align-items: center; gap: 8px; }
+.term-close { margin-left: auto; background: none; color: #adb5b2; border-color: #373b39; font-size: 12px; padding: 1px 8px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #71d083; animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.term-calls { max-height: 180px; overflow: auto; }
+.workshop-sum { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.workshop-sum button { padding: 1px 10px; font-size: 12px; }
+.office { image-rendering: pixelated; max-width: 100%; height: auto; border-radius: var(--radius); cursor: pointer;
+          border: 1px solid var(--line); margin-bottom: var(--gap); }
+.term-run { margin: 4px 0; } .term-cmd { color: #eceeed; }
+.term-out { margin: 2px 0 0 16px; color: #adb5b2; white-space: pre-wrap; word-break: break-all; background: none; padding: 0; }
+.term-hint { color: #868e8b; font-style: italic; margin-top: 4px; }
+.office-ids { display: flex; gap: 6px; flex-wrap: wrap; margin: -8px 0 var(--gap); }
+.office-ids button { padding: 1px 10px; font-size: 12px; }

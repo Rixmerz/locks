@@ -622,11 +622,14 @@ def recall(
         ranked = store.search_notes(project, query, limit=50)
         rows = {n["id"]: n for n in store.notes(project, topics=in_topics, states=states, ids=ranked)}
         wanted = set(words(query))
+        need = min(3, len(wanted))
+        if strict:
+            wanted = distinctive(store, project, wanted, states)
         for note_id in ranked:
             note = rows.get(note_id)
             if note is None:
                 continue
-            if strict and len(wanted & set(words(f"{note['title']} {note['text']}"))) < min(3, len(wanted)):
+            if strict and len(wanted & set(words(f"{note['title']} {note['text']}"))) < need:
                 continue
             if note_id in chosen and note_id in by_code:
                 chosen[note_id] += " and matches the question"
@@ -666,6 +669,21 @@ def recall(
             picked.append(other)
             extra -= 1
     return expand(store, picked, chosen)
+
+
+#: A word this share of a project's notes or more hold is its common vocabulary, no evidence a note
+#: is about a prompt (issue #127: notes on compaction recalled for a prompt about merging a stage).
+COMMON_SHARE = 0.2
+#: Fewer notes than this and every word counts: a share of a handful says nothing.
+COMMON_MIN_NOTES = 5
+
+
+def distinctive(store: Store, project: str, wanted: set[str], states: Sequence[str] = LIVE) -> set[str]:
+    """The words of a query fewer than `COMMON_SHARE` of the project's notes hold."""
+    held = [set(words(f"{n['title']} {n['text']}")) for n in store.notes(project, states=states)]
+    if len(held) < COMMON_MIN_NOTES:
+        return wanted
+    return {w for w in wanted if sum(w in h for h in held) < COMMON_SHARE * len(held)}
 
 
 #: Times workers here named a note as relied on before it takes a recalled place from one never named.

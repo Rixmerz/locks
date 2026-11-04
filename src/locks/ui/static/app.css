@@ -421,7 +421,7 @@ pre.diff .file { font-weight: 600; }
 .worker-scene { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; align-content: center;
                 padding: 8px; text-align: left; border: 1px solid var(--line); border-left: 4px solid var(--accent);
                 border-radius: var(--radius); background: var(--panel); }
-.scene-pick { grid-row: span 4; padding: 0; border: 0; background: none; }
+.scene-pick { grid-row: span 6; padding: 0; border: 0; background: none; }
 .worker-scene canvas { image-rendering: pixelated; border-radius: var(--radius-sm);
                        width: 144px; height: 96px; }
 .worker-id { font-weight: 600; } .worker-state, .worker-files { color: var(--muted); font-size: 12px; }
@@ -437,3 +437,14 @@ pre.diff .file { font-weight: 600; }
 .term-diff { margin: 0; background: none; color: inherit; padding: 0; white-space: pre-wrap; word-break: break-all; }
 .d-add { color: #71d083; } .d-del { color: #ff977d; } .d-hunk { color: #9b8afb; } .d-file { color: #0bd8b6; font-weight: 600; }
 .worker-scene button:not(.scene-pick) { padding: 2px 10px; font-size: 12px; }
+.workshop-sum { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.bubble { justify-self: start; background: var(--accent-soft); color: var(--ink); font-size: 12px;
+          padding: 1px 8px; border-radius: 10px 10px 10px 2px; }
+.time-bar { display: block; height: 6px; background: var(--sunk); border-radius: 3px; overflow: hidden; width: 160px; }
+.time-fill { display: block; height: 100%; background: var(--ok); } .time-fill.over { background: var(--warn); }
+.term-head { display: flex; align-items: center; gap: 8px; }
+.term-close { margin-left: auto; background: none; color: #adb5b2; border-color: #373b39; font-size: 12px; padding: 1px 8px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #71d083; animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.term-calls { max-height: 180px; overflow: auto; }

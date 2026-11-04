@@ -52,6 +52,10 @@ function palette() {
   };
 }
 
+// Each worker wears its own colour, so two scenes side by side never read as one.
+const SHIRTS = ["--accent", "--k-read", "--k-plan", "--k-debug", "--k-ui", "--k-docs"];
+const shirt = (id) => getComputedStyle(document.documentElement).getPropertyValue(SHIRTS[id % SHIRTS.length]).trim();
+
 function sprite(ctx, rows, x, y, pal, flip = false) {
   rows.forEach((row, j) => [...row].forEach((c, i) => {
     if (c === ".") return;
@@ -121,7 +125,7 @@ function tick() {
     ctx.fillStyle = pal.wall; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = pal.floor; ctx.fillRect(0, 28, W, 4);
     c.frame = still ? (c.frame || 0) + 1 : 3;
-    (scenes[c.dataset.state] || scenes.starting)(ctx, pal, c.frame);
+    (scenes[c.dataset.state] || scenes.starting)(ctx, { ...pal, b: shirt(Number(c.dataset.id)) || pal.b }, c.frame);
   }
   if (!live.size) { clearInterval(timer); timer = null; }
 }
@@ -129,13 +133,38 @@ function tick() {
 // The terminal under the workshop: the chosen worker's tool calls as they happen (what
 // `phase.calls` keeps: when, the tool, its signature, whether it went through; never an
 // argument) and the diff its worktree holds so far. Read every 5 s while it is open.
-let watching = null;  // { id, timer }
+let watching = null;
+
+// A signature in words, as `progress.words` says it: it keeps no argument, so no file name.
+export function words(sig) {
+  const [kind, ...more] = String(sig || "").split(":");
+  const rest = more.join(":");
+  if (kind === "bash") return rest && rest !== "unknown" ? `running ${rest.replace(/-/g, " ")}` : "running a command";
+  if (["read", "edit", "write"].includes(kind)) {
+    const what = rest && rest !== "noext" ? `a .${rest} file` : "a file";
+    return `${{ read: "reading", edit: "editing", write: "writing" }[kind]} ${what}`;
+  }
+  if (kind === "mcp") return rest ? `calling ${rest}` : "calling a tool";
+  if (kind === "grep" || kind === "glob") return "searching the code";
+  return kind ? `using ${kind}` : "";
+}
+
+const mins = (s) => (s < 60 ? `${Math.round(s)}s` : `${Math.round(s / 60)}m`);
+
+// Time spent against how long tasks like it took here, when there are enough of them.
+function timeBar(p) {
+  const est = p.estimate;
+  if (!p.elapsed_s || !est?.p90_s) return null;
+  const fill = h("span", { class: `time-fill${p.elapsed_s > est.p90_s ? " over" : ""}` });
+  fill.style.width = `${Math.min(100, (100 * p.elapsed_s) / est.p90_s)}%`;
+  return h("span", { class: "time-bar", title: `${mins(p.elapsed_s)} of usually ${mins(est.p50_s)} (90% within ${mins(est.p90_s)})` }, fill);
+}  // { id, timer }
 
 function line(c) {
   const at = c.ts ? new Date(c.ts * (c.ts < 1e12 ? 1000 : 1)).toLocaleTimeString() : "";
   return h("div", { class: `term-line${c.ok ? "" : " bad"}` },
     h("span", { class: "term-at" }, at), h("span", { class: "term-tool" }, c.tool),
-    h("span", { class: "term-sig" }, c.sig), h("span", { class: "term-ok" }, c.ok ? "✓" : "✗ refused or failed"));
+    h("span", { class: "term-sig" }, words(c.sig) || c.sig), h("span", { class: "term-ok" }, c.ok ? "✓" : "✗ refused or failed"));
 }
 
 function diffLines(text) {
@@ -150,14 +179,20 @@ async function fill(pane, id) {
   if (!pane.isConnected) return stop();
   const calls = live?.recent_calls || [];
   pane.replaceChildren(...[
-    h("div", { class: "term-head" }, `#${id} · attempt ${live?.attempt_now ?? "?"} · ${live?.progress_line || "no progress yet"}`),
+    h("div", { class: "term-head" }, h("span", { class: "live-dot", "aria-hidden": "true" }),
+      `#${id} · attempt ${live?.attempt_now ?? "?"} · ${live?.progress_line || "no progress yet"}`,
+      h("button", { class: "term-close", onclick: () => { stop(); pane.replaceChildren(); } }, "close")),
+    (live?.progress?.criteria || []).length ? [h("div", { class: "term-title" }, "what it was asked"),
+      live.progress.criteria.map((c) => h("div", { class: "term-sig" }, `${c.id} ${c.text}`))] : [],
     h("div", { class: "term-title" }, "tool calls"),
-    calls.length ? calls.map(line) : h("div", { class: "term-sig" }, "no tool call yet"),
+    h("div", { class: "term-calls" }, calls.length ? calls.map(line) : h("div", { class: "term-sig" }, "no tool call yet")),
     h("div", { class: "term-title" }, "code changed so far"),
     diff?.diff ? h("pre", { class: "term-diff" }, diffLines(diff.diff))
       : h("div", { class: "term-sig" }, diff?.why || "nothing written yet"),
     diff?.cut ? h("div", { class: "term-sig" }, "the diff is cut here; the task page has the rest") : null,
-  ].flat().filter(Boolean));
+  ].flat(Infinity).filter(Boolean));
+  const log = pane.querySelector(".term-calls");
+  if (log) log.scrollTop = log.scrollHeight;
 }
 
 function stop() { if (watching) clearInterval(watching.timer); watching = null; }
@@ -176,7 +211,7 @@ export function workshop(running, open) {
   const scenes = h("div", { class: "workshop" }, running.map((t) => {
     const state = stateOf(t);
     const canvas = h("canvas", { width: W * SCALE, height: H * SCALE, role: "img",
-      "aria-label": `#${t.id}: ${LABELS[state] || state}`, dataset: { state } });
+      "aria-label": `#${t.id}: ${LABELS[state] || state}`, dataset: { state, id: String(t.id) } });
     live.add(canvas);
     if (!timer) timer = setInterval(tick, 250);
     requestAnimationFrame(tick);
@@ -184,10 +219,15 @@ export function workshop(running, open) {
       h("button", { class: "scene-pick", onclick: () => watch(pane, t.id), "aria-label": `show #${t.id}'s terminal` }, canvas),
       h("span", { class: "worker-id" }, `#${t.id}`),
       h("span", { class: "worker-state" }, LABELS[state] || state),
+      t.progress?.doing ? h("span", { class: "bubble" }, t.progress.doing) : null,
+      timeBar(t.progress || {}),
       t.files_line ? h("span", { class: "worker-files" }, t.files_line) : null,
       h("span", {}, h("button", { onclick: () => watch(pane, t.id) }, "terminal"), " ",
         h("button", { onclick: () => open(t.id) }, "task")));
   }));
   if (keep) watch(pane, keep); else stop();
-  return h("div", {}, scenes, pane);
+  const count = {};
+  for (const t of running) count[stateOf(t)] = (count[stateOf(t)] || 0) + 1;
+  const sum = Object.entries(count).map(([k, n]) => `${n} ${LABELS[k] || k}`).join(" · ");
+  return h("div", {}, h("div", { class: "workshop-sum" }, `${running.length} at work: ${sum}`), scenes, pane);
 }

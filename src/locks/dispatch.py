@@ -472,7 +472,26 @@ def _alive(pid: int | None) -> bool:
 RESUME_STARTING_S = 120
 
 
-def _claim_resume(store: Store, task_id: int, stop: Any, ended_id: int) -> bool:
+def _behind_trunk(task: Mapping[str, Any], ended: Mapping[str, Any] | None) -> str | None:
+    """How far the work an automatic resume goes on from is behind the branch work lands on
+    (`main`), said on its `auto_resumed` event: the resume keeps its own work and is never rebased,
+    so a trunk that moved meanwhile is the orchestrator's to know, never a guess of locks'. None when
+    it did not move or git cannot say."""
+    try:
+        from locks import isolate, repo, survey
+
+        top = repo.toplevel(Path(str(task["cwd"])))
+        if top is None:
+            return None
+        tip = str(((ended or {}).get("data") or {}).get("branch") or f"locks/task-{task['id']}")
+        trunk = survey.default_branch(top).split("/", 1)[-1]
+        found = isolate.behind(top, tip, trunk)
+        return isolate.behind_text(found) if found else None
+    except Exception:
+        return None
+
+
+def _claim_resume(store: Store, task_id: int, stop: Any, ended_id: int, behind: str | None = None) -> bool:
     """Record the resume of `task_id` before anything starts it, in one write transaction, so two
     `recover` calls at once (separate processes) never both start it; False when one was started
     after its ending (`ended_id`) in the last `RESUME_STARTING_S`. One that took hold and ended
@@ -487,7 +506,8 @@ def _claim_resume(store: Store, task_id: int, stop: Any, ended_id: int) -> bool:
                 continue
             if 0 <= time.time() - started < RESUME_STARTING_S:
                 return False
-        store.add_event(task_id, "auto_resumed", after=stop.reason, cause=stop.cause)
+        store.add_event(task_id, "auto_resumed", after=stop.reason, cause=stop.cause,
+                        **({"behind": behind} if behind else {}))
         # Its stop is no ending to hand a session: the resume's own ending is.
         store.add_event(task_id, "reported", via="auto_resume")
     return True
@@ -562,7 +582,7 @@ def recover(store: Store, root: Path, env: Mapping[str, str], *, popen: Callable
             continue
         if now - due > AUTO_RESUME_WITHIN_S:
             continue
-        if not _claim_resume(store, task["id"], stop, int((ended or {}).get("id") or 0)):
+        if not _claim_resume(store, task["id"], stop, int((ended or {}).get("id") or 0), _behind_trunk(task, ended)):
             continue
         if _start_resume(task, stop, root, env, start, store):
             resumed.append(int(task["id"]))

@@ -253,3 +253,19 @@ def test_the_primer_s_arms_fill_evenly_and_a_primer_far_worse_loses_early(store:
         _trial_task(store, "primer", passed=True, calls=8, repo="close")
         _trial_task(store, "control", passed=True, calls=8, repo="close")
     assert "trial here (" in cells.primer_arm(store, "close", 8)[1]  # no gap: the full trial runs
+
+
+def test_a_shared_dead_end_from_other_cells_stays_out_of_a_worker_s_brief(store: Store):
+    """An implement on queries was briefed docs and security dead ends of another phase."""
+    old = store.open_problem("feature export fix breaks the docs index", repo="r")
+    _met(store, old, role="docs-writer", areas=("docs",), task=1)
+    _met(store, old, role="security-auditor", areas=("security",), task=2)
+    text = "feature export fix for the queries index"
+    assert cells.dead_ends(store, text, repo="r", role="implementer", areas=("data",)) == []
+    near = cells.dead_ends(store, text, repo="r", role="implementer", areas=("docs",))
+    assert {d["scope"] for d in near} == {"shared"}
+    assert {d["scope"] for d in cells.dead_ends(store, text, repo="r", shared_only=True)} == {"shared"}
+    written = store.open_problem("feature export fix needs the queries lock", repo="r")
+    _met(store, written, role=None, areas=(), task=None)
+    kept = cells.dead_ends(store, text, repo="r", role="implementer", areas=("data",))
+    assert [d["problem_id"] for d in kept] == [written]

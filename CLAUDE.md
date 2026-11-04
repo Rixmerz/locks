@@ -957,7 +957,8 @@ yields the default kind, not a guess.
   imports only `locks.signature` and appends one line. Do not add a database
   write, a git call or an orchestrator import to it.
 - The trace (`locks.trace`) is the one record that keeps a tool's arguments and output: the person's
-  opt-in (`trace`, off by default), in their locks home only, secrets masked, written by its own
+  opt-in (`trace`, off by default), in their locks home only, secrets masked, a worker's own transcript kept
+  beside it when its attempt ends (`launch._keep_worker_transcript`: a `claude -p` worker fires no Stop of the person's), written by its own
   `hook-trace` entry or the existing fast path, never read by a rule; a trace never fails a hook or a write.
 - A stray path outside a task's surfaces is a finding of its own: it never rewrites an `environment` failure, nor a `code_bug` with the check's output, as `approach`, and never empties `check_tail`. Surfaces are read from inside the repository as well as from the folder, and a dependency folder is never offered as one. A container stack a worker started in its worktree is stopped when its task ends (`isolate.stop_stacks`).
 - A resume's brief carries the notes filed since its last attempt and the instruction a session passed with `locks resume N -` (`orchestrate.resume_context`), quoted as context, never the task.
@@ -1091,7 +1092,10 @@ yields the default kind, not a guess.
   pure estimate (`workflows.fanned`), and says so; never a `feature` the person saved,
   and `--whole` keeps one build.
 - A worker that died is noticed at a turn's end, not at the next session: the hooks
-  sweep a running task whose process is gone. A task that stopped for a mechanical
+  sweep a running task whose process is gone, and so do `locks board` and `locks tasks` when one is gone
+  (`cli._notice_deaths`: the mod's status line polls the board, so a death while the orchestrating session
+  waits is swept and resumed within that poll). An automatic resume goes on from its own kept work, never
+  rebased; its `auto_resumed` event says how far that work is behind the trunk (`dispatch._behind_trunk`). A task that stopped for a mechanical
   cause (`dispatch.MECHANICAL`: died, outgrew its turns, a network or a load that
   outlasted locks' waits) is resumed once on its own before any session hears of it
   (`dispatch.recover`, from the hooks and `locks endings`: `locks resume --unattended`
@@ -1189,7 +1193,8 @@ yields the default kind, not a guess.
   worker wore and the areas of what it changed (of its request when it changed
   nothing; tests and docs name an area only when the change holds nothing
   else). A worker's brief gets the dead ends of its task's areas, of its role,
-  and the shared ones; a problem is shared when two tasks or more met it with
+  and the shared ones near its cell (a person wrote it, or one of its fixes was met in the task's areas or by its
+  role, `cells._near`): a shared one met only in other cells stays with the session; a problem is shared when two tasks or more met it with
   no area in common, or a person wrote it down. The orchestrating session (the
   prompt hook, SessionStart) hears only the shared ones. A failure is kept and
   matched by the work's own text, a workflow step's goal and never its

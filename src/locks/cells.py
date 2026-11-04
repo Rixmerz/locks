@@ -122,6 +122,16 @@ def scope(problem: Mapping[str, Any], *, role: str | None, areas: Sequence[str])
     return None
 
 
+def _near(problem: Mapping[str, Any], *, role: str | None, areas: Sequence[str]) -> bool:
+    """Whether a shared problem is near a worker's cell: a person wrote it, or one of its
+    fixes was met in one of the task's areas or by its role."""
+    fixes = problem.get("fixes") or ()
+    if any(f.get("task_id") is None for f in fixes):
+        return True
+    return bool({a for f in fixes for a in areas_of(f)} & set(areas)) or bool(
+        role and any(f.get("role") == role for f in fixes))
+
+
 def _across(fixes: Iterable[Mapping[str, Any]]) -> bool:
     """Whether different tasks met a problem in different cells: `SHARED_AREAS` tasks or
     more, with no area all of them were in."""
@@ -140,7 +150,15 @@ def dead_ends(store: Store, text: str, *, repo: str | None, role: str | None = N
     strict match of the work's own text, kept to its cell, each with its scope."""
     def keep(problem: Mapping[str, Any]) -> str | None:
         found = scope(problem, role=role, areas=areas)
-        return found if not shared_only or found == "shared" else None
+        if shared_only:
+            return found if found == "shared" else None
+        if found == "shared" and not _near(problem, role=role, areas=areas):
+            # Met across other cells, never this one's: a worker briefed on an implement in one
+            # area was handed docs and security dead ends of another phase. Shared ones reach a
+            # worker only when a person wrote them down or they touch its area or role; the
+            # orchestrating session still hears them all.
+            return None
+        return found
     return store.dead_ends(text, repo=repo, limit=limit, strict=True, scope=keep)
 
 

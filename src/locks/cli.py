@@ -1046,6 +1046,7 @@ def cmd_tasks(args: argparse.Namespace) -> int:
         # locks' own work by default: a session's turns are no task to resume or count.
         sources = None if args.turns and not args.workers else ("locks", "queue")
         here = _repo_key(args)
+        _notice_deaths(store)
         tasks = store.list_tasks(repo=here, status=args.status or None, limit=args.limit, source=sources)
         if args.workers:
             tried = {t["id"]: store.attempts(t["id"]) for t in tasks}
@@ -2519,6 +2520,23 @@ def cmd_link(args: argparse.Namespace) -> int:
     return 0
 
 
+def _notice_deaths(store: Store) -> None:
+    """A worker whose process is gone is noticed by whoever looks next, not only at a turn's end:
+    the mod's status line asks for the board every few seconds, so a death that came while the
+    orchestrating session waited is swept (and resumed, `dispatch.recover`) within that poll.
+    Only when one is gone: the poll stays a read otherwise. A command, never a GET."""
+    from locks import dispatch  # light: it imports the orchestrator only when one is gone
+
+    try:
+        running = store.list_tasks(status=["running"], limit=500, source=("locks",))
+        if any(t["pid"] and not dispatch._alive(t["pid"]) for t in running):
+            from locks.store import home as locks_home
+
+            dispatch.recover(store, locks_home(), os.environ)
+    except Exception:  # noqa: S110 - looking never fails the command that looks
+        pass
+
+
 def cmd_board(args: argparse.Namespace) -> int:
     """The board as typed JSON: a status line or a mod reads fields, never a sentence.
 
@@ -2530,6 +2548,7 @@ def cmd_board(args: argparse.Namespace) -> int:
     keys = {d: repo.key(Path(d).resolve()) for d in args.repo or []}
     store = Store.open()
     try:
+        _notice_deaths(store)
         board = api.board(store, repos=set(keys.values()) if args.repo else None, session=args.session)
     finally:
         store.close()

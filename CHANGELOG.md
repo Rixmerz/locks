@@ -7,7 +7,7 @@
 ## [0.74.0] - 2026-11-04
 
 ### Added
-- The board opens with a workshop: one pixel-art scene per running task, drawn from its phase, its stage and a quiet worker (reading, writing, locks' check, the independent check, no tool call for a while), with the same words beside it; still under reduced motion.
+- The board opens with a workshop: one pixel-art scene per running task, drawn from its phase, its stage and a quiet worker (reading, writing, locks' check, the independent check, no tool call for a while), with the same words beside it; still under reduced motion. Its terminal shows the chosen worker's tool calls as they happen (tool, signature, whether it went through) and the diff its worktree holds so far, read every 5 s while open.
 
 ### Changed
 - The UI's base tones are Radix Colors' sage, teal, amber, tomato, grass and slate scales, light and dark; the kind hues stay as they were.

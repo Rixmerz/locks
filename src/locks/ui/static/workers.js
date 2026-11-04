@@ -4,6 +4,7 @@
 // `quiet_s` from `progress.of`): the drawing invents nothing, and its label says the same in
 // words. The sprites are drawn here, pixel by pixel; no asset is fetched.
 import { h } from "./util.js";
+import { get } from "./net.js";
 
 const W = 48, H = 32, SCALE = 3;
 const QUIET_S = 5 * 60;  // progress.IDLE_S
@@ -125,20 +126,68 @@ function tick() {
   if (!live.size) { clearInterval(timer); timer = null; }
 }
 
-// One scene per running task, with the same words beside it.
+// The terminal under the workshop: the chosen worker's tool calls as they happen (what
+// `phase.calls` keeps: when, the tool, its signature, whether it went through; never an
+// argument) and the diff its worktree holds so far. Read every 5 s while it is open.
+let watching = null;  // { id, timer }
+
+function line(c) {
+  const at = c.ts ? new Date(c.ts * (c.ts < 1e12 ? 1000 : 1)).toLocaleTimeString() : "";
+  return h("div", { class: `term-line${c.ok ? "" : " bad"}` },
+    h("span", { class: "term-at" }, at), h("span", { class: "term-tool" }, c.tool),
+    h("span", { class: "term-sig" }, c.sig), h("span", { class: "term-ok" }, c.ok ? "✓" : "✗ refused or failed"));
+}
+
+function diffLines(text) {
+  return String(text || "").split("\n").map((l) => h("div", {
+    class: l.startsWith("+") && !l.startsWith("+++") ? "d-add" : l.startsWith("-") && !l.startsWith("---") ? "d-del"
+      : l.startsWith("@@") ? "d-hunk" : l.startsWith("diff ") ? "d-file" : "" }, l || " "));
+}
+
+async function fill(pane, id) {
+  const [live, diff] = await Promise.all([get(`/api/tasks/${id}/live`).catch(() => null),
+    get(`/api/tasks/${id}/diff`).catch(() => null)]);
+  if (!pane.isConnected) return stop();
+  const calls = live?.recent_calls || [];
+  pane.replaceChildren(...[
+    h("div", { class: "term-head" }, `#${id} · attempt ${live?.attempt_now ?? "?"} · ${live?.progress_line || "no progress yet"}`),
+    h("div", { class: "term-title" }, "tool calls"),
+    calls.length ? calls.map(line) : h("div", { class: "term-sig" }, "no tool call yet"),
+    h("div", { class: "term-title" }, "code changed so far"),
+    diff?.diff ? h("pre", { class: "term-diff" }, diffLines(diff.diff))
+      : h("div", { class: "term-sig" }, diff?.why || "nothing written yet"),
+    diff?.cut ? h("div", { class: "term-sig" }, "the diff is cut here; the task page has the rest") : null,
+  ].flat().filter(Boolean));
+}
+
+function stop() { if (watching) clearInterval(watching.timer); watching = null; }
+
+function watch(pane, id) {
+  stop();
+  watching = { id, timer: setInterval(() => fill(pane, id), 5000) };
+  fill(pane, id);
+}
+
+// One scene per running task, with the same words beside it; a click opens its terminal.
 export function workshop(running, open) {
-  if (!running.length) return null;
-  return h("div", { class: "workshop" }, running.map((t) => {
+  if (!running.length) { stop(); return null; }
+  const pane = h("div", { class: "terminal", "aria-live": "polite" });
+  const keep = watching && running.some((t) => t.id === watching.id) ? watching.id : null;
+  const scenes = h("div", { class: "workshop" }, running.map((t) => {
     const state = stateOf(t);
     const canvas = h("canvas", { width: W * SCALE, height: H * SCALE, role: "img",
       "aria-label": `#${t.id}: ${LABELS[state] || state}`, dataset: { state } });
     live.add(canvas);
     if (!timer) timer = setInterval(tick, 250);
     requestAnimationFrame(tick);
-    return h("button", { class: `worker-scene s-${state}`, onclick: () => open(t.id), title: t.title || "" },
-      canvas,
+    return h("div", { class: `worker-scene s-${state}`, title: t.title || "" },
+      h("button", { class: "scene-pick", onclick: () => watch(pane, t.id), "aria-label": `show #${t.id}'s terminal` }, canvas),
       h("span", { class: "worker-id" }, `#${t.id}`),
       h("span", { class: "worker-state" }, LABELS[state] || state),
-      t.files_line ? h("span", { class: "worker-files" }, t.files_line) : null);
+      t.files_line ? h("span", { class: "worker-files" }, t.files_line) : null,
+      h("span", {}, h("button", { onclick: () => watch(pane, t.id) }, "terminal"), " ",
+        h("button", { onclick: () => open(t.id) }, "task")));
   }));
+  if (keep) watch(pane, keep); else stop();
+  return h("div", {}, scenes, pane);
 }

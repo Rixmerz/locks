@@ -419,9 +419,21 @@ pre.diff .file { font-weight: 600; }
 /* The workshop: a pixel-art scene per running task (workers.js). */
 .workshop { display: flex; flex-wrap: wrap; gap: var(--gap); margin: 0 0 var(--gap); }
 .worker-scene { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; align-content: center;
-                padding: 8px; text-align: left; border-left: 4px solid var(--accent); }
-.worker-scene canvas { grid-row: span 3; image-rendering: pixelated; border-radius: var(--radius-sm);
+                padding: 8px; text-align: left; border: 1px solid var(--line); border-left: 4px solid var(--accent);
+                border-radius: var(--radius); background: var(--panel); }
+.scene-pick { grid-row: span 4; padding: 0; border: 0; background: none; }
+.worker-scene canvas { image-rendering: pixelated; border-radius: var(--radius-sm);
                        width: 144px; height: 96px; }
 .worker-id { font-weight: 600; } .worker-state, .worker-files { color: var(--muted); font-size: 12px; }
 .worker-scene.s-quiet { border-left-color: var(--warn); }
 .worker-scene.s-verifier, .worker-scene.s-check { border-left-color: var(--k-plan); }
+.terminal:empty { display: none; }
+.terminal { background: #101211; color: #d7dad9; font: 12px/1.5 var(--mono); border-radius: var(--radius);
+            padding: 12px 14px; margin: 0 0 var(--gap); max-height: 420px; border: 1px solid var(--line); overflow: auto; }
+.term-head { color: #0bd8b6; font-weight: 600; } .term-title { color: #868e8b; margin-top: 10px; text-transform: uppercase; }
+.term-line { display: grid; grid-template-columns: 80px 90px 1fr auto; gap: 8px; }
+.term-at, .term-sig { color: #868e8b; } .term-tool { color: #ffca16; } .term-ok { color: #71d083; }
+.term-line.bad .term-ok { color: #ff977d; }
+.term-diff { margin: 0; background: none; color: inherit; padding: 0; white-space: pre-wrap; word-break: break-all; }
+.d-add { color: #71d083; } .d-del { color: #ff977d; } .d-hunk { color: #9b8afb; } .d-file { color: #0bd8b6; font-weight: 600; }
+.worker-scene button:not(.scene-pick) { padding: 2px 10px; font-size: 12px; }

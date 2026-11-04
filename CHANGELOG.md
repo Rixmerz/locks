@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-11-04
+
+### Fixed
+- A worker whose process died was noticed only at the next turn's end, so a task could show running for close to an hour with nothing behind it. `locks board` and `locks tasks` now sweep it when its process is gone, and resume it as a turn's end would. The mod's status line polls the board, so this happens within seconds.
+- A worker's brief no longer carries shared dead ends that only other cells met (another phase's docs and security fixes on an implement task about queries). Those still reach the orchestrating session.
+
+### Added
+- With the trace on, a worker's own transcript is kept beside the traces when its attempt ends, so its tools, the notes it read and its livespec calls can be audited.
+- An automatic resume's `auto_resumed` event says how far the work it goes on from is behind the trunk. The work itself is not rebased.
+
 ## [0.75.0] - 2026-11-04
 
 ### Changed

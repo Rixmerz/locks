@@ -650,7 +650,26 @@ def run(
     changed = changed_paths(before, tracked_state(spec.target_dir), spec.target_dir)
     result = dataclasses.replace(parse(proc, spec, changed, duration_s=time.monotonic() - started),
                                  permission_mode=spec.permission_mode, resumed=bool(spec.resume_session))
+    _keep_worker_transcript(result)
     return counted_turns(result, began)
+
+
+def _keep_worker_transcript(result: WorkerResult, env: Mapping[str, str] | None = None) -> None:
+    """With the person's trace on, the worker's own transcript is kept beside the traces too
+    (`traces/<session>.transcript.jsonl`): a `claude -p` worker fires no Stop hook of the
+    person's, so without this its tools, the notes it read and livespec's calls were nowhere.
+    Never fails the attempt."""
+    try:
+        from locks import trace, usage
+
+        env = os.environ if env is None else env
+        if not result.session_id or not trace.enabled(env):
+            return
+        source = usage.transcript_of(result.session_id, env)
+        if source is not None:
+            trace.keep_transcript({"transcript_path": str(source), "session_id": result.session_id}, env)
+    except Exception:  # noqa: S110 - a trace never fails what it watches
+        pass
 
 
 def counted_turns(result: WorkerResult, since: str, env: Mapping[str, str] | None = None) -> WorkerResult:

@@ -635,8 +635,20 @@ def recall(
     elif not anchored:
         for note in store.notes(project, topics=in_topics, states=states, limit=limit):
             chosen.setdefault(int(note["id"]), "latest in its topic")
-    picked = (fused([by_code, by_words], [i for i in chosen if i not in by_code and i not in by_words])
-              if fuse else list(chosen))[:limit]
+    ordered = (fused([by_code, by_words], [i for i in chosen if i not in by_code and i not in by_words])
+               if fuse else list(chosen))
+    if len(ordered) > limit:
+        # What the cut leaves out is weighed by what workers said they relied on here (issue #123):
+        # the notes past the limit a worker named before come in ahead of ones none named.
+        relied = store.notes_relied(project)
+        head, tail = ordered[:limit], ordered[limit:]
+        promoted = sorted((n for n in tail if relied.get(n)), key=lambda n: -relied[n])
+        unnamed = sorted((n for n in head if not relied.get(n)), key=head.index, reverse=True)
+        for incoming, outgoing in zip(promoted, unnamed, strict=False):
+            if relied[incoming] >= RELIED_TO_PROMOTE:
+                head[head.index(outgoing)] = incoming
+        ordered = head
+    picked = ordered[:limit]
     if hops > 0 and picked:
         extra = max(2, limit // 2)
         for edge in store.note_links(picked):
@@ -655,6 +667,9 @@ def recall(
             extra -= 1
     return expand(store, picked, chosen)
 
+
+#: Times workers here named a note as relied on before it takes a recalled place from one never named.
+RELIED_TO_PROMOTE = 2
 
 #: Reciprocal rank fusion's constant (Cormack et al., 2009): a list's first places count, its tail barely.
 RRF_K = 60

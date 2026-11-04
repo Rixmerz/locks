@@ -1061,6 +1061,30 @@ class Store:
         row = self._conn.execute("SELECT * FROM attempts WHERE task_id = ? AND seq = ?", (task_id, seq)).fetchone()
         return dict(row) if row else None
 
+    def routed_followed(self, *, since: str = "", repo: str | None = None,
+                        within_s: int = 1800) -> list[dict]:
+        """Each `routed` advice with whether the session sent locks work after it, within
+        `within_s`: the evidence a route's advice is weighed by, never a rule's input."""
+        scope, args = ("AND t.repo = ?", [repo]) if repo is not None else ("", [])
+        rows = self._conn.execute(
+            "SELECT e.ts, e.data, t.session_id, EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = t.session_id "  # noqa: S608
+            "AND w.source IN ('locks', 'queue') AND w.created_at >= e.ts "
+            "AND w.created_at <= strftime('%Y-%m-%dT%H:%M:%S+00:00', e.ts, ?)) "
+            f"FROM events e JOIN tasks t ON t.id = e.task_id WHERE e.kind = 'routed' AND e.ts >= ? {scope}",
+            [f"+{int(within_s)} seconds", since, *args]).fetchall()
+        return [{"ts": r[0], "mode": json.loads(r[1]).get("mode"), "sent": bool(r[3])} for r in rows]
+
+    def notes_relied(self, project: str) -> dict[int, int]:
+        """How many attempts in a project named each note as relied on (`attempt_finished.notes_used`)."""
+        out: dict[int, int] = {}
+        for (raw,) in self._conn.execute(
+                "SELECT e.data FROM events e JOIN tasks t ON t.id = e.task_id "
+                "WHERE e.kind = 'attempt_finished' AND t.repo = ? AND e.data LIKE '%notes_used%'", (project,)):
+            for n in json.loads(raw).get("notes_used") or ():
+                if isinstance(n, int):
+                    out[n] = out.get(n, 0) + 1
+        return out
+
     def notes_since(self, project: str, since: str, *, limit: int = 5) -> list[dict]:
         """A project's live notes filed at `since` or after, newest first."""
         rows = self._conn.execute(

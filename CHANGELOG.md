@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-11-04
+
+### Changed
+
+- **A new model finishes work that only locks' check failed on** (#124): an attempt that changed files and failed locks' own check (a `code_bug` with the check's output, no blockers of the independent check) is kept in the worktree when the climb goes to another model, and its brief says to start from it (`work_carried`). A wrong approach, a repeated answer or the independent check's blockers still start from the base.
+- **Routing advice is measured** (#124): `locks stats` says, per route, how often the session sent locks work after it, the evidence the advice is weighed by.
+- **Notes workers relied on are recalled first** (#123): when recall has more notes than a brief carries, one that workers here named as relied on at least twice takes the place of one never named.
+
+### Fixed
+
+- Tests for a stray path that keeps an environment failure and the check's output, and for stopping a worker's container stack (#119).
+
 ## [0.72.0] - 2026-11-03
 
 ### Fixed

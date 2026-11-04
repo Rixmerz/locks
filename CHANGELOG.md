@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-11-04
+
+### Added
+- The board opens with a workshop: one pixel-art scene per running task, drawn from its phase, its stage and a quiet worker (reading, writing, locks' check, the independent check, no tool call for a while), with the same words beside it; still under reduced motion.
+
+### Changed
+- The UI's base tones are Radix Colors' sage, teal, amber, tomato, grass and slate scales, light and dark; the kind hues stay as they were.
+
 ## [0.73.1] - 2026-11-04
 
 ### Fixed

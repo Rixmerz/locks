@@ -344,6 +344,20 @@ def _grouped(found: Sequence[Mapping[str, Any]], key: str) -> list[dict[str, Any
                   key=lambda row: (-row["runs"], row[key]))
 
 
+def routing(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per route mode: how often it was advised, and how often the session sent locks work
+    after it. A `main` advice followed by work, or a `worker` one with none, is the session
+    overriding it: the evidence a route is calibrated by (issue #124)."""
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        row = out.setdefault(str(r.get("mode") or "?"), {"advised": 0, "sent": 0})
+        row["advised"] += 1
+        row["sent"] += int(bool(r.get("sent")))
+    for row in out.values():
+        row["sent_rate"] = _share(row["sent"], row["advised"])
+    return dict(sorted(out.items()))
+
+
 def notes_relied_on(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> dict[str, Any] | None:
     """What the notes in briefs were worth to the workers, in their words (`attempt_finished.notes_used`)
     against what each first brief carried (`notes.BRIEFED`): the tasks briefed with notes, the
@@ -593,6 +607,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "behavior": behavior.table(events, {r["task"]: r["kind"] for r in found}),
         # The notes briefs carried and the ones workers said they relied on (observed, never a verdict).
         "notes_used": notes_relied_on(events, {r["task"] for r in found}),
+        # Each route's advice and whether the session sent locks work after it (observed, issue #124).
+        "routing": routing(store.routed_followed(since=since, repo=repo)),
         "recall": notes_mod.recall_trial(store, repo),
         "recall_now": notes_mod.recall_arm(store, repo, 0)[1] if repo else None,
         "evidence": evidence_mod.trial(store, repo),
@@ -844,6 +860,9 @@ def text(report: Mapping[str, Any]) -> str:
                              f"{row['never_called']:>4}  passed called {_rate(row['pass_when_called'])} / silent "
                              f"{_rate(row['pass_when_silent'])}")
         lines += behavior_lines(report.get("behavior") or {})
+        for mode, row in (report.get("routing") or {}).items():
+            lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "
+                         f"{row['sent']} ({_rate(row['sent_rate'])}) (observed)")
         if relied := report.get("notes_used"):
             lines += ["", f"notes in briefs: {relied['tasks']} task(s) carried {relied['carried']}, workers said they "
                       f"relied on {relied['relied_on']} ({_rate(relied['relied_rate'])}); first tries passed "

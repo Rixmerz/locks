@@ -92,3 +92,41 @@ def test_a_resume_hears_its_instruction_and_the_notes_filed_since(store: Store):
     store.add_event(task["id"], orchestrate.RESUME_INSTRUCTION, text="use the local Postgres")
     said = "\n".join(orchestrate.resume_context(store, task, "r"))
     assert "use the local Postgres" in said and "localhost:5432" in said
+
+
+def test_a_running_stack_named_after_the_worktree_is_stopped(tmp_path: Path, monkeypatch):
+    place = tmp_path / "task-6"
+    place.mkdir()
+    (place / "compose.yaml").write_text("services: {}\n")
+    monkeypatch.setattr(isolate.shutil, "which", lambda _name: "/usr/bin/docker")
+    calls = []
+
+    def runner(argv, **_kw):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout="abc123\n" if "ps" in argv else "", stderr="")
+
+    assert isolate.stop_stacks(place, runner=runner) == ["task-6"]
+    assert calls[-1][:5] == ["docker", "compose", "-p", "task-6", "down"]
+
+
+def test_routing_counts_how_often_the_session_sent_work_after_each_advice(store: Store):
+    from locks import analysis
+
+    turn = store.create_task("hotfix it", status="done", source="prompt", repo="r", cwd="/tmp", session_id="s1")
+    store.add_event(turn["id"], "routed", mode="worker")
+    store.create_task("do it", status="queued", source="locks", repo="r", cwd="/tmp", session_id="s1")
+    rows = store.routed_followed(repo="r")
+    assert rows and rows[0]["mode"] == "worker" and rows[0]["sent"]
+    assert analysis.routing(rows)["worker"] == {"advised": 1, "sent": 1, "sent_rate": 1.0}
+
+
+def test_a_note_workers_relied_on_takes_a_recalled_place_from_one_never_named(store: Store):
+    from locks import notes
+
+    ids = [store.add_note("r", "t", f"note {i}", f"alpha beta gamma delta {i}", author="person",
+                          filed_by="person") for i in range(4)]
+    task = store.create_task("x", status="done", source="locks", repo="r", cwd="/tmp")
+    for _ in range(notes.RELIED_TO_PROMOTE):
+        store.add_event(task["id"], "attempt_finished", notes_used=[ids[3]])
+    got = [n["id"] for n in notes.recall(store, "r", "alpha beta gamma delta", limit=2, hops=0)]
+    assert ids[3] in got and len(got) == 2

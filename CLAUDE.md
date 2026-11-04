@@ -253,7 +253,7 @@ yields the default kind, not a guess.
   with `forked_from` or `resumed`, else `fresh` with why) and its
   `attempt_finished` what it did, so `locks stats` compares continued and
   fresh attempts. Any other move starts fresh: a new model never inherits the
-  old one's approach (it starts from the base, the work set aside), and a
+  old one's approach (it starts from the base, the work set aside), except work that only locks' own check failed on (`orchestrate.carries_work`: a `code_bug` with the check's output and files changed, no blockers of the independent check), which the next model finishes in the same worktree (`work_carried`), and a
   retry, a replan and a resume a person starts are fresh. The independent
   check never runs in a worker's session.
 - A failed check's own output is kept per attempt (`launch.check_tail`, on the `attempt_finished`
@@ -734,7 +734,7 @@ yields the default kind, not a guess.
   more: ignored paths the task names are copied (never linked, never
   committed, up to `isolate.BRING_BYTES`); uncommitted changes come only with
   `--carry`, and a task that names them without it is warned. A new model
-  starts from the base; what the last one did is kept on
+  starts from the base (unless `carries_work`); what the last one did is kept on
   `refs/locks/aside/…`, the brief says so, and the refs go with the branch
   when the run keeps none. `--add-dir` is the person's, for a sibling
   repository.
@@ -1110,7 +1110,8 @@ yields the default kind, not a guess.
   cheaper reading: the worker's measured turns times the session's context against a
   worker attempt's measured input (`Store.worker_footprint`); with no measure, size and
   a full context decide. The prompt hook says it only when it is not the session, keeps
-  every decision as a `routed` event to be measured, and never costs the turn. It is
+  every decision as a `routed` event to be measured (`locks stats` says how often the session sent
+  locks work after each advice, `Store.routed_followed`), and never costs the turn. It is
   advice: the session decides. A question about the work (an opening of doubt,
   `route.asks`: could, should, what if, vale la pena… with a question mark,
   wherever it falls) stays with the session, and so does a question mark that

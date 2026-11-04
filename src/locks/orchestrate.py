@@ -520,6 +520,15 @@ def adopted(options: Options, adapters: Sequence[Adapter] | None) -> list[Adapte
     return default_adapters(os.environ, livespec=options.livespec)
 
 
+def carries_work(attempt: Attempt) -> bool:
+    """Whether a climb to a new model keeps the attempt's work in the worktree: it changed files and
+    failed only locks' own check (a `code_bug` with the check's output, no blockers of the independent
+    check). The check's failure is a fault in work that stands, which the next model finishes; it is
+    not an approach to throw away (issue #124)."""
+    return (attempt.failure is Failure.CODE_BUG and bool(attempt.changed) and bool(attempt.check_tail)
+            and not attempt.blockers)
+
+
 #: The kind of the event a resume's new instruction is kept as (`locks resume N -`).
 RESUME_INSTRUCTION = "resume_instruction"
 #: The most notes filed since a task's last attempt its resume names.
@@ -1979,7 +1988,15 @@ def run(
                     | ({"widen": widen} if _cause(decision, attempt) in ("spec", "decision")
                        and (widen := _widen(store, task["id"], options.surfaces, result)) else {}))
                 break
-            if decision.move is Move.NEXT_MODEL and workspace is not None:
+            if decision.move is Move.NEXT_MODEL and workspace is not None and carries_work(attempt):
+                # Work locks' own check failed on is work, not a lost bet: the next model starts on it
+                # instead of rebuilding it from the base (issue #124). A wrong approach, a repeated
+                # answer or an independent check's blockers still start fresh.
+                aside.append(f"Attempt {seq} ({cell.label}) left its changes in this worktree and locks' check "
+                             "failed on them. Start from them: fix what the check shows, and undo only what is "
+                             "wrong; do not rebuild what is right.")
+                store.add_event(task["id"], "work_carried", seq=seq, to=decision.cell.label if decision.cell else "")
+            elif decision.move is Move.NEXT_MODEL and workspace is not None:
                 # A new model starts from the base, not the bet that lost; what the
                 # last one did is kept on a ref, and the brief says both.
                 ref = isolate.set_aside(workspace, seq)

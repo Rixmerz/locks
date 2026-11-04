@@ -1299,3 +1299,27 @@ def test_what_the_independent_check_writes_in_the_work_it_reads_is_put_back(git_
     branch = isolate.branch_for(report.task_id)
     assert git(git_repo, "show", f"{branch}:app.py") == "the worker's fix"
     assert "probe.py" not in git(git_repo, "ls-tree", "--name-only", branch)
+
+
+def test_a_stray_path_keeps_an_environment_failure_and_the_check_s_output(git_repo, store):
+    """A file outside the surfaces never rewrites how the check failed (issue #119)."""
+    def launcher(spec):
+        (spec.target_dir / "stray.txt").write_text("x\n")
+        return WorkerResult(False, Failure.ENVIRONMENT, "Sail is not running.", "the check could not run",
+                            changed_paths=("stray.txt",), check_tail="Sail is not running.")
+
+    report = run("fix it", git_repo, store, Options(surfaces=("src/**",), max_attempts=1), registry={},
+                 launcher=launcher, classifier=kind("implement"))
+    first = store.attempts(report.task_id)[0]
+    assert first["failure"] == "environment" and "outside its surfaces" in first["summary"]
+    assert "Sail is not running." in store.check_tails(report.task_id).get(1, "")
+
+
+def test_carries_work_only_for_a_check_failure_on_changed_files():
+    cell = Cell.parse("sonnet/high")
+    assert orchestrate.carries_work(Attempt(cell, 40, False, Failure.CODE_BUG, "", changed=("a.py",),
+                                            check_tail="FAILED test_a"))
+    assert not orchestrate.carries_work(Attempt(cell, 40, False, Failure.APPROACH, "", changed=("a.py",),
+                                                check_tail="FAILED test_a"))
+    assert not orchestrate.carries_work(Attempt(cell, 40, False, Failure.CODE_BUG, "", changed=("a.py",)))
+    assert not orchestrate.carries_work(Attempt(cell, 40, False, Failure.CODE_BUG, "", check_tail="x"))

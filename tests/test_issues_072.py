@@ -130,3 +130,19 @@ def test_a_note_workers_relied_on_takes_a_recalled_place_from_one_never_named(st
         store.add_event(task["id"], "attempt_finished", notes_used=[ids[3]])
     got = [n["id"] for n in notes.recall(store, "r", "alpha beta gamma delta", limit=2, hops=0)]
     assert ids[3] in got and len(got) == 2
+
+
+def test_a_strict_recall_counts_no_word_most_notes_share(store: Store):
+    from locks import notes
+
+    for i in range(6):
+        store.add_note("r", "t", f"engine snapshot {i}", f"the engine snapshot stage merge detail {i}",
+                       author="person", filed_by="person")
+    got = notes.recall(store, "r", "close the stage and merge the engine", limit=3, hops=0, strict=True)
+    assert got == []
+
+
+def test_briefs_from_before_versions_were_kept_are_named_so():
+    from locks import footprint
+
+    assert footprint.UNVERSIONED == "before 0.71"

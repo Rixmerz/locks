@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.73.1] - 2026-11-04
+
+### Fixed
+- A prompt's strict note recall counts only words fewer than a fifth of the project's notes hold, so its common vocabulary no longer brings unrelated notes (#127).
+- `locks footprint` names briefs written before 0.71 as such instead of `?` (#127).
+
 ## [0.73.0] - 2026-11-04
 
 ### Changed

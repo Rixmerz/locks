@@ -18,6 +18,10 @@ from typing import Any
 GROWTH = 1.2
 
 
+#: Briefs written before 0.71, which kept no version on the event (issue #127).
+UNVERSIONED = "before 0.71"
+
+
 def _version_key(version: str) -> tuple[int, ...]:
     try:
         return tuple(int(p) for p in version.split("."))
@@ -39,7 +43,7 @@ def report(conn: sqlite3.Connection, *, days: int | None = None) -> dict[str, An
             data = json.loads(raw)
         except ValueError:
             continue
-        kind, version = str(data.get("kind") or "?"), str(data.get("version") or "?")
+        kind, version = str(data.get("kind") or "?"), str(data.get("version") or UNVERSIONED)
         rows[kind][version].append((int(data.get("context_chars") or 0), int(data.get("system_chars") or 0)))
     out: dict[str, Any] = {}
     for kind, by_version in sorted(rows.items()):

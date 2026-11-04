@@ -9,7 +9,7 @@
       "name": "locks",
       "source": "./",
       "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
-      "version": "0.73.0"
+      "version": "0.73.1"
     }
   ]
 }

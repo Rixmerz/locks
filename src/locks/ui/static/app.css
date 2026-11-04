@@ -448,3 +448,12 @@ pre.diff .file { font-weight: 600; }
 @keyframes pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 .term-calls { max-height: 180px; overflow: auto; }
+.workshop-sum { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.workshop-sum button { padding: 1px 10px; font-size: 12px; }
+.office { image-rendering: pixelated; max-width: 100%; height: auto; border-radius: var(--radius); cursor: pointer;
+          border: 1px solid var(--line); margin-bottom: var(--gap); }
+.term-run { margin: 4px 0; } .term-cmd { color: #eceeed; }
+.term-out { margin: 2px 0 0 16px; color: #adb5b2; white-space: pre-wrap; word-break: break-all; background: none; padding: 0; }
+.term-hint { color: #868e8b; font-style: italic; margin-top: 4px; }
+.office-ids { display: flex; gap: 6px; flex-wrap: wrap; margin: -8px 0 var(--gap); }
+.office-ids button { padding: 1px 10px; font-size: 12px; }

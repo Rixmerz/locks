@@ -5,6 +5,7 @@
 // words. The sprites are drawn here, pixel by pixel; no asset is fetched.
 import { h } from "./util.js";
 import { get } from "./net.js";
+import { notify, notifyButton } from "./notify.js";
 
 const W = 48, H = 32, SCALE = 3;
 const QUIET_S = 5 * 60;  // progress.IDLE_S
@@ -125,7 +126,24 @@ function tick() {
     ctx.fillStyle = pal.wall; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = pal.floor; ctx.fillRect(0, 28, W, 4);
     c.frame = still ? (c.frame || 0) + 1 : 3;
-    (scenes[c.dataset.state] || scenes.starting)(ctx, { ...pal, b: shirt(Number(c.dataset.id)) || pal.b }, c.frame);
+    if (c.dataset.office) {
+      c.workers.forEach((w, i) => {
+        ctx.setTransform(SCALE, 0, 0, SCALE, i * W * SCALE, 0);
+        ctx.fillStyle = pal.wall; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = pal.floor; ctx.fillRect(0, 28, W, 4);
+        (scenes[w.state] || scenes.starting)(ctx, { ...pal, b: shirt(w.id) || pal.b }, c.frame + i * 3);
+      });
+      ctx.setTransform(SCALE, 0, 0, SCALE, c.workers.length * W * SCALE, 0);
+      ctx.fillStyle = pal.wall; ctx.fillRect(0, 0, 16, H);
+      ctx.fillStyle = pal.floor; ctx.fillRect(0, 28, 16, 4);
+      ctx.fillStyle = pal.muted; ctx.fillRect(2, 8, 12, 20);   // the door, the queue's count beside it
+      ctx.fillStyle = pal.wall; ctx.fillRect(4, 10, 8, 18);
+      const q = Math.min(Number(c.dataset.queued) || 0, 6);
+      ctx.fillStyle = pal.l;
+      for (let i = 0; i < q; i++) ctx.fillRect(6, 26 - i * 3, 4, 2);
+    } else {
+      (scenes[c.dataset.state] || scenes.starting)(ctx, { ...pal, b: shirt(Number(c.dataset.id)) || pal.b }, c.frame);
+    }
   }
   if (!live.size) { clearInterval(timer); timer = null; }
 }
@@ -167,6 +185,14 @@ function line(c) {
     h("span", { class: "term-sig" }, words(c.sig) || c.sig), h("span", { class: "term-ok" }, c.ok ? "✓" : "✗ refused or failed"));
 }
 
+function traced(c) {
+  const at = c.ts ? new Date(c.ts).toLocaleTimeString() : "";
+  return h("div", { class: "term-run" },
+    h("div", {}, h("span", { class: "term-at" }, at), " ", h("span", { class: "term-tool" }, c.tool), " ",
+      h("span", { class: "term-cmd" }, c.input ? (c.tool === "Bash" ? `$ ${c.input}` : c.input) : "")),
+    c.output ? h("pre", { class: "term-out" }, c.output) : null);
+}
+
 function diffLines(text) {
   return String(text || "").split("\n").map((l) => h("div", {
     class: l.startsWith("+") && !l.startsWith("+++") ? "d-add" : l.startsWith("-") && !l.startsWith("---") ? "d-del"
@@ -185,7 +211,10 @@ async function fill(pane, id) {
     (live?.progress?.criteria || []).length ? [h("div", { class: "term-title" }, "what it was asked"),
       live.progress.criteria.map((c) => h("div", { class: "term-sig" }, `${c.id} ${c.text}`))] : [],
     h("div", { class: "term-title" }, "tool calls"),
-    h("div", { class: "term-calls" }, calls.length ? calls.map(line) : h("div", { class: "term-sig" }, "no tool call yet")),
+    h("div", { class: "term-calls" }, (live?.traced || []).length ? live.traced.map(traced)
+      : calls.length ? calls.map(line) : h("div", { class: "term-sig" }, "no tool call yet")),
+    live && !live.trace_on ? h("div", { class: "term-hint" },
+      "commands and their output show here with the trace on: locks config trace on (kept in your locks home only)") : null,
     h("div", { class: "term-title" }, "code changed so far"),
     diff?.diff ? h("pre", { class: "term-diff" }, diffLines(diff.diff))
       : h("div", { class: "term-sig" }, diff?.why || "nothing written yet"),
@@ -203,8 +232,40 @@ function watch(pane, id) {
   fill(pane, id);
 }
 
+// What the person hears when they turned notices on: a worker that went quiet, one that ended.
+const seen = new Map();
+function notices(running) {
+  const now = new Map(running.map((t) => [t.id, stateOf(t)]));
+  for (const [id, was] of seen) {
+    if (!now.has(id)) notify(`#${id} finished its run`, "open the board to see how it ended", `end-${id}`);
+    else if (was !== "quiet" && now.get(id) === "quiet") notify(`#${id} went quiet`, LABELS.quiet, `quiet-${id}`);
+  }
+  seen.clear();
+  for (const [id, state] of now) seen.set(id, state);
+}
+
+const VIEW = "locks.workshop";
+const view = () => { try { return localStorage.getItem(VIEW) || "cards"; } catch { return "cards"; } };
+
+// The office: every worker at its desk in one room, the queue waiting at the door.
+function office(running, queued, pick) {
+  const width = W * Math.max(1, running.length) + 16;
+  const c = h("canvas", { width: width * SCALE, height: H * SCALE, class: "office", role: "img",
+    "aria-label": `${running.length} at work, ${queued} waiting`, dataset: { office: "1", queued: String(queued) } });
+  c.workers = running.map((t) => ({ id: t.id, state: stateOf(t) }));
+  c.addEventListener("click", (e) => {
+    const slot = Math.floor((e.offsetX / c.clientWidth) * width / W);
+    if (running[slot]) pick(running[slot].id);
+  });
+  live.add(c);
+  const ids = h("div", { class: "office-ids" }, running.map((t) =>
+    h("button", { onclick: () => pick(t.id) }, `#${t.id} ${LABELS[stateOf(t)] || ""}`)));
+  return h("div", {}, c, ids);
+}
+
 // One scene per running task, with the same words beside it; a click opens its terminal.
-export function workshop(running, open) {
+export function workshop(running, open, queued = 0) {
+  notices(running);
   if (!running.length) { stop(); return null; }
   const pane = h("div", { class: "terminal", "aria-live": "polite" });
   const keep = watching && running.some((t) => t.id === watching.id) ? watching.id : null;
@@ -229,5 +290,20 @@ export function workshop(running, open) {
   const count = {};
   for (const t of running) count[stateOf(t)] = (count[stateOf(t)] || 0) + 1;
   const sum = Object.entries(count).map(([k, n]) => `${n} ${LABELS[k] || k}`).join(" · ");
-  return h("div", {}, h("div", { class: "workshop-sum" }, `${running.length} at work: ${sum}`), scenes, pane);
+  const box = h("div", {});
+  const draw = () => {
+    const mode = view();
+    box.replaceChildren(
+      h("div", { class: "workshop-sum" }, `${running.length} at work: ${sum}${queued ? ` · ${queued} waiting` : ""}`,
+        h("button", { class: "view-toggle", "aria-pressed": String(mode === "office"), onclick: () => {
+          try { localStorage.setItem(VIEW, mode === "office" ? "cards" : "office"); } catch { /* this page only */ }
+          draw();
+        } }, mode === "office" ? "cards" : "office"),
+        notifyButton()),
+      mode === "office" ? office(running, queued, (id) => watch(pane, id)) : scenes, pane);
+    if (!timer) timer = setInterval(tick, 250);
+    requestAnimationFrame(tick);
+  };
+  draw();
+  return box;
 }

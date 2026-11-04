@@ -17,6 +17,12 @@ function keep(on) {
 let fallback = null;  // the choice when storage is off
 const on = () => supported() && Notification.permission === "granted" && (fallback ?? wanted());
 
+/** A notice of its own (the workshop: a worker that went quiet, or ended), when the person turned them on. */
+export function notify(title, body, tag) {
+  if (!on()) return;
+  try { new Notification(title, { body, tag: `locks-${tag}` }); } catch { /* see watchEnding */ }
+}
+
 /** Say a state of the work `key` names; a change from going on to anything else notifies. */
 export function watchEnding(key, status, title, how) {
   const before = last.get(key);

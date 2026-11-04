@@ -941,7 +941,9 @@ yields the default kind, not a guess.
 - A task page polls only while it shows a running task (`/api/tasks/N/live`,
   every 5 s; tool calls write no events), and what it shows of a worker's calls
   is what `phase.calls` keeps: when, the tool, its signature, whether it went
-  through; never an argument nor its hash. A desktop notification is asked for
+  through; never an argument nor its hash. The one exception is the person's own trace: with `trace` on, the board's
+  terminal also shows each call's input and output from it (`trace.worker_calls`, masked as written,
+  clipped by `text.clip`), read from their locks home only. A desktop notification is asked for
   only from a person's click, kept per viewer in the browser, and never fires
   for the state a tab opened with.
 - The UI builds every node with `textContent` (`h()` in `static/util.js`,

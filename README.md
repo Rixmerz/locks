@@ -1,11 +1,15 @@
-# locks
+<p align="center"><img src="docs/images/logo.svg" width="72" height="72" alt=""></p>
+
+<h1 align="center">locks</h1>
 
 One core for Claude Code. You hand it a request; it decides what kind of work
 it is, which model and effort it needs, which tools and capabilities belong to
 it, runs it in a one-shot worker, checks the result, escalates on evidence, and
 remembers what failed — across every repository on the machine.
 
-> *locks* (Spanish): a riverbed. It does not do the work; it channels it.
+> A canal lock moves a boat between two levels one chamber at a time, and opens the next gate only
+> when the water says it is safe. locks moves work the same way: up a ladder of model and effort,
+> through a check at every gate.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
@@ -25,7 +29,7 @@ remembers what failed — across every repository on the machine.
 | **Learns how you work** | `/locks:init` sends locks' own read-only workers through every project and plugin on your machine, in parallel, and builds your team, your workflows and your memory from what they find. |
 | **Measures itself** | Every run's phases are timed (queued, planning, setting up, working, checking, verifying); `locks stats` and the UI's Analysis screen show pass rates, time and cost per pass by kind and cell, and whether the session's thread in a brief changes how runs go. |
 | **Calibrates itself** | Every task gets points on the Fibonacci scale when it is planned and is measured when it ends; each repository's kinds and sizes keep a standard (where they start, how many turns) that moves by two stated rules, one step at a time, each change judged and reverted when it made things worse. `locks evolution` and the UI's Evolution screen say how locks changed and why. No model takes any of these decisions. |
-| **Shows it all** | `locks ui`: the board, every task's ladder and moves, workflow graphs, a mind map of what each project knows, routing evidence, analysis, spend. |
+| **Shows it all** | `locks ui`: the board, with a pixel-art workshop of every running worker (what it reads, writes and runs, its diff so far, a terminal of its calls), every task's ladder and moves, workflow graphs, a mind map of what each project knows, routing evidence, analysis, spend. |
 
 <p>
   <img alt="A task: its plan and risk, the ladder of cells with each attempt, the move between them with its evidence chain, and the independent check" src="docs/images/task.png" width="49%">

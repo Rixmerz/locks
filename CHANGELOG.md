@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-11-04
+
+### Changed
+- The UI's look is a canal lock's: harbour navy and brass over warm paper (deep navy and brass in dark mode), a serif wordmark, models as shades of navy; the state tones keep Radix Colors' scales and the kind hues stay as they were.
+- A new logo, a lock chamber (two levels of water and the gate between them), in the header, the favicon and the README; the README says what the name means and its screenshots show the new look.
+
 ## [0.74.0] - 2026-11-04
 
 ### Added

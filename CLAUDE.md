@@ -117,10 +117,10 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 
 ```bash
 .venv/bin/python -m ruff check .
-.venv/bin/python -m coverage run -m pytest
+.venv/bin/python -m coverage run -m pytest -n auto
 .venv/bin/python -m coverage combine
 .venv/bin/python -m coverage report
-LOCKS_TEST_ALL_ON=1 .venv/bin/python -m pytest
+LOCKS_TEST_ALL_ON=1 .venv/bin/python -m pytest -n auto
 claude plugin validate .
 claude plugin test .
 ```

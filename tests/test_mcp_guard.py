@@ -100,3 +100,39 @@ def test_a_refused_livespec_call_never_reaches_the_server():
         {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "who_calls", "arguments": {}}},
         mcp_guard.POLICIES["livespec"])
     assert sent is not None and answers == []
+
+
+def test_a_guard_held_to_some_tools_lists_only_those_and_refuses_the_rest(tmp_path):
+    server = tmp_path / "server.py"
+    server.write_text(textwrap.dedent("""
+        import sys, json
+        for line in sys.stdin:
+            msg = json.loads(line)
+            if msg.get("method") == "tools/list":
+                result = {"tools": [{"name": n} for n in ("find_symbol", "who_calls", "index_project")]}
+            else:
+                result = {"echo": msg}
+            print(json.dumps({"jsonrpc": "2.0", "id": msg.get("id"), "result": result}), flush=True)
+    """))
+    calls = [
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "who_calls"}},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "find_symbol"}},
+    ]
+    stdin = io.BytesIO(b"".join(json.dumps(c).encode() + b"\n" for c in calls))
+    stdout = io.BytesIO()
+    mcp_guard.serve("livespec", [sys.executable, str(server)], stdin, stdout,
+                    env={mcp_guard.ONLY: "find_symbol"})
+    got = {m["id"]: m for m in map(json.loads, stdout.getvalue().splitlines())}
+    assert [t["name"] for t in got[1]["result"]["tools"]] == ["find_symbol"]
+    assert got[2]["result"]["isError"] is True and "not among the tools" in got[2]["result"]["content"][0]["text"]
+    assert got[3]["result"]["echo"]["params"]["name"] == "find_symbol"
+
+
+def test_a_guard_held_to_nothing_lists_and_lets_through_nothing_but_one_not_held_is_unchanged():
+    assert mcp_guard.only_from({}) is None
+    assert mcp_guard.only_from({mcp_guard.ONLY: ""}) == frozenset()
+    answer = {"id": 7, "result": {"tools": [{"name": "a"}]}}
+    assert mcp_guard.listed(answer, {7}, None) is answer
+    assert mcp_guard.listed(answer, set(), frozenset()) is answer  # not an answer to a list it was asked
+    assert mcp_guard.listed({"id": 7, "result": "odd"}, {7}, frozenset({"a"})) == {"id": 7, "result": "odd"}

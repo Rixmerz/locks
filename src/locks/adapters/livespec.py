@@ -79,8 +79,8 @@ _HINTS: Mapping[str, str] = {
     "refactor": "who_calls on every symbol you move or rename; find_dead_code for what can go",
     "ui": "find_symbol for the component; who_calls to see where it renders",
     "test": "audit_coverage and find_orphan_tests to see what is untested; get_symbol_source to read the target",
-    "review-routine": "git_diff_impact on the change; analyze_impact on anything it touches",
-    "review-critical": "git_diff_impact on the change; analyze_impact and get_spec_implementation for every "
+    "review-routine": "analyze_impact on each symbol the change touches; who_calls for the callers it may break",
+    "review-critical": "analyze_impact on each symbol the change touches; get_spec_implementation for every "
                        "spec it touches",
     "explore": "quick_orient for the overview, then search and find_symbol",
     "plan": "quick_orient, list_specs and analyze_impact on the parts the plan changes",
@@ -99,8 +99,12 @@ _SYMBOLS = ("2. `quick_orient` on each symbol, then `read_unit` on the ones you 
 _FILES = "3. Open a whole file only when that is not enough."
 #: What a worker that writes is also told: a helper that exists is not written twice, and a change is
 #: measured before it is called done.
-_WRITING = ("Before you write a helper, `search_similar` for one that already does it. Before you finish, "
-            "`git_diff_impact` on your change.")
+_WRITING = "Before you write a helper, `search_similar` for one that already does it."
+#: The tools a worker never gets: they change the index or the specs (locks builds the index itself),
+#: or they read the diff of the checkout the index describes, which is not the worktree a worker edits
+#: (`git_diff_impact`: what a change reaches is asked by locks, `assess`, and briefed to the check).
+WORKER_WITHHELD = frozenset({"git_diff_impact", "index_project", "sync_openspec", "validate_openspec",
+                             "export_openspec"})
 #: A spec a task writes or changes is linked to its code, so the next task finds the code from the spec.
 SPEC_ID = "<capability>-<requirement-name>"
 
@@ -308,6 +312,27 @@ class Livespec:
             run = ["tool", "run"] if Path(command).name == "uv" else []
             return {"command": command, "args": [*run, f"livespec@{self.pin()}"]}
         return plugin[0] if plugin else None
+
+    def worker_tools(self, kind: str, status: Status) -> frozenset[str]:
+        """The tools a worker of this kind is handed: the ones its orientation and its hint name, less
+        what it never gets (`WORKER_WITHHELD`) and what this release does not serve. Every other tool's
+        description is context a worker reads each turn and never calls."""
+        from locks import manifests
+
+        own = manifests.read("livespec", self.env)
+        hint = (own.hint_for(kind) if own else "") or _HINTS.get(kind, _HINTS["implement"])
+        named = set(_named_tools(" ".join([*orientation(kind), hint])))
+        return frozenset(named - WORKER_WITHHELD - (self._missing_for(status) or frozenset()))
+
+    def worker_server(self, kind: str, status: Status) -> Mapping[str, Any] | None:
+        """The server a worker gets: behind `locks.mcp_guard`'s `livespec` policy, held to
+        `worker_tools` (its `tools/list` shows only those, a call to another is refused)."""
+        server = self.server()
+        if server is None:
+            return None
+        from locks.plugins import guarded
+
+        return guarded(server, "livespec", tools=self.worker_tools(kind, status))
 
     def read_only_server(self) -> Mapping[str, Any] | None:
         """The same server behind `locks.mcp_guard`'s `livespec` policy: calls that read the index
@@ -965,7 +990,8 @@ class Livespec:
             what += f" (not served by livespec v{status.version}: {', '.join(lacking)}; do not call them)"
         where = f'pass workspace="{root}" on every call'
         if workdir.resolve() != root:
-            where += f"; the index describes the base commit there, your edits are in {workdir}"
+            where += (f"; the index describes the base commit there, not your edits in {workdir}: read what you "
+                      "changed from your files")
         return f"{what}; {where}."
 
 

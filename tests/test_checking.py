@@ -1124,7 +1124,11 @@ def test_the_independent_check_is_handed_the_code_index_read_only_where_the_repo
     run("fix the cart total", git_repo, store, registry={}, launcher=script, classifier=kind("implement"),
         adapters=[_livespec(tmp_path)])
     worker, verifier = script.specs
-    assert worker.mcp_servers["livespec"]["command"] == "uvx"
+    held = worker.mcp_servers["livespec"]
+    # The worker's is guarded too, held to the tools its brief names.
+    assert held["args"][:4] == ["-m", "locks.mcp_guard", "livespec", "--"] and "uvx" in held["args"]
+    assert "git_diff_impact" not in held["env"]["LOCKS_GUARD_ONLY"].split(",")
+    assert "LOCKS_GUARD_ONLY" not in verifier.mcp_servers["livespec"].get("env", {})
     server = verifier.mcp_servers["livespec"]
     assert server["command"] == sys.executable and server["args"][:4] == ["-m", "locks.mcp_guard", "livespec", "--"]
     assert "mcp__livespec" in verifier.allowed_tools

@@ -797,8 +797,12 @@ yields the default kind, not a guess.
   group (`adapters.livespec._run_in_group`), so its timeout ends `uvx` and the `livespec index` under
   it together; a refresh that failed at this commit is not tried
   again until the checkout moves. With an
-  index the brief opens with `Livespec.orient` (spec, code, symbol, file; writers also `search_similar`
-  and `git_diff_impact`) before the code map. Where it has one and the repository keeps `openspec/`, a
+  index the brief opens with `Livespec.orient` (spec, code, symbol, file; writers also `search_similar`)
+  before the code map. A worker gets livespec behind `mcp_guard`, held to the tools its orientation and
+  hint name (`Livespec.worker_tools`, `mcp_guard.ONLY`: its `tools/list` shows only them, a call to another
+  is refused, kept on `briefed.livespec_tools`), never one that writes or `git_diff_impact`
+  (`WORKER_WITHHELD`): that reads the diff of the checkout the index describes, not the worktree a worker
+  edits, and what a change reaches is locks' own `assess`, briefed to the check. Where it has one and the repository keeps `openspec/`, a
   writing worker is told to put `@spec:<capability>-<requirement-name>` on the code that implements a
   spec it writes (`spec_links_brief`), and what the change touched that no code names is a line of the
   report and of the independent check's brief (`specs.unlinked`, `LINK_PREFIX`): a spec the change

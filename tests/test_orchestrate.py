@@ -368,7 +368,7 @@ def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path):
     # briefing: the code map opens the worker's prompt
     assert "Code map from livespec" in spec.prompt and "SPEC-7" in spec.prompt
     # the worker gets livespec's server and a hint naming the workspace
-    assert spec.mcp_servers["livespec"]["command"] == "uvx"
+    assert "uvx" in spec.mcp_servers["livespec"]["args"]  # behind its guard, held to the brief's tools
     # and its tools are allowed with it: a worker is never refused the index it was handed
     assert "mcp__livespec" in spec.allowed_tools
     assert f'workspace="{git_repo.resolve()}"' in spec.append_system_prompt
@@ -525,7 +525,7 @@ def test_a_worker_is_told_to_orient_by_specs_before_the_map_and_before_opening_f
     prompt = script.specs[0].prompt
     assert prompt.index("Orient by livespec before you open files") < prompt.index("Code map from livespec")
     assert prompt.index("`list_specs`") < prompt.index("`get_spec_implementation`") < prompt.index("`read_unit`")
-    assert "`search_similar`" in prompt and "`git_diff_impact`" in prompt
+    assert "`search_similar`" in prompt and "`git_diff_impact`" not in prompt
     # Told also when the request names no symbol the index knows: there is no map, and the way still holds.
     bare = Script(ok())
     run("make the build faster", git_repo, store, registry={}, launcher=bare, classifier=kind("explore"),

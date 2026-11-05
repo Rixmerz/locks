@@ -495,7 +495,11 @@ def test_no_resume_without_autowork_for_an_old_death_or_one_that_cannot_start(st
     assert dispatch.recover(store, tmp_path, os.environ, popen=pytest.fail) == []  # autowork off in tests
     monkeypatch.setenv("LOCKS_AUTOWORK", "on")
     later = __import__("time").time() + dispatch.AUTO_RESUME_WITHIN_S + 60
+    store.add_event(task["id"] + 1, "attempt_started", seq=1)  # a worker started since: the death was seen
     assert dispatch.recover(store, tmp_path, os.environ, popen=pytest.fail, now=later) == []
+    much_later = __import__("time").time() + dispatch.AUTO_RESUME_ABSENT_S + 60
+    store._conn.execute("DELETE FROM events WHERE kind = 'attempt_started'")
+    assert dispatch.recover(store, tmp_path, os.environ, popen=pytest.fail, now=much_later) == []
 
     def broken(*a, **kw):
         raise OSError("no fork")
@@ -618,3 +622,41 @@ def test_limit_wait_sleeps_until_the_reset_then_resumes_and_revives(monkeypatch,
     assert cli.cmd_limit_wait(argparse.Namespace(until=clock.time() + 100), sleep=slept.append) == 0
     assert 90 < slept[0] <= 100 and calls == ["recover", "revive"]
     assert "resumed #7; started 1 dispatcher(s)" in capsys.readouterr().out
+
+
+def test_a_death_nobody_could_see_is_resumed_past_the_window(store: Store, tmp_path, monkeypatch):
+    from locks import stops
+
+    monkeypatch.setenv("LOCKS_AUTOWORK", "on")
+    task = store.create_task("x", status="interrupted", source="locks", cwd=str(tmp_path))
+    stops.record(store, task["id"], stops.Stop("died", "no sign of life: its process (141) is gone"))
+    started: list[list[str]] = []
+    later = __import__("time").time() + dispatch.AUTO_RESUME_WITHIN_S + 3600  # the container came back hours on
+    assert dispatch.recover(store, tmp_path, os.environ, popen=lambda argv, **kw: started.append(argv),
+                            now=later) == [task["id"]]
+
+
+def test_a_resume_that_never_took_hold_does_not_spend_the_one_resume(store: Store, tmp_path, monkeypatch):
+    from locks import stops
+
+    monkeypatch.setenv("LOCKS_AUTOWORK", "on")
+    monkeypatch.setattr(dispatch, "RESUME_STARTING_S", 0)
+    task = store.create_task("x", status="interrupted", source="locks", cwd=str(tmp_path))
+    stops.record(store, task["id"], stops.Stop("died", "no sign of life"))
+    started: list[list[str]] = []
+
+    def go():
+        return dispatch.recover(store, tmp_path, os.environ, popen=lambda argv, **kw: started.append(argv))
+
+    # The machine went down as the resume started: it died before its first attempt, more than once.
+    for _ in range(dispatch.AUTO_RESUME_TRIES):
+        assert go() == [task["id"]]
+    assert go() == []  # bounded: a resume that never takes hold is not tried forever
+    assert len(started) == dispatch.AUTO_RESUME_TRIES
+
+    other = store.create_task("y", status="interrupted", source="locks", cwd=str(tmp_path))
+    stops.record(store, other["id"], stops.Stop("died", "no sign of life"))
+    assert dispatch.recover(store, tmp_path, os.environ, popen=lambda argv, **kw: None) == [other["id"]]
+    store.add_event(other["id"], "attempt_started", seq=2)  # this one took hold, and died again
+    stops.record(store, other["id"], stops.Stop("died", "no sign of life"))
+    assert dispatch.recover(store, tmp_path, os.environ, popen=pytest.fail) == []  # the orchestrator's now

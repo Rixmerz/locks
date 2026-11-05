@@ -515,7 +515,7 @@ def skill_sources(role: Role, env: Mapping[str, str] | None = None, *,
                   held: frozenset[str] | None = None) -> dict[str, str]:
     """Where each skill the role carries or offers here is read from on this machine."""
     out = {}
-    for name in dict.fromkeys((*role.skills, *(n for n in role.on_demand if fits(n, held)))):
+    for name in dict.fromkeys(n for n in (*role.skills, *role.on_demand) if fits(n, held)):
         skill = find_skill(name, env)
         out[name] = skill.source if skill is not None else "missing"
     return out
@@ -565,7 +565,7 @@ def languages(repo_dir: Path | None) -> frozenset[str] | None:
 
 
 def fits(name: str, held: frozenset[str] | None) -> bool:
-    """Whether an on-demand skill applies to a repository holding files of `held` suffixes."""
+    """Whether a skill (carried or on demand) applies to a repository holding files of `held` suffixes."""
     wants = LANGUAGE_FILES.get(name)
     return held is None or wants is None or any(w in held for w in wants)
 
@@ -580,6 +580,8 @@ def brief(role: Role, env: Mapping[str, str] | None = None, *,
     carried, offered, missing, read_dirs = [], [], [], []
     sources: dict[str, str] = {}
     for name in role.skills:
+        if not fits(name, held):
+            continue  # a language's rules where the repository holds none of its files
         skill = find_skill(name, env)
         if skill is None:
             missing.append(name)

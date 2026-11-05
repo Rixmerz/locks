@@ -289,6 +289,17 @@ def test_a_brief_carries_skills_offers_the_rest_by_path_and_names_what_is_missin
     assert rules == (f"Read(/{roles.bundled_skills_dir().resolve()}/**)",)
 
 
+def test_a_carried_language_rules_skill_reaches_only_a_repository_of_that_language():
+    # A role that carries every language's rules, in a Rust repository: only Rust's reach the brief.
+    role = roles.Role("r", "does r", ("implement",), "", skills=("rust-rules", "python-rules", "cpp-rules", "ponytail"))
+    rust = frozenset({".rs", ".toml", ".md"})
+    briefing = roles.brief(role, held=rust)
+    assert "python-rules" not in briefing.system_prompt and "cpp-rules" not in briefing.system_prompt
+    assert "rust-rules" in briefing.system_prompt and "ponytail" in briefing.system_prompt
+    assert set(roles.skill_sources(role, held=rust)) == {"rust-rules", "ponytail"}
+    assert "python-rules" in roles.brief(role).system_prompt  # unknown languages: every one offered
+
+
 def test_a_skill_of_the_person_s_or_elsewhere_gets_its_own_read_rule(tmp_path):
     other = tmp_path / "elsewhere"
     other.mkdir()

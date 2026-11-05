@@ -637,7 +637,10 @@ def test_a_run_leaves_an_event_trail_a_watcher_can_follow(git_repo, store):
     assert store.events(after=events[3]["id"], task_id=report.task_id)[0]["kind"] == "moved"
     # Where its time went: each phase is kept on the events, for the analysis.
     assert events[0]["data"]["plan_s"] >= 0 and events[0]["data"]["queued_s"] is None
-    assert events[1]["data"] == {"session": None, "dead_ends": 0, "areas": [],
+    briefed = dict(events[1]["data"])
+    # Each adopted neighbour's state when it was briefed, when one is adopted (livespec in the all-on profile).
+    assert all(isinstance(v, str) for v in briefed.pop("neighbours", {}).values())
+    assert briefed == {"session": None, "dead_ends": 0, "areas": [],
                                  "context_chars": events[1]["data"]["context_chars"],
                                  # The brief's footprint (`locks.footprint`), and the release that wrote it.
                                  "kind": "implement", "system_chars": events[1]["data"]["system_chars"],

@@ -1347,7 +1347,11 @@ yields the default kind, not a guess.
   it, and a delegated `resume` still runs `--unattended`. Without the mod, everything still works through
   the classic hooks.
 - A watcher reads, never claims: `overview` and `events` take nothing from a
-  session, and an ending is delivered only to the session that sent the work.
+  session, and an ending is delivered only to the session that sent the work. A
+  supervising session hears a copy of the work it asked for when that work was sent
+  with `--notify <session>` (`LOCKS_NOTIFY`, a `notify` event on the task): delivered once
+  per session (`Store.claim_copies`, a `copied` event), in a notice of its own
+  (`hooks.copies`), never taking the owner's ending, and giving no claim on the task.
   locks has no channel of its own to another session; sending one work is
   Claude Code's `SendMessage`.
 - An ending is claimed, not just read, when it is delivered

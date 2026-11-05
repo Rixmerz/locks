@@ -61,7 +61,7 @@ class Neighbour:
 
 
 LAYOUT_TOOLS = frozenset({"check_environment", "inspect_layout", "detect_issues", "element_context",
-                          "compare_viewports", "accessibility_spatial"})
+                          "compare_viewports", "accessibility_spatial", "check_design_system"})
 RASTRO_TOOLS = frozenset({"rastro_open", "rastro_view", "rastro_read", "rastro_act", "rastro_navigate",
                           "rastro_effects", "rastro_trace", "rastro_request", "rastro_history", "rastro_detail",
                           "rastro_export", "rastro_profiles", "rastro_routines", "rastro_routine_run"})
@@ -71,7 +71,9 @@ KNOWN: tuple[Neighbour, ...] = (
         "layout-inspector", "layout-inspector", ("ui",), ("implement", "feature"),
         "measure the rendered page instead of judging it by eye: detect_issues (or compare_viewports for every "
         "breakpoint), element_context for the cause, then measure again after the fix; check_environment says "
-        "why a browser will not start. It measures a page that renders: the URL of a server this task started, "
+        "why a browser will not start; check_design_system when the project names its design system (its token "
+        "prefix and the brand overlay's values): values off its tokens and text contrast on the render. It "
+        "measures a page that renders: the URL of a server this task started, "
         "else the repository's own build served or opened from a file:// path, or a small HTML fixture of the "
         "component",
         "layout-inspection", on_path=("layout-inspector-mcp",), tools=LAYOUT_TOOLS, touches=UI_FILES,

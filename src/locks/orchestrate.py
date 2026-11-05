@@ -2428,7 +2428,9 @@ def _unmeasured(kind: str, paths: Sequence[str], registry: Mapping[str, caps.Cap
     if any(c.measures and c.touches for c in registry.values()):
         return ""
     why = ("the `plugins` setting is off (`locks config plugins on`)" if not config.enabled("plugins", os.environ)
-           else "the layout-inspector plugin is not installed and `layout-inspector-mcp` is not on PATH")
+           else "the layout-inspector plugin is not installed and `layout-inspector-mcp` is not on PATH (install it: "
+                 "`claude plugin install layout-inspector@rixmerz`, then `playwright install chromium` in its "
+                 "environment, as its README says)")
     return (f"layout-inspector: this change touches the interface and nothing in your registry measures a rendered "
             f"page, so the independent check judges it by reading: {why}")
 

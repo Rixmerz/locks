@@ -251,7 +251,8 @@ MEASURED_BY = {
 
 #: What each measuring neighbour's tools can say of a floor or anti-pattern line: the words that
 #: point at it (folded, so no accents) and what is measured. A line may match several. Only what the
-#: installed tool measures is listed: layout-inspector 0.4 has no contrast, focus or keyboard check.
+#: installed tool measures is listed: layout-inspector has no focus or keyboard check; contrast and
+#: design-system tokens come from `check_design_system` (0.6).
 _Rule = tuple[re.Pattern[str], str]
 MEASURE_RULES: dict[str, tuple[_Rule, ...]] = {
     "layout-inspector": tuple((re.compile(pattern), how) for pattern, how in (
@@ -265,8 +266,10 @@ MEASURE_RULES: dict[str, tuple[_Rule, ...]] = {
          "`detect_issues` (overlap, occluded content, z-index conflicts)"),
         (r"breakpoint|responsive|mobile|phone|tablet|desktop|viewport|narrow|wide screen|small screen",
          "`compare_viewports` for every breakpoint the audience uses"),
-        (r"contrast|colou?r|keyboard|tab order|focus|screen reader|aria|alt text",
-         "no tool measures it (layout-inspector has no contrast, focus or keyboard check): judge it from the "
+        (r"contrast|colou?r|design system|design token|\btokens?\b|off-system",
+         "`check_design_system` (text contrast on the render, values off the design system's tokens)"),
+        (r"keyboard|tab order|focus|screen reader|aria|alt text",
+         "no tool measures it (layout-inspector has no focus or keyboard check): judge it from the "
          "rendered text"),
     )),
 }

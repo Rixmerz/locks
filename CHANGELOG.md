@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.81.0] - 2026-11-05
+
+- A supervising session hears a copy of the endings of work it asked other
+  sessions to send: `locks run` and `locks queue add` take `--notify SESSION`
+  (repeatable); the Stop hook, the next prompt and `locks endings` deliver the
+  copy once, apart from the owner's ending, which the owner still claims.
+  `/locks:watch` says how to ask for it.
+- locks knows layout-inspector's `check_design_system` (0.6) without reading
+  its manifest, and the independent check is told it measures contrast and
+  design-system tokens; the plan line for an interface change with nothing
+  that measures it gives the install command.
+
 ## [0.80.0] - 2026-11-05
 
 ### Fixed

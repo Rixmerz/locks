@@ -205,8 +205,17 @@ def _split_first(args: argparse.Namespace, text: str) -> int | None:
     return EXIT_SPLIT
 
 
+def _notify(args: argparse.Namespace) -> None:
+    """`--notify SESSION`: the task this command creates records who else hears its ending."""
+    if getattr(args, "notify", None):
+        from locks.store import NOTIFY_ENV
+
+        os.environ[NOTIFY_ENV] = " ".join(args.notify)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     _warn_behind()
+    _notify(args)
     if not _request_from_stdin(args):  # read once: the split check and the run read the same text
         return 2
     if (split := _split_first(args, args.text)) is not None:
@@ -1688,6 +1697,7 @@ def cmd_queue(args: argparse.Namespace) -> int:
     store = Store.open()
     try:
         if args.queue_command == "add":
+            _notify(args)
             if not _request_from_stdin(args):
                 return 2
             if (split := _split_first(args, args.text)) is not None:
@@ -2623,6 +2633,9 @@ def cmd_endings(args: argparse.Namespace) -> int:
             with contextlib.suppress(Exception):
                 dispatch.recover(store, home(), os.environ)
         text, ids = hooks.endings(store, args.session, claim=None if args.peek else args.via)
+        copied, copied_ids = hooks.copies(store, args.session, claim=None if args.peek else args.via)
+        if copied:
+            text, ids = (f"{text}\n\n{copied}" if text else copied), [*ids, *copied_ids]
         statuses = {str(i): (store.get_task(i) or {}).get("status") for i in ids}
         pulse = str(store.pulse_path)
     finally:
@@ -2858,6 +2871,8 @@ ALLOW_HELP = ("a permission rule the workers get, e.g. 'Bash(npm run build:*)' o
               "refused whatever its settings do not allow; a blocked task's report prints the rules it needs")
 AFTER_HELP = ("queue it held until task N (or task:N) or workflow run run:N passes, then start it on the branch "
               "that work kept (on the base when that branch is merged); nothing is merged or rebased")
+NOTIFY_HELP = ("a session id that hears a copy of this work's ending beside the session that sends it "
+               "(a supervising session); repeatable")
 WHOLE_HELP = ("run a build that lists many items, or the largest size, as one task: without it, locks asks for it "
               "split (exit 5) and starts nothing")
 
@@ -2914,6 +2929,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="queue it and start its lane's dispatcher instead of running it here; prints its "
                         "number, and its ending reaches the session that sent it")
     p.add_argument("--whole", action="store_true", help=WHOLE_HELP)
+    p.add_argument("--notify", action="append", metavar="SESSION", help=NOTIFY_HELP)
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("resume", help="run a task that stopped again: from its kept work and the cell it stopped at")
@@ -2984,6 +3000,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a server the task needs up, started before the work and stopped after (repeatable)")
     p.add_argument("--after", type=_after_ref, metavar="N", help=AFTER_HELP)
     p.add_argument("--whole", action="store_true", help=WHOLE_HELP)
+    p.add_argument("--notify", action="append", metavar="SESSION", help=NOTIFY_HELP)
     p.add_argument("--json", action="store_true", help="print the queued task as JSON")
     p.set_defaults(func=cmd_queue)
     p = qsub.add_parser("list", help="what is waiting (this repository; --all for every one)")

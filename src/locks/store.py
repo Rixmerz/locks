@@ -191,6 +191,9 @@ VERSIONED = frozenset({"briefed", "planned", "attempt_started", "attempt_finishe
                        "check_preexisting"})
 
 #: Words a query and a problem must share for a strict match.
+#: Sessions (space or comma separated) that hear a copy of the endings of work created with it set.
+NOTIFY_ENV = "LOCKS_NOTIFY"
+
 STRICT_OVERLAP = 3
 #: A word held by this share of the problems or more is no evidence of a match: every
 #: run of a workflow shares its step's template, every task its repository's name.
@@ -456,6 +459,11 @@ class Store:
         cur = self._conn.execute(f"INSERT INTO tasks ({cols}) VALUES ({marks})", list(row.values()))  # noqa: S608
         task_id = int(cur.lastrowid)
         self.add_message(task_id, author, body)
+        # A supervising session asked for a copy of this work's ending (`--notify`, LOCKS_NOTIFY).
+        notify = [s for s in os.environ.get(NOTIFY_ENV, "").replace(",", " ").split() if s]
+        if notify and source in ("locks", "queue"):
+            self._conn.execute("INSERT INTO events (task_id, ts, kind, data) VALUES (?, ?, 'notify', ?)",
+                               (task_id, stamp, json.dumps({"sessions": notify})))
         return self.get_task(task_id)
 
     def get_task(self, task_id: int) -> dict | None:
@@ -1419,6 +1427,37 @@ class Store:
             "AND kind = 'reported'), 0) ORDER BY f.id LIMIT ?",
             (session_id, (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds"), limit))
         return [{**dict(r), "finished_data": json.loads(r["finished_data"])} for r in rows]
+
+    def unreported_copies(self, session_id: str, *, hours: int = 24, limit: int = 10) -> list[dict]:
+        """Endings of work another session sent that asked for this session to hear of it
+        too (a `notify` event naming it): a copy, never the owner's delivery, so the session
+        that sent the work still hears of it once. New since this session's last `copied`."""
+        rows = self._conn.execute(
+            "SELECT t.*, f.id AS finished_id, f.data AS finished_data FROM tasks t "
+            "JOIN events f ON f.id = (SELECT MAX(id) FROM events WHERE task_id = t.id AND kind = 'finished' "
+            "AND json_extract(data, '$.status') = t.status) "
+            "WHERE EXISTS (SELECT 1 FROM events n, json_each(n.data, '$.sessions') s WHERE n.task_id = t.id "
+            "AND n.kind = 'notify' AND s.value = ?) "
+            "AND t.status NOT IN ('queued', 'running') AND f.ts >= ? "
+            "AND f.id > COALESCE((SELECT MAX(id) FROM events WHERE task_id = t.id AND kind = 'copied' "
+            "AND json_extract(data, '$.session') = ?), 0) ORDER BY f.id LIMIT ?",
+            (session_id, (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds"),
+             session_id, limit))
+        return [{**dict(r), "finished_data": json.loads(r["finished_data"])} for r in rows]
+
+    def claim_copies(self, session_id: str, *, via: str) -> list[dict]:
+        """`unreported_copies`, marked delivered in the same transaction."""
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            copies = self.unreported_copies(session_id)
+            for t in copies:
+                self._conn.execute("INSERT INTO events (task_id, ts, kind, data) VALUES (?, ?, 'copied', ?)",
+                                   (t["id"], now(), json.dumps({"session": session_id, "via": via})))
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        return copies
 
     def claim_unreported(self, session_id: str, *, via: str) -> list[dict]:
         """Read and mark in one transaction: two deliverers at once (the Stop hook

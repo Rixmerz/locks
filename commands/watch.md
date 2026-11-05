@@ -51,6 +51,15 @@ A prompt you send is the person's word in that project, so:
 - What only a person may clear stays theirs: a refused command, an approval, a
   branch to merge, a dismissal. Tell them; do not ask a session to do it for them.
 
+## Hear the endings of work you asked for
+
+Endings go to the session that sent the work. When you ask a session to send
+work, ask it to pass `--notify <your session id>` to `locks run` or
+`locks queue add` (your id is `$CLAUDE_CODE_SESSION_ID` in your shell): you
+then get a copy of that task's ending at your next turn, marked as a copy,
+while that session still gets its own and acts on it. Decide with it through
+`SendMessage`; the copy gives you no claim on the task.
+
 ## Never
 
 - `locks endings` without `--peek`: an ending is delivered once, and it

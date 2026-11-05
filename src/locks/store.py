@@ -583,6 +583,16 @@ class Store:
             (move, reason, task_id, seq),
         )
 
+    def next_attempt(self, task_id: int) -> int:
+        """The number the task's next attempt takes: one past every attempt it kept and every one it
+        started, so an attempt whose worker died (started, never kept) is never numbered again and
+        the calls the tool log keeps under its number are never read as the next one's."""
+        kept = self._conn.execute("SELECT MAX(seq) FROM attempts WHERE task_id = ?", (task_id,)).fetchone()[0]
+        started = self._conn.execute(
+            "SELECT MAX(CAST(json_extract(data, '$.seq') AS INTEGER)) FROM events "
+            "WHERE task_id = ? AND kind = 'attempt_started'", (task_id,)).fetchone()[0]
+        return max(int(kept or 0), int(started or 0)) + 1
+
     def attempts(self, task_id: int) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM attempts WHERE task_id = ? ORDER BY seq", (task_id,)

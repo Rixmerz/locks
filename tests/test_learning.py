@@ -272,7 +272,7 @@ def test_a_worker_s_notes_used_are_kept_only_for_notes_its_brief_carried(git_rep
     key = repo.key(git_repo)
     note = store.add_note(key, "code", "Greeting", "The greeting prints hi", author="person", filed_by="person")
     store.add_anchor(note, "app.py")
-    done = dataclasses_replace(ok(), notes_used=(note, 999))
+    done = dataclasses_replace(ok(), notes_used=(note, 999), notes_said=True)
     report = run("Change the greeting in app.py", git_repo, store, registry={}, launcher=Script(done, write="app.py"),
                  classifier=kind("implement"))
     finished_attempt = store.events_of(report.task_id, "attempt_finished")[0]["data"]

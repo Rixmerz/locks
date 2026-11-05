@@ -160,6 +160,28 @@ def alive(pid: int | None) -> bool:
     return True
 
 
+def _lost_cost(store: Store, task: dict) -> None:
+    """What an attempt whose worker died spent, read from its worker's transcript
+    (`usage.running_cost`) and kept as an `attempt_lost` event and on the task's cost: a worker
+    that never wrote its result block still spent money, and a cost nobody read is never $0.
+    Unreadable is said as such (`cost_usd` None). Never fails the sweep."""
+    try:
+        from locks import usage
+
+        started = store.last_event(task["id"], "attempt_started")
+        ended = store.last_event(task["id"], "attempt_finished")
+        if started is None or (ended is not None and ended["id"] > started["id"]):
+            return
+        seq = (started.get("data") or {}).get("seq")
+        cost = usage.running_cost(task["id"], seq, since=started["ts"])
+        store.add_event(task["id"], "attempt_lost", seq=seq, cell=(started.get("data") or {}).get("cell"),
+                        cost_usd=round(cost, 4) if cost is not None else None)
+        if cost:
+            store.update_task(task["id"], cost_usd=round(float(task.get("cost_usd") or 0) + cost, 4))
+    except Exception:  # noqa: S110 - a death is recorded whatever its cost says
+        pass
+
+
 def sweep(store: Store, *, now: datetime | None = None, is_alive: Callable[[int | None], bool] = alive) -> list[int]:
     """Mark running tasks with no sign of life as interrupted. Returns their ids."""
     now = now or datetime.now(UTC)
@@ -181,6 +203,8 @@ def sweep(store: Store, *, now: datetime | None = None, is_alive: Callable[[int 
                 if task["source"] == "hook" else
                 stops.Stop("turn", "the session's subagent ended without its ending reaching locks")
                 if task["source"] == "delegation" else died(store, task["id"], gone))
+        if task["source"] == "locks":
+            _lost_cost(store, task)
         stops.record(store, task["id"], stop, pid=None, current_cell=None, result=task["source"] == "locks")
         if task["dispatched"]:
             store.pause_lane(task["repo"], f"task #{task['id']} stopped with no sign of life")

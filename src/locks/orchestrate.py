@@ -1569,8 +1569,9 @@ def run(
                 workdir)
             # A tool that acts answers to the loop the task is a round of, or to none.
             selection = caps.for_loop(selection, options.loop, home())
-            # Numbered as the store numbers it: a resumed task's attempts go on from its last.
-            nth = len(store.attempts(task["id"])) + 1
+            # Numbered as the store numbers it: a resumed task's attempts go on from its last, and
+            # from one whose worker died too (`Store.next_attempt`), so its calls stay its own.
+            nth = store.next_attempt(task["id"])
             fork = bool(resume) and decision is not None and decision.move is Move.MORE_EFFORT
             # A later attempt also reads the notes anchored to the files the work changed so far, which
             # the first brief could not name (`notes.anchored_to`).
@@ -1890,8 +1891,12 @@ def run(
                             **({"check_tail": result.check_tail} if result.check_tail else {}),
                             # The notes of its brief the worker says it relied on: observed, never a verdict;
                             # a number its brief never carried is left out.
-                            **({"notes_used": used_notes} if (used_notes := [
-                                n for n in result.notes_used if n in briefed_notes]) else {}),
+                            # Kept as `[]` when it said none helped, and `notes_unsaid` when its block left the
+                            # field out: a brief with notes whose worker said nothing is not "used none".
+                            **({"notes_used": [n for n in result.notes_used if n in briefed_notes]}
+                               if briefed_notes and result.notes_said else {}),
+                            **({"notes_unsaid": True} if briefed_notes and not result.notes_said
+                               and not result.shape else {}),
                             wall_s=round(worker_s, 2), duration_s=round(result.duration_s, 2),
                             check_s=round(check_s, 2), verifier_s=round(verifier_s, 2),
                             input_tokens=result.input_tokens, output_tokens=result.output_tokens,

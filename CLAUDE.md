@@ -1125,7 +1125,10 @@ yields the default kind, not a guess.
   and a resume repeats it. A stop that needs
   judgment or a person (review, permission, approval, a wrong task) is never resumed so. The analysis reads
   the time from an attempt that never finished to its run's end as `lost_s`, never
-  as other.
+  as other. What that attempt spent is read from its worker's transcript by the sweep (an
+  `attempt_lost` event, added to the task's cost; unreadable is kept as unknown, never $0), and
+  the next attempt takes a number past every one started (`Store.next_attempt`), so a dead
+  attempt's tool calls are never read as the next one's.
 - Each request is read for its way (`locks.route`, the `route` setting), with no model:
   the session itself (a turn, reading, what points back into the conversation), parts
   side by side (`PARALLEL_POINTS`, `PARALLEL_AREAS` or `PARALLEL_PIECES`), else the
@@ -1237,7 +1240,8 @@ yields the default kind, not a guess.
   notes, the brief's order is on trial (`notes.recall_arm`, the `recall_fusion` setting,
   `briefed.recall_arm`): reciprocal rank fusion of the two lists (`notes.fused`) against
   anchored first, kept where its arm passed first tries no less often. A worker names the
-  notes it relied on (`notes_used`); only notes its brief carried are kept, on
+  notes it relied on (`notes_used`, always asked; `[]` kept as none relied on, a block that left it
+  out kept as `notes_unsaid`); only notes its brief carried are kept, on
   `attempt_finished`, and `locks stats` shows them, observed, never a verdict or a trial.
   A current note a worker or a session filed that the first briefs of `notes.IDLE_AFTER` ended
   tasks carried since it last changed, none of whose workers named it, is a candidate again

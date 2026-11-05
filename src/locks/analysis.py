@@ -116,6 +116,10 @@ def runs(tasks: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]
                     current["brief_chars"] = data.get("brief_chars")
                     if (since := _number(data.get("since_start_s"))) is not None:
                         current["setup_s"] = round(max(since - (current["plan_s"] or 0), 0), 2)
+            elif kind == "attempt_lost":
+                # A worker that died never wrote its result: what its transcript says it spent (since 0.80).
+                current["lost_usd"] = round(current["lost_usd"] + (_number(data.get("cost_usd")) or 0), 4)
+                current["cost_usd"] += _number(data.get("cost_usd")) or 0
             elif kind == "attempt_finished":
                 current["_open_attempt"] = None
                 _attempt(current, data)
@@ -148,7 +152,7 @@ def _start(task: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
         "attempts": 0, "first_try": None, "verified": 0, "verifier_blocked": 0, "moves": [], "cells": [],
         "cost_usd": 0.0, "turns": 0, "input_tokens": 0, "output_tokens": 0, "refused": 0,
         "cache_read_tokens": 0, "measured_input_tokens": 0, "verifier_cost_usd": 0.0, "tokens": 0,
-        "livespec_handed": False, "livespec_calls": 0, "livespec_tools": {}, "livespec_offered": None,
+        "livespec_handed": False, "livespec_calls": 0, "livespec_tools": {}, "livespec_offered": None, "lost_usd": 0.0,
         "calls": 0, "failed_calls": 0, "check_runs": 0, "fix_cycles": 0, "calls_before_edit": None,
         "session_context": None, "session_chars": 0, "brief_chars": None,
         "_worker_s": 0.0, "_check_s": 0.0, "_verifier_s": 0.0, "_timed": False, "_check_usd": 0.0,
@@ -385,6 +389,8 @@ def notes_relied_on(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> 
     briefed: dict[int, set[int]] = {}
     used: dict[int, set[int]] = defaultdict(set)
     first: dict[int, bool] = {}
+    said: set[int] = set()
+    unsaid: set[int] = set()
     for e in events:
         tid = int(e["task_id"])
         if tid not in task_ids:
@@ -394,6 +400,10 @@ def notes_relied_on(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> 
             briefed[tid] = {int(n) for n in data[notes_mod.BRIEFED]}
         elif e["kind"] == "attempt_finished":
             used[tid] |= {int(n) for n in data.get("notes_used") or ()}
+            if data.get("notes_unsaid"):
+                unsaid.add(tid)
+            elif "notes_used" in data:
+                said.add(tid)
             first.setdefault(tid, bool(data.get("passed")))
     if not briefed:
         return None
@@ -403,6 +413,8 @@ def notes_relied_on(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> 
     relied = sum(len(used[t] & briefed[t]) for t in briefed)
     return {"tasks": len(briefed), "carried": carried, "relied_on": relied, "relied_rate": _share(relied, carried),
             "tasks_naming": len(named),
+            # Tasks whose workers left `notes_used` out (since 0.80): no answer, never "none relied on".
+            "tasks_unsaid": len({t for t in briefed if t in unsaid and t not in said}),
             "pass_first_naming": _share(sum(first.get(t, False) for t in named), len(named)),
             "pass_first_silent": _share(sum(first.get(t, False) for t in silent), len(silent))}
 
@@ -894,7 +906,9 @@ def text(report: Mapping[str, Any]) -> str:
             lines += ["", f"notes in briefs: {relied['tasks']} task(s) carried {relied['carried']}, workers said they "
                       f"relied on {relied['relied_on']} ({_rate(relied['relied_rate'])}); first tries passed "
                       f"{_rate(relied['pass_first_naming'])} where a worker named one, "
-                      f"{_rate(relied['pass_first_silent'])} where none did (observed)"]
+                      f"{_rate(relied['pass_first_silent'])} where none did (observed)"
+                      + (f"; {relied['tasks_unsaid']} task(s) whose workers did not say" if relied.get("tasks_unsaid")
+                         else "")]
         order = report.get("recall") or {}
         if any(side.get("tasks") for side in order.values()):
             lines += ["", "the order of a brief's notes (its trial; tasks, first tries passed):"]

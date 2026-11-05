@@ -230,8 +230,8 @@ When you are done, end your reply with exactly one fenced block:
   there: where the code for it lives (`path` and what it holds), the command
   that checks it, a trap you hit. Only what you used; never a secret. `[]`
   when you needed nothing.
-- `notes_used`: the numbers of the notes from this project's memory in your brief
-  (`#12`) that you relied on; `[]` when none helped or none were given.
+- `notes_used`: always present: the numbers of the notes from this project's memory
+  in your brief (`#12`) that you relied on; `[]` when none helped or none were given.
 - `constraints`: only when a check failed on this task (its output is above)
   and showed a rule the work must meet that nothing in the repository says (a
   policy, a limit, a case CI enforces): the rule in one line, and the check line
@@ -424,6 +424,8 @@ class WorkerResult:
     orientation: tuple[str, ...] = ()
     #: The project notes of its brief the worker says it relied on: observed, never a verdict.
     notes_used: tuple[int, ...] = ()
+    #: Whether its result block held `notes_used` at all: `[]` is none relied on, absent is unsaid.
+    notes_said: bool = False
     #: Rules a failing check of this task showed the work must meet (`notes.CONSTRAINT`).
     constraints: tuple[str, ...] = ()
     #: The one line the worker proposes as the commit's subject; "" when it gave none.
@@ -748,6 +750,7 @@ def parse(
     common["learned"] = learned(block)
     common["orientation"] = orientation(block)
     common["notes_used"] = notes_used(block)
+    common["notes_said"] = isinstance(block.get("notes_used"), list)
     common["constraints"] = learned({"learned": block.get("constraints")})
     common["commit"] = commit_subject(block)
     common["report"] = report_block(text)

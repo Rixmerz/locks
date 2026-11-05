@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-11-05
+
+### Fixed
+
+- **An attempt whose worker died keeps its number**: the next attempt was numbered from the
+  attempts kept, so it took the dead one's number and read its tool calls as its own. A field
+  task counted 133 calls in 8 turns, the calls of three dead runs and the one that passed. The
+  next attempt now takes a number past every attempt started (`Store.next_attempt`).
+- **What a dead worker spent is kept**: the sweep reads the dead attempt's cost from its
+  worker's transcript, keeps it as an `attempt_lost` event and adds it to the task's cost, and
+  `locks stats` counts it. A cost it cannot read is kept as unknown, never as $0.
+
+### Changed
+
+- **`notes_used` is recorded as said**: `[]` when the worker said no note helped, and
+  `notes_unsaid` when its result left the field out, so `locks stats` no longer reads a missing
+  answer as "relied on none". The result contract asks for the field always.
+
 ## [0.79.0] - 2026-11-05
 
 ### Fixed

@@ -27,7 +27,7 @@ import sys
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -418,6 +418,12 @@ AUTO_RESUMES = 1
 MECHANICAL = ("died", "turns", "network", "load", "limit")
 #: Only deaths this recent are resumed on their own: an upgrade never wakes old ones.
 AUTO_RESUME_WITHIN_S = 6 * 3600
+#: A death nobody could have seen (no worker started anywhere since: a machine or container that
+#: restarted, a laptop closed) is resumed past `AUTO_RESUME_WITHIN_S`, up to this old.
+AUTO_RESUME_ABSENT_S = 3 * 86400
+#: Automatic resumes of one stop that never took hold (died before their first attempt, as one
+#: started while the machine went down does) are not counted toward `AUTO_RESUMES`, up to this many.
+AUTO_RESUME_TRIES = 3
 #: A usage limit's resume waits this long past the reset its message named (a minute's word),
 #: or `LIMIT_UNKNOWN_S` past the stop when it named none. A limit met again after its reset is
 #: another wait, up to `LIMIT_RESUMES` of them, counted apart from the other causes' resume.
@@ -489,6 +495,19 @@ def _behind_trunk(task: Mapping[str, Any], ended: Mapping[str, Any] | None) -> s
         return isolate.behind_text(found) if found else None
     except Exception:
         return None
+
+
+def _took_hold(store: Store, task_id: int, resumes: list[dict]) -> int:
+    """How many of these automatic resumes reached an attempt (an `attempt_started` after them)."""
+    starts = [int(e["id"]) for e in store.events_of(task_id, "attempt_started")]
+    ids = [int(e["id"]) for e in resumes]
+    return sum(any(a > r and all(not (r < o < a) for o in ids) for a in starts) for r in ids)
+
+
+def _unseen(store: Store, since: float) -> bool:
+    """Whether no worker started anywhere since `since`: nobody was there to see a death then."""
+    when = datetime.fromtimestamp(since, UTC).isoformat()
+    return not store.events_of_kinds(["attempt_started"], since=when)
 
 
 def _claim_resume(store: Store, task_id: int, stop: Any, ended_id: int, behind: str | None = None) -> bool:
@@ -568,9 +587,10 @@ def recover(store: Store, root: Path, env: Mapping[str, str], *, popen: Callable
         if stop.extra.get("repeated"):
             continue  # it died of the same crash as before: a resume repeats it, the orchestrator decides
         limit = stop.cause == "limit"
-        done = [e for e in store.events_of(task["id"], "auto_resumed")
-                if ((e["data"] or {}).get("cause") == "limit") == limit]
-        if len(done) >= (LIMIT_RESUMES if limit else AUTO_RESUMES):
+        tried = [e for e in store.events_of(task["id"], "auto_resumed")
+                 if ((e["data"] or {}).get("cause") == "limit") == limit]
+        held = _took_hold(store, task["id"], tried)
+        if held >= (LIMIT_RESUMES if limit else AUTO_RESUMES) or len(tried) >= AUTO_RESUME_TRIES + held:
             continue
         try:
             due = _due(stop, datetime.fromisoformat(str((ended or {}).get("ts"))).timestamp())
@@ -580,7 +600,7 @@ def recover(store: Store, root: Path, env: Mapping[str, str], *, popen: Callable
             # The limit has not reset: a waiter resumes it then, nobody has to type.
             _wake_at(store, int(task["id"]), due, root, env, start)
             continue
-        if now - due > AUTO_RESUME_WITHIN_S:
+        if now - due > AUTO_RESUME_WITHIN_S and not (now - due <= AUTO_RESUME_ABSENT_S and _unseen(store, due)):
             continue
         if not _claim_resume(store, task["id"], stop, int((ended or {}).get("id") or 0), _behind_trunk(task, ended)):
             continue

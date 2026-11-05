@@ -1100,7 +1100,9 @@ yields the default kind, not a guess.
   outlasted locks' waits) is resumed once on its own before any session hears of it
   (`dispatch.recover`, from the hooks and `locks endings`: `locks resume --unattended`
   in the worktree it left, with more turns for one that outgrew them, within
-  `AUTO_RESUME_WITHIN_S`, at most `AUTO_RESUMES`, with `autowork` on). Its stop is no
+  `AUTO_RESUME_WITHIN_S`, or `AUTO_RESUME_ABSENT_S` when no worker started anywhere since (a restart nobody
+  saw), at most `AUTO_RESUMES` that reached an attempt, a resume that died before its first one not counted, up to
+  `AUTO_RESUME_TRIES`, with `autowork` on). Its stop is no
   ending handed to a session; a second one is the orchestrator's. A death names its crash: the last
   exception line its run wrote to its log (`flow.died`, `flow.crash_line`, from where that run began in
   `work/task-N.log`, which the dispatcher's runs and an automatic resume both write, the offset kept in

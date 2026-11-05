@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.77.0] - 2026-11-05
+
+### Fixed
+- A language's rules skill a role carries whole reaches only a repository that holds that language's files, as an on-demand one already did: a Rust repository's briefs no longer carry eight other languages' rules in their system prompt.
+- A worker that died while nobody could see it (a container restart: no worker started since) is resumed on its own past the six-hour window, up to three days; an automatic resume that died before its first attempt no longer spends the one resume a death gets.
+
+### Added
+- The `briefed` event keeps each adopted neighbour's state (livespec present, absent, stale, with why), so a brief without livespec's orientation says why.
+
 ## [0.76.0] - 2026-11-04
 
 ### Fixed

@@ -1433,6 +1433,10 @@ def run(
                     context_chars=sum(len(line) for line in context), kind=the_plan.kind,
                     system_chars=len(worn_brief.system_prompt) if worn_brief is not None else 0,
                     skills=len(worn_brief.skills) if worn_brief is not None else 0,
+                    # Each adopted neighbour's state when this brief was written: a brief with no
+                    # livespec orientation says why (absent, stale, unreadable), never left to guess.
+                    **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
+                                       for st in the_plan.neighbours}} if the_plan.neighbours else {}),
                     **primed, **worn, **trunked, **evidenced,
                     **methodical, **(the_plan.recalled or {}),
                     **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),

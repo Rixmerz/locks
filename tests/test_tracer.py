@@ -122,7 +122,7 @@ def test_a_check_that_has_layout_inspector_is_told_which_tool_measures_each_floo
     assert "accessibility_spatial" in _beside(told, "44 px target")
     assert "detect_issues" in _beside(told, "never overflows")
     assert "compare_viewports" in _beside(told, "every breakpoint")
-    assert "no tool measures it" in _beside(told, "WCAG contrast")
+    assert "check_design_system" in _beside(told, "WCAG contrast")
     assert "accessibility_spatial" not in _beside(told, "WCAG contrast")
     assert "2 of the floor and anti-pattern lines name nothing layout-inspector measures" in told
     assert "storage key or UUID" in told  # the catalogue's own line is still the check's to hold

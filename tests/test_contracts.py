@@ -296,3 +296,16 @@ def test_the_livespec_tools_a_brief_offered_are_what_stats_read_back(store):
     events = store.events_of_kinds(["planned", "briefed", "attempt_finished", "finished"])
     offer = analysis.livespec_offer(analysis.runs([store.get_task(task["id"])], events))
     assert offer["tools"] == {"search_specs": {"offered": 1, "called": 0}, "who_calls": {"offered": 1, "called": 1}}
+
+
+def test_the_sessions_a_task_notifies_are_the_ones_that_hear_its_copy(store, monkeypatch):
+    """`--notify` writes a `notify` event when the task is created; the copies reader reads it."""
+    from locks.store import NOTIFY_ENV
+
+    monkeypatch.setenv(NOTIFY_ENV, "supervisor")
+    task = store.create_task("x", status="running", source="queue", session_id="owner")
+    monkeypatch.delenv(NOTIFY_ENV)
+    store.update_task(task["id"], status="done")
+    store.add_event(task["id"], "finished", status="done")
+    assert [t["id"] for t in store.unreported_copies("supervisor")] == [task["id"]]
+    assert store.unreported_copies("owner") == []

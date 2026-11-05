@@ -782,6 +782,13 @@ def _endings(store: Store, session_id: str, *, via: str) -> str | None:
     this session started that stopped is told here too, once (`locks.loops`)."""
     told = endings(store, session_id, claim=via)[0]
     try:
+        copied = copies(store, session_id, claim=via)[0]
+    except Exception:  # a copy that cannot be read never costs the session its own endings
+        note_error(home(), "copies")
+        copied = None
+    if copied:
+        told = f"{told}\n\n{copied}" if told else copied
+    try:
         from locks import loops
 
         stopped = loops.endings(session_id)
@@ -975,6 +982,26 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
     if paused:
         lines += ["", paused]
     return "\n".join(lines), [t["id"] for t in ended]
+
+
+COPIES_HEADER = ("locks: work another session sent for you has ended (a copy: that session heard it too and acts "
+                 "on it; decide with it, through SendMessage, never with a resume or dismissal of your own unless "
+                 "the person asked).")
+
+
+def copies(store: Store, session_id: str, *, claim: str | None = None) -> tuple[str | None, list[int]]:
+    """Endings of work other sessions sent with `--notify` naming this one, in a notice of
+    their own: one line each, its verdict or stop, and which session owns it."""
+    got = store.claim_copies(session_id, via=claim) if claim else store.unreported_copies(session_id)
+    if not got:
+        return None, []
+    lines = [COPIES_HEADER]
+    for t in got:
+        stop = stops.view(store, t) if t["status"] != "done" else None
+        why = f": {stop['reason']}" if stop and stop.get("reason") else ""
+        lines.append(f"#{t['id']} [{t['status']}] {t['title']} — sent by session {t.get('session_id') or '?'}"
+                     f" in {t.get('repo') or '?'}{why}")
+    return "\n".join(lines), [t["id"] for t in got]
 
 
 def session_split(store: Store, session_id: str) -> str | None:

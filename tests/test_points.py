@@ -126,3 +126,27 @@ def test_the_realized_size_sums_what_was_measured():
     assert large.points == 13
     # what git could not say is left out, never guessed
     assert realized(files=3, lines=None, turns=0, minutes=None, attempts=1) == Score(2, ("3 files",))
+
+
+def test_a_request_that_asks_for_it_everywhere_is_larger():
+    from locks import points
+    from locks import risk as risk_mod
+
+    one = points.of_request("remove the legacy banner from the dashboard", "feature", risk_mod.Risk("medium"))
+    every = points.of_request("remove the legacy banner everywhere", "feature", risk_mod.Risk("medium"))
+    assert every.points > one.points
+    assert any("everywhere" in r for r in every.reasons)
+    assert points.sweeping("quita el banner en todas las pantallas")
+    assert points.sweeping("fix the typo in the header") is None
+
+
+def test_a_large_task_starts_on_more_turns_after_one_that_outgrew_them():
+    from locks.escalate import Failure
+    from locks.matrix import turns_for
+    from locks.orchestrate import turns_from_history
+
+    own = turns_for("feature")
+    runs = [[(own, False, Failure.TURNS_EXHAUSTED.value), (own + 30, True, None)]]
+    assert turns_from_history(runs, "feature") is None
+    turns, why = turns_from_history(runs, "feature", large=True)
+    assert turns == own + 30 and "needed more" in why

@@ -538,8 +538,8 @@ yields the default kind, not a guess.
   (`Store.landings`, `""`), or a start history raised keeps every later task as high; a
   reading kind's pass is its answer, so its landings count where they passed. So may it
   raise the turns it starts with: when at least
-  `orchestrate.MIN_TURN_SAMPLES` recent tasks of its kind here ran out at the
-  kind's turns and passed with more, it starts at the median those passes
+  `orchestrate.MIN_TURN_SAMPLES` recent tasks of its kind here (one, for a task of
+  `orchestrate.LARGE_POINTS` or more) ran out at the kind's turns and passed with more, it starts at the median those passes
   needed (capped at `escalate.MAX_TURNS_CEILING`), and the plan says so. An
   explicit `--max-turns` wins. A calibrated standard (below) takes the place of
   these rules for its band, and may lower the start cell, never below the
@@ -550,7 +550,8 @@ yields the default kind, not a guess.
   estimated when it is planned by a pure function of what the plan knows
   (`points.estimate`: its criteria, kind, risk tier and the areas that raised
   it, the files and surfaces it names, the symbols livespec says it reaches when
-  the index is readable, and its length, which weighs one at most), kept with
+  the index is readable, its length, which weighs one at most, and words that ask for the change
+  everywhere, `points.sweeping`), kept with
   its reasons on the task and its `planned` event. Its realized size, on the
   same scale, is read when it ends from git and its attempts (files, the lines
   its kept branch holds, turns, wall time, attempts), never from the worker,
@@ -1093,8 +1094,10 @@ yields the default kind, not a guess.
 - A build (`feature`, `implement`) that lists `route.SPLIT_ITEMS` items or more (in `SPLIT_WORDS`
   words or more), is the
   largest size, or names `PARALLEL_PIECES` pieces in folders of their own is several
-  tasks: `locks run` and `locks queue add` start nothing and exit `EXIT_SPLIT` with how
-  to split it (`route.split_first`, pure); `--whole` is the session's word that it is one.
+  tasks (`route.split_first`, pure): with `autosplit` (on by default) `locks run` and `locks queue
+  add` split it and queue its pieces as `locks split --queue` does (`cli._split_and_queue`); off,
+  or when no piece is proposed, they start nothing and exit `EXIT_SPLIT` with how to split it.
+  `--whole` is the session's word that it is one. Tests run with `LOCKS_AUTOSPLIT=off`.
 - An ending names other work in its repository (running, or a kept branch of the last
   `hooks.OVERLAP_DAYS`) that changed the same files: merging both conflicts there. Said,
   never acted on; steps of one run are never named.
@@ -1555,7 +1558,11 @@ yields the default kind, not a guess.
   neighbour's hint names is in its `tools`. A registry entry that shadows a
   neighbour and sets neither `touches` nor `measures` takes the neighbour's
   (`capabilities._inherit`); what a registry shadows or fetches unpinned is
-  said once at SessionStart, never refused. rastro runs with `--routines=off`
+  said once at SessionStart, never refused. A neighbour that drives Playwright's Chromium
+  (`Neighbour.browser`: layout-inspector, rastro) is not handed on a machine with none
+  (`plugins.browser_found`: `LAYOUT_INSPECTOR_CHROMIUM`, `PLAYWRIGHT_BROWSERS_PATH` or the platform's
+  cache), and the plan says why with the install line; `LOCKS_BROWSER_CHECK=off` skips the look,
+  as the tests do. rastro runs with `--routines=off`
   and behind `mcp_guard`, which enforces what its hint asks: no browser
   profile, no saved routine, writes and uploads to loopback hosts only, every
   call in its own session. A policy that matters is enforced there, never only

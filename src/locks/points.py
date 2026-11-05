@@ -99,8 +99,26 @@ def corrected(score: Score, kind: str, ratio: float | None, samples: int) -> Sco
                                       f"(median of {samples}): one step up"))
 
 
+#: Words that ask for a change across the whole product, not in one place: the work reaches every
+#: occurrence, which no list of symbols names up front (two 8- and 13-point builds ran out of turns on
+#: their first try with "remove … everywhere" in their request). Spanish because people type it.
+_SWEEPING = re.compile(
+    r"\b(everywhere|across (the )?(whole |entire )?(app|codebase|repo(sitory)?|project|product|site)|"
+    r"(all|every) (the )?(screens?|pages?|views?|files?|components?|places|occurrences|usages|uses)|"
+    r"wherever it (appears|is used)|"
+    r"en todas? (las? )?(partes|pantallas|p[aá]ginas|vistas|archivos|componentes)|"
+    r"en todo el (proyecto|c[oó]digo|repo(sitorio)?|sitio)|en toda la (app|aplicaci[oó]n))\b", re.I)
+SWEEPING_WEIGHT = 2
+
+
+def sweeping(text: str) -> str | None:
+    """The words with which a request asks for a change everywhere, if it does."""
+    found = _SWEEPING.search(text)
+    return found.group(0) if found else None
+
+
 def estimate(*, criteria: int, kind: str, tier: str, areas: Sequence[tuple[str, str]], named: int,
-             reached: int | None, chars: int) -> Score:
+             reached: int | None, chars: int, sweep: str | None = None) -> Score:
     """A task's size before the work, from the plan's signals. `reached` is None when no
     readable index said it: then it says nothing, rather than zero."""
     weight, reasons = 0, []
@@ -119,6 +137,7 @@ def estimate(*, criteria: int, kind: str, tier: str, areas: Sequence[tuple[str, 
     add(_weight(named, NAMED_WEIGHTS), f"names {named} files")
     add(_weight(reached or 0, REACHED_WEIGHTS), f"reaches {reached} symbols")
     add(1 if chars >= LONG_CHARS else 0, f"long request ({chars} chars)")
+    add(SWEEPING_WEIGHT if sweep else 0, f"asks for it everywhere ({sweep!r})")
     return Score(on_scale(weight), tuple(reasons))
 
 
@@ -131,7 +150,7 @@ def of_request(text: str, kind: str, risk: risk_mod.Risk, *, surfaces: Sequence[
                reached: int | None = None) -> Score:
     """The estimate a plan makes of its request."""
     return estimate(criteria=len(criteria_mod.items(text)), kind=kind, tier=risk.tier, areas=risk_mod.areas(risk),
-                    named=len(named(text, surfaces)), reached=reached, chars=len(text))
+                    named=len(named(text, surfaces)), reached=reached, chars=len(text), sweep=sweeping(text))
 
 
 def realized(*, files: int, lines: int | None, turns: int, minutes: float | None, attempts: int) -> Score:

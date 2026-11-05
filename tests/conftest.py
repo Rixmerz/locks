@@ -23,7 +23,7 @@ SWITCHES = (
     "LOCKS_PROBATION", "LOCKS_EVIDENCE", "LOCKS_NOTE_TRIALS", "LOCKS_METHODS", "LOCKS_RECALL_FUSION",
     "LOCKS_RACE", "LOCKS_ROUTE", "LOCKS_PRIMER", "LOCKS_TRUNK", "LOCKS_OVERLAP", "LOCKS_LATE_VERIFIER",
     "LOCKS_LEAN", "LOCKS_ROLE_TRIALS", "LOCKS_HABIT_REVIEW", "LOCKS_HABIT_AUTO", "LOCKS_ENGRAM",
-    "LOCKS_ENGRAM_WRITE", "LOCKS_TRACE", "LOCKS_NOTES_FORK",
+    "LOCKS_ENGRAM_WRITE", "LOCKS_TRACE", "LOCKS_NOTES_FORK", "LOCKS_AUTOSPLIT",
 )
 
 
@@ -45,6 +45,8 @@ def _isolated_home(tmp_path: Path, tmp_path_factory: pytest.TempPathFactory,
     monkeypatch.setenv("LOCKS_LIVESPEC", "off")
     # And a task never waits on an index before its worker: a test that wants the wait sets it.
     monkeypatch.setenv("LOCKS_LIVESPEC_WAIT", "0")
+    # A browser neighbour is handed as if the machine had Chromium: a test that wants the check sets it.
+    monkeypatch.setenv("LOCKS_BROWSER_CHECK", "off")
     # Every adaptive setting is off: a test that wants one turns it on with a fake. Under
     # `LOCKS_TEST_ALL_ON=1` they stay as a person gets them (on, as their defaults say), with the
     # fake `claude` first on PATH: the profile where features meet, as they do in real use.

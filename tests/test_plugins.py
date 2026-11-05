@@ -145,3 +145,20 @@ def test_capabilities_and_neighbours_say_where_each_comes_from(capsys, git_repo)
     config.save({"plugins": False})
     assert cli.main(["capabilities"]) == 0
     assert "installed plugins are left out" in capsys.readouterr().out
+
+
+def test_a_browser_neighbour_is_not_handed_without_a_chromium(tmp_path, monkeypatch):
+    from locks import plugins
+
+    monkeypatch.delenv("LOCKS_BROWSER_CHECK", raising=False)
+    monkeypatch.delenv("LAYOUT_INSPECTOR_CHROMIUM", raising=False)
+    empty = tmp_path / "browsers"
+    empty.mkdir()
+    env = {"HOME": str(tmp_path), "PLAYWRIGHT_BROWSERS_PATH": str(empty)}
+    assert not plugins.browser_found(env)
+    (empty / "chromium-1243").mkdir()
+    assert plugins.browser_found(env)
+    assert plugins.browser_found({"HOME": str(tmp_path), "LOCKS_BROWSER_CHECK": "off"})
+    chrome = tmp_path / "chrome"
+    chrome.write_text("")
+    assert plugins.browser_found({"HOME": str(tmp_path), "LAYOUT_INSPECTOR_CHROMIUM": str(chrome)})

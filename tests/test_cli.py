@@ -1465,6 +1465,7 @@ def test_run_and_queue_add_ask_a_build_of_many_items_split_and_start_nothing(git
            "- a quiz per module and a final exam module\n- submodules the server locks, by 403 or a locked state\n"
            "- the start screen with the calendar the API returns\n- the questions and answers forum\n"
            "- the library of resources, with links")
+    monkeypatch.setenv("LOCKS_AUTOSPLIT", "off")
     started = []
     monkeypatch.setattr(orchestrate, "run", lambda *a, **kw: started.append(a) or (_ for _ in ()).throw(
         AssertionError("started")))
@@ -1480,6 +1481,22 @@ def test_run_and_queue_add_ask_a_build_of_many_items_split_and_start_nothing(git
         store.close()
     # --whole is the session's word that it is one task
     assert cli.main(["queue", "add", big, "--repo", str(git_repo), "--whole"]) == 0
+
+
+def test_with_autosplit_a_request_that_is_several_tasks_is_split_and_queued(git_repo, capsys, monkeypatch):
+    big = ("Implement the student side:\n- the opinion form and grade before each quiz opens\n"
+           "- a quiz per module and a final exam module\n- submodules the server locks, by 403 or a locked state\n"
+           "- the start screen with the calendar the API returns\n- the questions and answers forum\n"
+           "- the library of resources, with links")
+    monkeypatch.setenv("LOCKS_AUTOSPLIT", "on")
+    split_with = []
+    monkeypatch.setattr(cli, "cmd_split", lambda a: split_with.append(a) or 0)
+    assert cli.main(["queue", "add", big, "--repo", str(git_repo)]) == 0
+    assert split_with and split_with[0].queue and split_with[0].target == big
+    assert "splitting it and queueing its pieces" in capsys.readouterr().err
+    # nothing proposed: it stops as before and says how to split it
+    monkeypatch.setattr(cli, "cmd_split", lambda a: 1)
+    assert cli.main(["queue", "add", big, "--repo", str(git_repo)]) == cli.EXIT_SPLIT
 
 
 def test_a_dismissal_or_a_resume_of_a_task_in_another_state_says_what_it_takes(store, capsys, tmp_path):

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-11-05
+
+- A request that asks for its change everywhere ("everywhere", "all screens", "en todas las
+  pantallas") is estimated larger (`points.sweeping`): two builds that asked for it ran out of
+  turns on their first try.
+- A task of 8 points or more starts on the turns an earlier task of its kind here needed after it
+  outgrew them, from one such task instead of two.
+- `autosplit` (on by default): a build `locks run` or `locks queue add` reads as several tasks is
+  split and its pieces queued, instead of stopping with `EXIT_SPLIT`; `--whole` still runs it as one.
+- layout-inspector and rastro are not handed to a worker on a machine with no Playwright Chromium:
+  every call would fail and cost an attempt. The plan says so with the install line.
+
 ## [0.82.0] - 2026-11-05
 
 - A compaction the orchestrating session asked for is no longer buried by

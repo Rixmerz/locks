@@ -1,6 +1,6 @@
 {
   "name": "locks",
-  "version": "0.82.0",
+  "version": "0.83.0",
   "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
   "author": {
     "name": "Rixmerz"
@@ -103,6 +103,12 @@
       "type": "boolean",
       "title": "Race the next rung on a hard start",
       "description": "Where a kind's start rarely passes its first try in this repository (under half, over at least four), its first try runs beside the next rung, each in its own worktree; the first to pass its check is kept and the other stopped. It costs a second worker and saves the climb's wait. Off: one try at a time.",
+      "default": true
+    },
+    "autosplit": {
+      "type": "boolean",
+      "title": "Split a request that is several tasks",
+      "description": "A build that lists many items, is the largest size or names several pieces in their own folders is split into its pieces and they are queued, each with its own surfaces, side by side where they cannot touch and one after another where one builds on another. Off: locks stops and says how to split it. `--whole` runs it as one task either way.",
       "default": true
     },
     "route": {

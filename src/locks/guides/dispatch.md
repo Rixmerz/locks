@@ -23,7 +23,9 @@ when `locks` alone is not found (exit 127 — an older Claude Code, or a
 session opened before the plugin was installed), call it by that path. Never
 do the work by hand because the command did not resolve.
 
-Run it in the background when it may take a while: it prints its task
+Run it in the background when it may take a while, with the Bash tool's own
+background run, or `--detach`: never with a trailing `&`, whose child dies with
+the call's shell. It prints its task
 number and each attempt on stderr as they happen, and its report when it
 stops. A `warning:` line (no browser, servers that must be running) means
 the task as written will not get far: say so to the person before waiting

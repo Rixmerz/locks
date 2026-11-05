@@ -395,3 +395,16 @@ def test_a_task_resumed_on_its_own_after_its_work_landed_is_suspect(store: Store
     old = died_resumed_landed("0.65.0")
     found = rules(store, now=LATER, alive=lambda pid: True)["resumed-after-it-landed"]
     assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, now), (doctor.FIXED, old)]
+
+
+def test_compaction_advice_given_twice_in_one_prompt_is_suspect(store: Store):
+    prompt = store.create_task("a turn", status="done", source="hook", session_id="s", repo="r")
+    for decision in (1, 2):
+        store.add_event(prompt["id"], "compaction_delivered", decision=decision, how="advise", locks="0.82.0")
+    once = store.create_task("another turn", status="done", source="hook", session_id="s", repo="r")
+    store.add_event(once["id"], "compaction_delivered", decision=3, how="advise", locks="0.82.0")
+    old = store.create_task("an old turn", status="done", source="hook", session_id="s", repo="r")
+    for decision in (4, 5):
+        store.add_event(old["id"], "compaction_delivered", decision=decision, how="advise", locks="0.81.0")
+    found = rules(store, now=LATER, alive=lambda pid: True)["advised-again-in-a-prompt"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, prompt["id"]), (doctor.FIXED, old["id"])]

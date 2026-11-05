@@ -646,3 +646,37 @@ def test_locks_compaction_request_then(store: Store, git_repo, capsys):
     assert cli.main(["compaction", "request", "--session", "s1", "--cwd", str(git_repo), "--why", "done",
                      "--then", "start the export", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["then"] == "start the export"
+
+
+def _own(store: Store, base: dict) -> int:
+    """Another decision of locks' own, after whatever came before."""
+    task = store.last_prompt_task("s1")
+    return store.add_event(task["id"], compaction.DECIDED, **{**base, "id": None})
+
+
+def test_what_the_session_asked_for_is_not_buried_by_a_later_decision_of_locks(store: Store, pending_decision):
+    asked = compaction.request(store, home(), session_id="s1", cwd=pending_decision["cwd"], why="done with E5")
+    _own(store, pending_decision)
+    _own(store, pending_decision)
+    got = step(store, "orchestrator")
+    assert got["action"] == "submit" and got["decision"] == asked["id"]
+
+
+def test_nothing_is_advised_over_a_compaction_the_session_asked_for_while_it_runs(store: Store, pending_decision):
+    compaction.request(store, home(), session_id="s1", cwd=pending_decision["cwd"], why="done")
+    assert step(store, "orchestrator")["action"] == "submit"
+    for _ in range(3):  # locks keeps deciding while the context is full
+        _own(store, pending_decision)
+        assert step(store, "orchestrator") == {"action": None}
+
+
+def test_locks_advises_at_most_once_per_prompt_of_the_person(store: Store, pending_decision):
+    assert step(store, "orchestrator")["action"] == "advise"
+    _own(store, pending_decision)
+    assert step(store, "orchestrator") == {"action": None}
+    before = store.last_prompt_task("s1")["id"]
+    hooks.user_prompt_submit({"session_id": "s1", "prompt": "now merge the filters", "prompt_id": "p2",
+                              "cwd": pending_decision["cwd"]}, store)  # the person speaks again
+    assert store.last_prompt_task("s1")["id"] != before
+    _own(store, pending_decision)
+    assert step(store, "orchestrator")["action"] == "advise"

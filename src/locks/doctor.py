@@ -69,6 +69,7 @@ FIXED_IN = {
     "died-after-a-pass": "0.63.0",
     "resumed-after-it-landed": "0.66.0",
     "swept-before-its-pid": "0.66.0",
+    "advised-again-in-a-prompt": "0.82.0",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -767,6 +768,30 @@ def swept_before_its_pid(store: Store, *, since: str | None, **_) -> Iterable[Fi
         yield _history("swept-before-its-pid", sorted(set(before)), None)
 
 
+def advised_again_in_a_prompt(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """locks' own compaction advice delivered more than once in one prompt of the person's, or
+    over a compaction the session asked for that had not finished: each one a turn at a full
+    context (`compaction.pending`, `_advised_this_prompt`)."""
+    advised: dict[int, list[dict]] = {}
+    for event in store.events_of_kinds(["compaction_delivered"], since=since):
+        if event["data"].get("how") == "advise":
+            advised.setdefault(event["task_id"], []).append(event)
+    before: list[int] = []
+    for task_id, events in advised.items():
+        if len(events) < 2:
+            continue
+        if _fixed("advised-again-in-a-prompt", events[-1]["data"].get("locks")):
+            before.append(task_id)
+            continue
+        task = store.get_task(task_id)
+        yield Finding("advised-again-in-a-prompt", SUSPECT,
+                      f"compaction advice was delivered {len(events)} times in the prompt of #{task_id}",
+                      "nothing to do now: say it to locks' maintainers with `locks trace`'s compaction events",
+                      task_id, task["repo"] if task else None)
+    if before:
+        yield _history("advised-again-in-a-prompt", sorted(before), None)
+
+
 RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     lanes_paused_on_ended, running_with_no_process, queued_with_no_dispatcher, held_behind_gone, wait_judged_on_gone,
     resumes_that_never_ran,
@@ -774,7 +799,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     format_failures_that_climbed, fix_rounds_off_their_base, candidates_on_trial_at_once, revisions_judged_twice,
     trials_never_sampled, notes_proven_unbriefed, preexisting_that_was_not, problems_open_after_pass,
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
-    swept_before_its_pid, indexes_not_ready, specs_with_no_code,
+    swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
 )
 
 

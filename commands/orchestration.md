@@ -59,8 +59,8 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`.
    directly skips what the script adds (coverage thresholds, a config), and
    the plan warns when it does. A worker's own claim of success is not
    evidence. Write the task in full: the worker gets the person's words, none
-   of your reasoning. Run it in the background when it may take a while and
-   read `task #N started` before saying it runs; never pipe it through `tail`
+   of your reasoning. Run it in the background (the Bash tool's, never `&`,
+   whose child dies with the shell) and read `task #N started` before saying it runs; never pipe it through `tail`
    or `grep`. Queue what can wait (`locks queue add`, or `--detach`). When the
    `mcp__locks__*` tools are in your list, use `queue`, `tasks`, `resume`,
    `recall` and `note` instead. If `locks` is not found, call

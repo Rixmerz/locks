@@ -1327,3 +1327,14 @@ def test_carries_work_only_for_a_check_failure_on_changed_files():
                                                 check_tail="FAILED test_a"))
     assert not orchestrate.carries_work(Attempt(cell, 40, False, Failure.CODE_BUG, "", changed=("a.py",)))
     assert not orchestrate.carries_work(Attempt(cell, 40, False, Failure.CODE_BUG, "", check_tail="x"))
+
+
+def test_a_broad_change_is_high_whatever_its_tests():
+    from locks import risk as risk_mod
+
+    changed = [f"src/feature/part{i}.ts" for i in range(risk_mod.WIDE_FILES)] + ["src/feature/part.test.ts"]
+    got = risk_mod.of_change(risk_mod.Risk("passive"), changed)
+    assert got.tier == "high"
+    assert any("broad change" in r for r in got.reasons)
+    narrow = risk_mod.of_change(risk_mod.Risk("passive"), [*changed[:3], "src/feature/part.test.ts"])
+    assert narrow.tier == "medium"

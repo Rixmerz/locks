@@ -700,21 +700,51 @@ def _learn(root: Path, version: str, verdict: str, decision_id: int) -> str | No
 
 def pending(store: Store, session_id: str, at: datetime) -> dict[str, Any] | None:
     """The latest decision to compact now that was not delivered, while its
-    cache is warm and nothing compacted since."""
-    events = store.session_events(session_id, (DECIDED, DELIVERED, SEEN),
+    cache is warm and nothing compacted since. A decision the session asked for
+    (`requested`) goes first, whatever locks decided after it: a later decision of
+    locks' own never buries it. While one it asked for was delivered and nothing says it
+    finished (no compaction seen, no answer settled), locks advises nothing over it."""
+    events = store.session_events(session_id, (DECIDED, DELIVERED, SEEN, SETTLED),
                                   since=_iso(at - timedelta(seconds=CACHE_TTL_LONG_S)))
-    latest = None
+    latest = asked = None
+    in_flight: set[int] = set()
     for event in events:
-        if event["kind"] == DECIDED and event["data"].get("now"):
+        data = event["data"]
+        if event["kind"] == DECIDED and data.get("now"):
             latest = event
-        elif latest and (event["kind"] == SEEN or event["data"].get("decision") == latest["id"]):
-            latest = None
-    if latest is not None and latest["data"].get("requested"):
-        return latest  # the session judged the moment: no cache check overrules it
+            if data.get("requested"):
+                asked = event
+        elif event["kind"] == SEEN:
+            latest = asked = None
+            in_flight.clear()
+        elif event["kind"] == SETTLED:
+            in_flight.discard(data.get("decision"))
+        elif event["kind"] == DELIVERED:
+            if asked and data.get("decision") == asked["id"]:
+                in_flight.add(asked["id"])
+                asked = None
+            if latest and data.get("decision") == latest["id"]:
+                latest = None
+    if asked is not None:
+        return asked  # the session judged the moment: no cache check overrules it
+    if in_flight:
+        return None  # what the session asked for is running or about to: advise nothing over it
     warm_until = _stamp((latest or {}).get("data", {}).get("warm_until"))
     if latest is None or warm_until is None or at > warm_until - timedelta(seconds=WARM_MARGIN_S):
         return None
     return latest
+
+
+def _advised_this_prompt(store: Store, session_id: str) -> bool:
+    """Whether locks already advised this session since the person's last prompt: its own
+    advice reaches the session at most once per prompt, never once per notice it gets."""
+    prompt = store.last_prompt_task(session_id)
+    if prompt is None:
+        return False
+    # A decision is kept on the prompt's own task, so its delivery is too: seconds are too coarse.
+    since = str(prompt.get("created_at") or "")
+    return any(e["data"].get("how") == "advise" and e["task_id"] == prompt["id"]
+               for e in store.session_events(session_id, (DELIVERED,), since=since))
 
 
 def next_step(store: Store, root: Path, session_id: str, *, version: str, mode: str,
@@ -752,10 +782,15 @@ def next_step(store: Store, root: Path, session_id: str, *, version: str, mode: 
         ignored = (builds(root).get(version) or {}).get("verdict") == IGNORED
         requested = bool(found["data"].get("requested"))
         if mode == "orchestrator" and not requested:
+            if _advised_this_prompt(store, session_id):
+                return out  # advised once since the person last spoke: never again per notice
             how = "advise"
         else:
             how = "submit" if (mode == "auto" or requested) and not ignored else "suggest"
-        store.add_event(found["task_id"], DELIVERED, decision=found["id"], how=how, version=version, mode=mode)
+        from locks import __version__
+
+        store.add_event(found["task_id"], DELIVERED, decision=found["id"], how=how, version=version, mode=mode,
+                        locks=__version__)
     if how == "advise":
         out.update(action=how, decision=found["id"], advice=advice(found))
         return out

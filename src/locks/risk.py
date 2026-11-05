@@ -254,6 +254,11 @@ def path_matches(path: str, patterns: Iterable[str]) -> bool:
 _matches = path_matches
 
 
+#: Code files one change touches past which it is read as broad, whatever else it is: a change of 86
+#: files that removed a feature passed as medium with no independent check (#3281 of a field report).
+WIDE_FILES = 40
+
+
 def of_change(risk: Risk, changed: Sequence[str] | None) -> Risk:
     """The tier raised by what an attempt changed. None means it could not be read."""
     if changed is None:
@@ -270,6 +275,8 @@ def of_change(risk: Risk, changed: Sequence[str] | None) -> Risk:
                               "and no test beside it")
     elif code:
         risk.raise_to("medium", "it changed code and its tests")
+    if len(code) >= WIDE_FILES:
+        risk.raise_to("high", f"it changed {len(code)} files of code, a broad change")
     if changed and all(PurePosixPath(p).suffix.lower() in _DOCS for p in changed):
         risk.reasons.append("it changed documentation only")
     return risk

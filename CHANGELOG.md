@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.82.0] - 2026-11-05
+
+- A compaction the orchestrating session asked for is no longer buried by
+  locks' own later decisions: it is the one delivered, and while it runs
+  locks advises nothing over it. locks' own advice reaches a session at most
+  once per prompt of the person's, even from 90% of the context, where it used
+  to repeat with every notice (three in 30 seconds in a field report). A
+  doctor rule, `advised-again-in-a-prompt`, finds it if it comes back.
+- A change of `risk.WIDE_FILES` (40) or more code files is high risk, so the
+  independent check reads it: a change of 86 files that removed a feature
+  passed as medium with none.
+- The `briefed` event says whether livespec's index describes the worker's
+  directory or the person's checkout (`livespec_index_of`), so a worker that
+  never calls livespec can be read against it.
+- The orchestration skill and the dispatch guide say never to background
+  `locks` with a trailing `&`: its child dies with the call's shell.
+
 ## [0.81.0] - 2026-11-05
 
 - A supervising session hears a copy of the endings of work it asked other

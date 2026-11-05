@@ -1438,6 +1438,10 @@ def run(
                     **({"livespec_tools": sorted(handed)} if (handed := next(
                         (a.worker_tools(the_plan.kind, st) for a, st in the_plan.active
                          if hasattr(a, "worker_tools")), None)) is not None else {}),
+                    # livespec's index describes the person's checkout; a worker in a worktree edits
+                    # a copy of it, so what the index answers is the base, not its own work so far.
+                    **({"livespec_index_of": "checkout" if workdir.resolve() != repo_dir.resolve() else "workdir"}
+                       if handed is not None else {}),
                     **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                        for st in the_plan.neighbours}} if the_plan.neighbours else {}),
                     **primed, **worn, **trunked, **evidenced,

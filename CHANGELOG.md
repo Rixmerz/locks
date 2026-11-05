@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`/locks:insight` looks for causes, not counts**: each gap is traced to what the worker was really
+  given and the locks code that built it (or marked a hypothesis), a missing field is told apart from a
+  zero, and every proposal is checked against locks' own rules before it is made.
+
 ## [0.77.0] - 2026-11-05
 
 ### Fixed

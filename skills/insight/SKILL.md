@@ -40,7 +40,8 @@ tokens are in the summary's `tokens`.
 
 - **livespec**: did the plan index or refresh (`locks:planned` lines, `livespec_*` fields)?
   Did briefs carry orientation (`locks:briefed`)? Did workers call livespec tools
-  (`tool:mcp__…livespec…`, `attempt_finished.livespec_calls`)? Which ones?
+  (`tool:mcp__…livespec…`, `attempt_finished.livespec_calls`)? Which ones, against the tools it was
+  handed (`briefed.livespec_tools`)?
 - **Notes**: which notes did each brief carry (`locks:briefed` `notes`, `withheld`), which did
   the worker say it used (`attempt_finished.notes_used`), and did `locks recall` run?
 - **Context injected**: what did UserPromptSubmit and SessionStart put in front of the model

@@ -239,7 +239,7 @@ def test_every_tool_a_hint_names_exists_in_livespec():
 def test_hint_names_the_workspace_and_where_edits_go(tmp_path, git_repo):
     a = adapter(tmp_path)
     assert f'workspace="{git_repo.resolve()}"' in a.hint("debug-repro", git_repo, git_repo)
-    assert "your edits are in /w" in a.hint("nope", git_repo, Path("/w"))
+    assert "not your edits in /w" in a.hint("nope", git_repo, Path("/w"))
 
 
 def test_test_paths():
@@ -600,7 +600,7 @@ def test_every_tool_the_orientation_and_the_spec_links_name_exists_in_livespec(t
     named = _named([*livespec_mod.orientation("implement"), *livespec_mod.orientation("explore", has_specs=False),
                     *adapter(tmp_path).spec_links_brief(git_repo)])
     assert {"list_specs", "get_spec_implementation", "quick_orient", "read_unit", "search_similar",
-            "git_diff_impact", "index_project", "sync_openspec"} <= named
+            "index_project", "sync_openspec"} <= named
     assert named <= TOOLS, named - TOOLS
 
 
@@ -609,7 +609,7 @@ def test_the_orientation_goes_spec_then_code_then_symbol_then_file_and_writers_g
     order = [text.index(t) for t in ("list_specs", "get_spec_implementation", "quick_orient", "read_unit",
                                      "Open a whole file only when that is not enough")]
     assert order == sorted(order)
-    assert "search_similar" in text and "git_diff_impact" in text
+    assert "search_similar" in text and "git_diff_impact" not in text
     reading = "\n".join(livespec_mod.orientation("explore"))
     assert "read_unit" in reading
     assert "search_similar" not in reading and "git_diff_impact" not in reading
@@ -827,3 +827,14 @@ def test_nothing_to_ask_or_a_server_that_does_not_start_is_an_error(tmp_path, gi
 
     with pytest.raises(livespec_mod.LivespecError, match="did not start"):
         adapter(tmp_path, tool(tmp_path, "livespec"), popen=broken).call_tools(tmp_path, [("search", {})])
+
+
+def test_a_worker_is_handed_only_the_tools_its_brief_names_and_never_the_ones_that_write_or_diff(tmp_path):
+    ls = adapter(tmp_path)
+    status = Status("livespec", PRESENT)
+    for kind in ("implement", "feature", "explore", "review-routine", "test"):
+        tools = ls.worker_tools(kind, status)
+        assert tools and tools <= TOOLS
+        assert not tools & livespec_mod.WORKER_WITHHELD
+    assert "search_similar" in ls.worker_tools("implement", status)
+    assert "search_similar" not in ls.worker_tools("explore", status)

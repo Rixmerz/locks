@@ -1435,6 +1435,9 @@ def run(
                     skills=len(worn_brief.skills) if worn_brief is not None else 0,
                     # Each adopted neighbour's state when this brief was written: a brief with no
                     # livespec orientation says why (absent, stale, unreadable), never left to guess.
+                    **({"livespec_tools": sorted(handed)} if (handed := next(
+                        (a.worker_tools(the_plan.kind, st) for a, st in the_plan.active
+                         if hasattr(a, "worker_tools")), None)) is not None else {}),
                     **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                        for st in the_plan.neighbours}} if the_plan.neighbours else {}),
                     **primed, **worn, **trunked, **evidenced,
@@ -3652,8 +3655,10 @@ def _equip(selection: caps.Selection, the_plan: Plan, repo_dir: Path, workdir: P
     servers = dict(selection.servers)
     hints = list(selection.hints)
     names = list(selection.names)
-    for adapter, _ in the_plan.active:
-        server = adapter.server()
+    for adapter, status in the_plan.active:
+        # A neighbour that can hold its worker to the tools its brief names hands only those.
+        worker_server = getattr(adapter, "worker_server", None)
+        server = worker_server(the_plan.kind, status) if worker_server else adapter.server()
         if server is None or adapter.name in servers:
             continue
         servers[adapter.name] = server

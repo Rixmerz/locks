@@ -4,7 +4,17 @@
 
 ## [Unreleased]
 
+## [0.78.0] - 2026-11-05
+
 ### Changed
+
+- **A worker gets only the livespec tools its brief names**: its server runs behind `mcp_guard`, whose
+  `tools/list` shows those alone and refuses a call to any other, so the descriptions of tools it never
+  calls are no longer context on every turn; the `briefed` event keeps the list (`livespec_tools`).
+- **No `git_diff_impact` for a worker or a review**: it read the diff of the checkout the index describes,
+  not the worktree the worker edits, so it measured a change that was not the work. What a change reaches
+  is asked by locks itself and briefed to the independent check, as before. The hint says the index is the
+  base commit, not the worker's edits.
 
 - **`/locks:insight` looks for causes, not counts**: each gap is traced to what the worker was really
   given and the locks code that built it (or marked a hypothesis), a missing field is told apart from a

@@ -427,6 +427,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
             args.instruction = None
         if args.detach:
             return _detach(args)
+        if _under_a_session_shell():
+            return _shielded(args)
         options = flow.queued_options(task, orchestrate.Options(use_model_classifier=not args.no_model))
         options.detach_after = True
         options.kind = options.kind or task["kind"]
@@ -583,19 +585,68 @@ def _needs_a_person(store: Store, task: dict, args: argparse.Namespace) -> str |
     return None
 
 
-def _detach(args: argparse.Namespace) -> int:
-    """Run the same resume in a process of its own and return at once: its ending
-    reaches the session that sent the task, as every queued task's does."""
-    from locks import dispatch
-
-    argv = [sys.executable, "-m", "locks", "resume", str(args.id), "--no-report"]
+def _resume_argv(args: argparse.Namespace, *, report: bool) -> list[str]:
+    """The same resume as a command of its own: what `--detach` and a shielded resume start."""
+    argv = [sys.executable, "-m", "locks", "resume", str(args.id)] + ([] if report else ["--no-report"])
     for flag, value in (("--verify", args.verify), ("--start", args.start), ("--max-turns", args.max_turns)):
         if value is not None:
             argv += [flag, str(value)]
     for rule in args.allow or ():
         argv += ["--allow", rule]
+    for path in args.surface or ():
+        argv += ["--surface", path]
     argv += [flag for flag, on in (("--allow-approval", args.allow_approval), ("--no-isolate", args.no_isolate),
                                    ("--no-model", args.no_model), ("--unattended", args.unattended)) if on]
+    return argv
+
+
+#: Set on a resume a session's shell started in a process group of its own (`_shielded`).
+SHIELDED = "LOCKS_SHIELDED"
+
+
+def _under_a_session_shell() -> bool:
+    """Whether this resume runs in a Claude Code session's shell, not a person's terminal: that
+    shell's timeout sends SIGTERM to its process group, which a resume read as `locks cancel`
+    and stopped the task it had just started."""
+    return (os.environ.get("CLAUDECODE") == "1" and not os.environ.get(SHIELDED)
+            and not os.environ.get("LOCKS_WORKER_TASK") and not sys.stdout.isatty())
+
+
+def _shielded(args: argparse.Namespace) -> int:
+    """Run the resume in a process group of its own and follow its output until it ends: a
+    shell that times out or dies takes this follower with it, never the run, whose ending then
+    reaches the session that sent the task as a detached resume's does. Only `locks cancel`
+    stops it."""
+    from locks import dispatch
+
+    log = home() / "work" / f"resume-{args.id}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)  # this follower dies; the run goes on
+    start = log.stat().st_size if log.exists() else 0
+    with open(log, "a") as out:
+        child = subprocess.Popen(_resume_argv(args, report=True), cwd=os.getcwd(),
+                                 env={**dispatch.child_env(), SHIELDED: "1"}, stdin=subprocess.DEVNULL,
+                                 stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    _say(f"locks: resume #{args.id} runs in its own process group (pid {child.pid}); a shell that ends "
+         f"leaves it running, and its log is {log}")
+    with open(log, errors="replace") as follow:
+        follow.seek(start)
+        while True:
+            done = child.poll() is not None
+            if chunk := follow.read():
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+            if done:
+                return child.returncode if child.returncode >= 0 else 1
+            time.sleep(0.5)
+
+
+def _detach(args: argparse.Namespace) -> int:
+    """Run the same resume in a process of its own and return at once: its ending
+    reaches the session that sent the task, as every queued task's does."""
+    from locks import dispatch
+
+    argv = _resume_argv(args, report=False)
     log = home() / "work" / f"resume-{args.id}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     with open(log, "a") as out:

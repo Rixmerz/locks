@@ -607,6 +607,21 @@ def stop_failure(event: Mapping[str, Any], store: Store) -> dict | None:
     return None
 
 
+def _shed_when_low(store: Store, root: Path) -> str | None:
+    """On a disk under `capacity.LOW_DISK_MB` free, the rebuilt folders of idle worktrees go
+    (`flow.shed`) and the session hears how much came back: a full disk kills workers mid-task."""
+    from locks import capacity, flow
+
+    m = capacity.machine(root)
+    if m.disk_mb is None or m.disk_mb >= capacity.LOW_DISK_MB:
+        return None
+    freed = flow.shed(store)
+    said = f"locks: free disk is {m.disk_mb} MB"
+    if freed:
+        return f"{said}; removed {freed // capacity.MB} MB of build output from worktrees of tasks no run holds."
+    return f"{said} and nothing locks keeps could go: free space before sending work."
+
+
 def session_start(
     event: Mapping[str, Any],
     store: Store,
@@ -631,6 +646,7 @@ def session_start(
         flow.prune(store, [top])
     _revive(store, root, {**os.environ, **env})
     key = repo.key(cwd) if cwd else None
+    shed_line = _shed_when_low(store, root)
     store.touch_session(session_id, cwd, key)
     blocks: list[str] = []
     _export(env, "LOCKS_SESSION_ID", str(session_id))
@@ -642,6 +658,8 @@ def session_start(
     if errors:
         blocks.append(f"locks: {errors} hook error(s) since the last session were swallowed so the session "
                       f"could go on; details in {root / ERROR_LOG}.")
+    if shed_line:
+        blocks.append(shed_line)
     registry = _registry_notices(root)
     if registry:
         blocks.append(registry)

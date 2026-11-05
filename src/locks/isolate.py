@@ -1226,3 +1226,47 @@ def stop_stacks(path: Path, *, runner: Any = subprocess.run) -> list[str]:
     except (OSError, subprocess.TimeoutExpired):
         return []
     return [project]
+
+
+#: Build output and installed dependencies a worktree may hold of its own (never linked from the
+#: checkout): what a compiler or a package manager makes again from the files git keeps.
+REBUILT_DIRS = frozenset({"target", "build", "dist", ".next", "node_modules", ".gradle", ".venv", ".turbo"})
+
+
+def _size(path: Path) -> int:
+    total = 0
+    for dirpath, _dirs, files in os.walk(path, onerror=lambda _e: None):
+        for name in files:
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(dirpath, name)).st_size
+    return total
+
+
+def shed(root: Path, idle: Callable[[int], bool]) -> tuple[int, list[str]]:
+    """Free the disk the worktrees of tasks no run holds keep in rebuilt folders
+    (`REBUILT_DIRS`): a real folder at a worktree's top, ignored by git, never a link to the
+    checkout's. Nothing git keeps is touched, so a resume loses no work and builds them again.
+    `idle(task_id)` says a task no run holds and none is about to (not running, not queued).
+    Returns the bytes freed and the folders removed; never raises."""
+    freed, removed = 0, []
+    for path in sorted((root / "worktrees").glob("task-*")):
+        try:
+            task_id = int(path.name.removeprefix("task-").split("-")[0])
+        except ValueError:
+            continue
+        if not path.is_dir() or not idle(task_id):
+            continue
+        for name in sorted(REBUILT_DIRS):
+            folder = path / name
+            if folder.is_symlink() or not folder.is_dir():
+                continue
+            ignored = subprocess.run(["git", "-C", str(path), "check-ignore", "-q", name],
+                                     capture_output=True, check=False)
+            if ignored.returncode != 0:
+                continue
+            size = _size(folder)
+            shutil.rmtree(folder, ignore_errors=True)
+            if not folder.exists():
+                freed += size
+                removed.append(str(folder))
+    return freed, removed

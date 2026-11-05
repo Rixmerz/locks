@@ -85,6 +85,30 @@ def disk_full(exc: BaseException) -> bool:
     return False
 
 
+def shed(store: Store) -> int:
+    """Free the rebuilt folders (build output, installed dependencies) the worktrees of tasks no
+    run holds keep (`isolate.shed`): a disk that filled with them killed a worker mid-task.
+    Each task's are said in a `shed` event; returns the bytes freed, never raises."""
+    from locks import isolate
+
+    def idle(task_id: int) -> bool:
+        task = store.get_task(task_id)
+        return task is not None and task["status"] not in ("running", "queued")
+
+    try:
+        freed, removed = isolate.shed(home(), idle)
+    except Exception:
+        return 0
+    by_task: dict[int, list[str]] = {}
+    for folder in removed:
+        name = Path(folder).parent.name.removeprefix("task-").split("-")[0]
+        by_task.setdefault(int(name), []).append(Path(folder).name)
+    for task_id, names in by_task.items():
+        with contextlib.suppress(Exception):
+            store.add_event(task_id, "shed", folders=names)
+    return freed
+
+
 #: A running task is slow once it has run longer than this and than 9 in 10 of the passes of
 #: its kind in its repository, over at least `SLOW_SAMPLES` of them.
 SLOW_MIN_S = 20 * 60
@@ -819,6 +843,8 @@ def work(
                 report.stopped_because = (f"the disk stayed full for {int(waited)}s ({exc}); the next session's hook "
                                           "starts a dispatcher again")
                 return report
+            if fails == 0:
+                shed(store)  # what idle worktrees rebuild anyway goes first
             delay = DISK_WAITS_S[min(fails, len(DISK_WAITS_S) - 1)]
             fails += 1
             backoff(delay)

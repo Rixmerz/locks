@@ -132,6 +132,9 @@ MIN_GLOBAL_SAMPLES = 5
 #: How many recent tasks of a kind here that outgrew their turns raise where the next one's start,
 #: and how many recent tasks are looked at.
 MIN_TURN_SAMPLES, TURN_HISTORY = 2, 10
+#: A task this large (points) starts on more turns after one earlier task of its kind here outgrew
+#: them, not two: a large first try that runs out costs the most to repeat.
+LARGE_POINTS = 8
 #: How long a task's check may run. A full suite on a loaded machine (many workers at once)
 #: measured 19:25 on 2026-10-27, past the old 900 s, and every cut was read as a failure.
 VERIFY_TIMEOUT_S = 1800
@@ -708,7 +711,8 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
     if not options.max_turns and standard is not None and standard.turns:
         turns = standard.turns
     elif not options.max_turns and key:
-        raised_turns = turns_from_history(store.turn_history(kind, repo=key, limit=TURN_HISTORY), kind)
+        raised_turns = turns_from_history(store.turn_history(kind, repo=key, limit=TURN_HISTORY), kind,
+                                          large=size.points >= LARGE_POINTS)
         if raised_turns:
             turns, why = raised_turns
             reasons.append(why)
@@ -1052,11 +1056,12 @@ def touched_paths(text: str, options: Options, changed: Sequence[str] = ()) -> l
     return list(dict.fromkeys([*points_mod.named(text, options.surfaces), *options.touches, *changed]))
 
 
-def turns_from_history(runs: Sequence[Sequence[tuple[int, bool, str | None]]], kind: str) -> tuple[int, str] | None:
+def turns_from_history(runs: Sequence[Sequence[tuple[int, bool, str | None]]], kind: str, *,
+                       large: bool = False) -> tuple[int, str] | None:
     """The turns a task of `kind` starts with when the recent ones here outgrew the kind's
     own and passed with more (each run its attempts' `(max_turns, passed, failure)`): the
     median of what those passes needed, capped. Only ever above the kind's own; None
-    when fewer than `MIN_TURN_SAMPLES` needed more."""
+    when fewer than `MIN_TURN_SAMPLES` needed more (one, for a task of `LARGE_POINTS` or more)."""
     own = turns_for(kind)
     needed = []
     for attempts in runs:
@@ -1064,7 +1069,7 @@ def turns_from_history(runs: Sequence[Sequence[tuple[int, bool, str | None]]], k
         if passes and passes[-1] > own and any(
                 failure == Failure.TURNS_EXHAUSTED.value and turns <= own for turns, _, failure in attempts):
             needed.append(passes[-1])
-    if len(needed) < MIN_TURN_SAMPLES:
+    if len(needed) < (1 if large else MIN_TURN_SAMPLES):
         return None
     turns = min(int(statistics.median_low(needed)), MAX_TURNS_CEILING)
     return turns, (f"starts with {turns} turns: {len(needed)} of the last {len(runs)} {kind} tasks here "
@@ -2431,7 +2436,10 @@ def _unmeasured(kind: str, paths: Sequence[str], registry: Mapping[str, caps.Cap
         return ""
     if any(c.measures and c.touches for c in registry.values()):
         return ""
+    lacking = plugins.without_browser(os.environ) if config.enabled("plugins", os.environ) else []
     why = ("the `plugins` setting is off (`locks config plugins on`)" if not config.enabled("plugins", os.environ)
+           else f"{', '.join(lacking)} is installed but this machine has no Chromium for it, so it is not "
+                f"handed (`{plugins.BROWSER_FIX}`, or `LAYOUT_INSPECTOR_CHROMIUM` naming one)" if lacking
            else "the layout-inspector plugin is not installed and `layout-inspector-mcp` is not on PATH (install it: "
                  "`claude plugin install layout-inspector@rixmerz`, then `playwright install chromium` in its "
                  "environment, as its README says)")

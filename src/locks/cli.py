@@ -197,12 +197,27 @@ def _split_first(args: argparse.Namespace, text: str) -> int | None:
     why = route.split_first(text, args.kind)
     if why is None:
         return None
+    if config.enabled("autosplit", os.environ) and not getattr(args, "after", None):
+        queued = _split_and_queue(args, text, why)
+        if queued is not None:
+            return queued
     print(f"locks: not started: this request is several tasks ({why}). One worker on all of it outgrows its "
           "turns, then climbs to more turns and stronger models, which costs more than the parts would. Send "
           "one `locks run` per piece, each with its own `--surface` (pieces whose surfaces cannot touch run side "
           "by side; one that builds on another goes `--after` it), or `locks workflow run feature --goal "
           "'<the request>'`, whose plan splits it. `--whole` runs it as one task anyway.", file=sys.stderr)
     return EXIT_SPLIT
+
+
+def _split_and_queue(args: argparse.Namespace, text: str, why: str) -> int | None:
+    """`autosplit`: the pieces of a request that is several tasks, queued as `locks split --queue`
+    queues them. None when it proposed no pieces: the caller says how to split it by hand."""
+    print(f"locks: this request is several tasks ({why}): splitting it and queueing its pieces "
+          "(`--whole` runs it as one; `locks config autosplit off` stops doing this)", file=sys.stderr)
+    split_args = argparse.Namespace(target=text, repo=getattr(args, "repo", None), verify=getattr(args, "verify", None),
+                                    no_model=False, json=False, queue=True)
+    code = cmd_split(split_args)
+    return code if code == 0 else None
 
 
 def _notify(args: argparse.Namespace) -> None:

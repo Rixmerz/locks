@@ -65,6 +65,10 @@ DEFAULTS: dict[str, Any] = {
     # A start that rarely passes its first try here races the next rung on that try, each in
     # its own worktree; the first that passes its check is kept (`orchestrate.race_cell`).
     "race": True,
+    # A build `locks run` or `locks queue add` reads as several tasks (`route.split_first`) is split
+    # (`locks split`) and its pieces queued, each with its surfaces, instead of stopping with
+    # `EXIT_SPLIT`; `--whole` still runs it as one. Off: the command stops and says how to split it.
+    "autosplit": True,
     # Each request is advised the way it is best done: by the session itself, one worker,
     # or in parts side by side (`locks.route`); the session decides.
     "route": True,

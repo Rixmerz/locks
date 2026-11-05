@@ -585,3 +585,35 @@ def test_security_alerts_are_read_from_what_a_worker_learned_and_found_with_secr
     assert found == ["An npm token is committed in .npmrc and needs rotation",
                      "the deploy key is [secret] in deploy/,",
                      "api/login.py:40: SQL injection through the name parameter"]
+
+
+def test_a_current_note_every_brief_carries_and_no_worker_names_goes_back_on_trial(store: Store, monkeypatch):
+    monkeypatch.setenv("LOCKS_NOTE_TRIALS", "on")
+    from .test_standards import finished
+
+    idle = store.add_note("r", "code", "t", "Ids are UUIDv7 everywhere", author="worker", filed_by="haiku")
+    named = store.add_note("r", "code", "u", "Money is kept in cents", author="worker", filed_by="haiku")
+    person = store.add_note("r", "code", "v", "Deploys go out on Tuesdays", author="person", filed_by="person")
+    readers = [finished(store, ("sonnet/medium", 1)) for _ in range(notes.IDLE_AFTER)]
+    for task_id in readers:
+        _briefed(store, task_id, idle, named, person)
+    store.add_event(readers[0], "attempt_finished", seq=1, passed=True, notes_used=[named])
+    assert notes.retry_idle(store) == [idle]
+    back = store.get_note(idle)
+    assert back["state"] == notes.CANDIDATE and back["state_reason"].startswith(notes.RETRIED)
+    assert store.get_note(named)["state"] == "current" and store.get_note(person)["state"] == "current"
+    # Weighed again only by the briefs after it went back: the ones before decide nothing.
+    assert notes.weigh(store) == {"current": [], "dropped": []}
+
+
+def test_an_idle_note_waits_for_enough_readers_and_the_trial(store: Store, monkeypatch):
+    monkeypatch.setenv("LOCKS_NOTE_TRIALS", "on")
+    from .test_standards import finished
+
+    note = store.add_note("r", "code", "t", "Ids are UUIDv7 everywhere", author="worker", filed_by="haiku")
+    for _ in range(notes.IDLE_AFTER - 1):
+        _briefed(store, finished(store, ("sonnet/medium", 1)), note)
+    assert notes.retry_idle(store) == []
+    _briefed(store, finished(store, ("sonnet/medium", 1)), note)
+    monkeypatch.setenv("LOCKS_NOTE_TRIALS", "off")
+    assert notes.retry_idle(store) == []

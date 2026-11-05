@@ -67,6 +67,8 @@ def _isolated_home(tmp_path: Path, tmp_path_factory: pytest.TempPathFactory,
     monkeypatch.delenv("LOCKS_SESSION_ID", raising=False)
     # locks' own suite may run inside a locks worker, which refuses to start work.
     monkeypatch.delenv("LOCKS_WORKER_TASK", raising=False)
+    monkeypatch.delenv("CLAUDECODE", raising=False)  # a resume in a session shell runs shielded
+    monkeypatch.delenv("LOCKS_SHIELDED", raising=False)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
     # A neighbour the person put on PATH (rastro in ~/.local/bin) is theirs, as their plugin cache is:
     # read through the real environment it is on no PATH. A test that wants one passes its own env.

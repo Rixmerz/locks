@@ -810,7 +810,8 @@ yields the default kind, not a guess.
   the change wrote with none raises its tier to high (`orchestrate._risk_of_change`), so the independent
   check that blocks always runs, a docs task's too; a warning raises nothing. Each
   attempt keeps the livespec calls its worker made (`attempt_finished.livespec_calls`), and `locks
-  stats` compares tokens per kind with livespec called against not called: observed, never a trial.
+  stats` compares tokens per kind with livespec called against not called, and each tool offered
+  (`briefed.livespec_tools`) against called (`analysis.livespec_offer`): observed, never a trial.
   Tests run with `LOCKS_LIVESPEC_WAIT=0`.
 - An adopted neighbour is read, never written: the livespec index is opened
   `mode=ro`, and the index is built only through livespec's own CLI. Absent
@@ -1032,7 +1033,16 @@ yields the default kind, not a guess.
   `escalate.LOAD_WAITS`, and such a try counts toward no attempt ceiling and
   is no dead end; one that persists stops as `load`, its work kept.
 - A dispatcher never dies on a full disk (`flow.disk_full`): it waits and
-  tries again with its lock and work kept. The hooks (SessionStart, Stop)
+  tries again with its lock and work kept, and first frees what idle worktrees rebuild anyway
+  (`flow.shed`, `isolate.REBUILT_DIRS`: a real folder at a worktree's top that git ignores, never
+  a link, only of a task neither running nor queued; a `shed` event per task). SessionStart does
+  the same under `capacity.LOW_DISK_MB` free and says how much came back. Nothing git keeps is
+  touched: a resume builds them again.
+- A `locks resume` a Claude Code session's shell runs (`CLAUDECODE`, no terminal) runs in a
+  process group of its own and the command follows its log (`cli._shielded`, `LOCKS_SHIELDED`):
+  that shell's timeout sends SIGTERM to its group, which a resume read as `locks cancel` and
+  stopped the task it had just started. Only `locks cancel` stops it now; its ending reaches the
+  session as a detached one's does. The hooks (SessionStart, Stop)
   start a dispatcher for a lane with startable queued work and none holding
   its lock (`dispatch.revive`, autowork on), never a GET. A start leaves word
   before it asks whether a dispatcher runs (`dispatch.wake`), and a dispatcher
@@ -1229,6 +1239,11 @@ yields the default kind, not a guess.
   anchored first, kept where its arm passed first tries no less often. A worker names the
   notes it relied on (`notes_used`); only notes its brief carried are kept, on
   `attempt_finished`, and `locks stats` shows them, observed, never a verdict or a trial.
+  A current note a worker or a session filed that the first briefs of `notes.IDLE_AFTER` ended
+  tasks carried since it last changed, none of whose workers named it, is a candidate again
+  (`notes.retry_idle`, `RETRIED`, in `evolution.settle`, only with the trial on): the trial weighs
+  it by the briefs after that alone. Never dropped on those words, never a person's note or a
+  constraint.
   How each attempt's worker worked is read from its own tool calls (`locks.behavior`, kept on
   `attempt_finished.behavior`): observed, never a rule's input. The independent check runs with its
   attempt marked as the check's (`orchestrate._verifier_env`), so the log keeps its calls under no

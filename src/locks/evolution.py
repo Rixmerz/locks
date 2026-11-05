@@ -109,6 +109,9 @@ def settle(store: Store, *, now: datetime | None = None, tz: tzinfo | None = Non
         found = {**found, "roles": revisions.settle(store, now=now)}
     # A worker-learned note proven or dropped by the tasks whose brief carried it.
     weighed = notes.weigh(store)
+    # A current note every brief carries and no worker names goes back on trial (`notes.retry_idle`).
+    if retried := notes.retry_idle(store):
+        weighed = {**weighed, "retried": retried}
     from locks import habits
     from locks.store import home
 

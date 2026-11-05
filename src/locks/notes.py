@@ -540,10 +540,16 @@ def weigh(store: Store) -> dict[str, list[int]]:
 
     briefs, left_out = carried(store), withheld(store)
     ended = {t.id: t for t in standards.ended(store)}
+    briefed_at: dict[int, str] = {}
+    for event in store.events_of_kinds(["briefed"]):
+        briefed_at.setdefault(int(event["task_id"]), str(event["ts"]))
 
     def firsts(holding: Mapping[int, set[int]], note: Mapping[str, Any]) -> tuple[list[int], list[int]]:
         passed, failed = [], []
-        for task_id in sorted(t for t, ids in holding.items() if note["id"] in ids and t != note["task_id"]):
+        # A note put back on trial (`retry_idle`) is weighed by the tasks briefed since, never the ones before.
+        since = note["updated_at"] if str(note.get("state_reason") or "").startswith(RETRIED) else ""
+        for task_id in sorted(t for t, ids in holding.items() if note["id"] in ids and t != note["task_id"]
+                              and briefed_at.get(t, "") >= since):
             task = ended.get(task_id)
             first = standards.samples(task.attempts)[:1] if task is not None else []
             if first:
@@ -584,6 +590,53 @@ def weigh(store: Store) -> dict[str, list[int]]:
                                   "none that passed")
                 moved["dropped"].append(int(note["id"]))
     return moved
+
+
+#: Ended tasks whose first brief carried a current note, none of whose workers named it
+#: (`notes_used`), before it goes back on trial: a note every brief pays for and no worker
+#: says it relied on is weighed again against its absence, never dropped on those words.
+IDLE_AFTER = 8
+#: The start of an idle note's reason: why it is a candidate again.
+RETRIED = "back on trial: "
+
+
+def retry_idle(store: Store) -> list[int]:
+    """Current notes a worker or a session filed that the first briefs of `IDLE_AFTER` ended
+    tasks or more carried since the note last changed, and that no worker of those tasks named
+    as relied on: made candidates again, so the trial (`arms`, `weigh`) decides them by first
+    tries with and without them. A person's note and a constraint are never put back; neither is
+    one with the trial off. From `evolution.settle`, never a GET. The ids put back."""
+    if not trials_on():
+        return []
+    current = [n for p in store.note_projects() for n in store.notes(p, states=["current"], limit=100_000)
+               if n.get("author") != "person" and n.get("kind") != CONSTRAINT]
+    if not current:
+        return []
+    from locks import standards
+
+    ended = {t.id for t in standards.ended(store)}
+    first: dict[int, tuple[str, set[int]]] = {}
+    for event in store.events_of_kinds(["briefed"]):
+        task_id = int(event["task_id"])
+        ids = event["data"].get(BRIEFED)
+        if task_id not in first and isinstance(ids, list):
+            first[task_id] = (str(event["ts"]), {int(i) for i in ids if isinstance(i, int)})
+    named: dict[int, set[int]] = {}
+    for event in store.events_of_kinds(["attempt_finished"]):
+        named.setdefault(int(event["task_id"]), set()).update(
+            int(i) for i in event["data"].get("notes_used") or () if isinstance(i, int))
+    back: list[int] = []
+    with store.immediate():
+        for note in current:
+            readers = [t for t, (ts, ids) in first.items()
+                       if note["id"] in ids and t in ended and t != note["task_id"] and ts >= note["updated_at"]]
+            if len(readers) < IDLE_AFTER or any(note["id"] in named.get(t, ()) for t in readers):
+                continue
+            store.update_note(note["id"], state=CANDIDATE, state_reason=RETRIED + (
+                f"carried by the first brief of {len(readers)} tasks since it last changed, and named as relied on "
+                "by none of their workers"))
+            back.append(int(note["id"]))
+    return back
 
 
 # --- reading ------------------------------------------------------------------

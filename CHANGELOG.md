@@ -4,6 +4,28 @@
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-11-05
+
+### Fixed
+
+- **A resume a session's shell started is no longer cancelled by that shell's timeout**: the
+  timeout's SIGTERM reached the resume, which read it as `locks cancel` and stopped the task it
+  had just started. In a Claude Code session's shell, `locks resume` now runs in a process group
+  of its own and follows its log; only `locks cancel` stops it.
+- **A full disk gives back what idle worktrees rebuild anyway**: build output and installed
+  dependencies (`target/`, `node_modules/`, `.venv/`, …) that git ignores, in the worktrees of
+  tasks neither running nor queued, go first when the dispatcher meets a full disk and at
+  SessionStart under 2 GB free. A field run lost a worker to 17 GB of such folders.
+
+### Added
+
+- **`locks stats` sets each livespec tool offered beside called** (`briefed.livespec_tools`
+  against the calls): it says whether workers leave the index alone because they were offered
+  nothing or because they were offered tools and did not call them.
+- **A current note every brief carries and no worker names goes back on trial**: after 8 ended
+  tasks carried it with none naming it as relied on, it is a candidate again and the trial weighs
+  it against its absence on the briefs after that. A person's note and a constraint never are.
+
 ## [0.78.0] - 2026-11-05
 
 ### Changed

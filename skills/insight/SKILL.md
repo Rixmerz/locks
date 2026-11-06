@@ -1,6 +1,14 @@
 ---
 name: insight
-description: Check that locks really does what it claims, from the evidence it keeps. Reads the opt-in session traces (every hook event, tool call, injected context and locks event, tagged), the analysis, the evolution history, trust, doctor and spend, and says what happened against what should have: was livespec indexed and did workers call its tools, which notes briefs recalled and were used, what hooks injected, what each session and task cost in tokens, where time went. Use when the person asks whether locks works as expected, to audit or debug locks' behaviour, to analyse a session or a task, for insights, observability or tracing, or how to improve locks from its own records.
+description: >-
+  Check that locks really does what it claims, from the evidence it keeps. Reads the opt-in
+  session traces (every hook event, tool call, injected context and locks event, tagged), the
+  analysis, the evolution history, trust, doctor and spend, and says what happened against what
+  should have: was livespec indexed and did workers call its tools, which notes briefs recalled
+  and were used, what hooks injected, what each session and task cost in tokens, where time went.
+  Use when the person asks whether locks works as expected, to audit or debug locks' behaviour, to
+  analyse a session or a task, for insights, observability or tracing, or how to improve locks
+  from its own records.
 ---
 
 # locks insight
@@ -17,7 +25,8 @@ the record that would show it (a field, an event, a `locks stats` row), read it 
 run on that release (`version` on their events) against the tasks before it, and give one verdict:
 **worked**, **no effect**, **regressed**, **not exercised** (no task of this session reached it) or
 **too few** (under 5 tasks on either side). A release whose change cannot be read from any record
-is said as unverifiable, never assumed to work. This section is the report's first.
+is said as unverifiable, never assumed to work. In the report it comes right after what blocks
+the person's work (section 6), before anything else.
 
 ## 1. Is tracing on?
 
@@ -76,6 +85,9 @@ Known mechanisms — check them before reading a count as a fault:
   Compare the orientation in its brief with the files it opened, before calling zero a gap.
 - A worker's transcript is kept beside the trace only with the trace on, when its attempt ends,
   and (from 0.83.1) when the sweep finds it dead: `transcript: false` on an older worker is no fault.
+- A task's check is the command its `--verify` names (`planned` holds it), run in the task's own
+  environment; a task queued without one has none (`checked: "worker"`). Before saying "locks'
+  check would have passed", read that command and run it, or say you did not.
 - A note no worker names goes back on trial by itself (`notes.retry_idle`, with `note_trials` on).
 - A resume a session's shell starts runs in its own process group (`cli._shielded`); a death at a
   container restart is the machine's, and `dispatch.recover` resumes it once.

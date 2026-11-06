@@ -278,7 +278,7 @@ yields the default kind, not a guess.
   warning is not such a line. Dead ends reach a brief only on a strict match.
 - A check that cannot start is found before a worker is spent on it (`locks.preflight`, before
   every run's first attempt): a program missing from the PATH the check runs with, a script or
-  deno task its files lack, a declared Node nothing installed fits stops the task as `preflight`
+  deno task its files lack, a `python -m X` whose interpreter lacks `X` (`preflight._modules`), a declared Node nothing installed fits stops the task as `preflight`
   (blocked, the environment's) with the fix line, no attempt counted, nothing ran. It fails open:
   what it cannot tell (a substitution, a `cd`, a workspace flag, a path or script the request may
   add, dependencies the worker installs, a dependency's tool in a script) is said, never a stop,

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from locks import criteria, launch, points
+from locks import criteria, launch, points, surfaces
 
 #: The most pieces a split proposes: past this, a feature workflow plans it.
 MAX_PIECES = 6
@@ -102,9 +102,15 @@ def by_items(text: str, done: Sequence[str] = ()) -> Proposal:
     head = _head(text, items)
     already = (" Part of this request was already worked on, on the branch this task starts from: finish what "
                "is left of this piece.") if done else ""
+    found = [_surfaces(item) for item in items]
+    # Pieces whose folders collide would be held one behind the other by their surfaces alone, even when
+    # they name different files (the field reports' sequential autosplit): those go without surfaces, and
+    # the dispatcher judges them by what each names (`dispatch.named_surfaces`).
+    crowded = {n for n, mine in enumerate(found) if mine and any(
+        other and not surfaces.disjoint(mine, other) for m, other in enumerate(found) if m != n)}
     parts = tuple({"id": f"p{n}", "prompt": (f"{head}\n\n" if head else "") + f"This task is one piece of that "
-                   f"request: {item}{already}", "surfaces": _surfaces(item)}
-                  for n, item in enumerate(items, 1))
+                   f"request: {item}{already}", "surfaces": [] if n - 1 in crowded else mine}
+                  for n, (item, mine) in enumerate(zip(items, found, strict=True), 1))
     return Proposal(parts=parts, source="items", done=tuple(done))
 
 

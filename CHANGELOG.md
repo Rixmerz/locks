@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.83.3] - 2026-11-06
+
+### Fixed
+- **Preflight reads `python -m X`**: a check whose interpreter cannot import its module (`No module
+  named pytest`) stops before a worker is spent, with the line that fixes it (the `.venv`'s python when
+  it has one). A module the request names, or the worker installs, is said and never a stop.
+- **Autosplit pieces run side by side when they can**: items naming different files of one folder no
+  longer all got that folder as surfaces, which held each behind the other. Pieces whose folders
+  collide go without surfaces and the dispatcher judges them by the files each names.
+
 ## [0.83.2] - 2026-11-06
 
 - `/locks:insight`'s frontmatter is YAML a strict reader parses (its description held an unquoted

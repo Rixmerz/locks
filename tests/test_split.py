@@ -85,3 +85,8 @@ def test_split_queue_starts_the_pieces_on_what_the_task_kept_and_moves_what_wait
 def test_a_worker_never_queues_a_split(monkeypatch, capsys):
     monkeypatch.setenv("LOCKS_WORKER_TASK", "7")
     assert cli.main(["split", "x", "--queue"]) == 2
+
+
+def test_pieces_whose_folders_collide_go_without_surfaces():
+    got = split.by_items("Do these:\n- fix src/a.py\n- fix src/b.py\n- write docs/guide/x.md\n")
+    assert [p["surfaces"] for p in got.parts] == [[], [], ["docs/guide/**"]]

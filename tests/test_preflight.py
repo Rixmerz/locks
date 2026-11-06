@@ -210,3 +210,29 @@ def test_a_check_that_can_start_runs_the_worker(git_repo, store):
     report = run("fix the total", git_repo, store, Options(verify="true"), registry={}, launcher=script,
                  classifier=kind("implement"))
     assert len(script.specs) == 1 and report.status == "done"
+
+
+def test_a_python_module_the_interpreter_lacks_stops(project, env):
+    py = sys.executable
+    result = preflight.check(f"{py} -m no_such_module_here -q", project, env=env)
+    assert not result.ok
+    assert "no module `no_such_module_here`" in result.reason()
+    assert preflight.check(f"{py} -m json.tool --help", project, env=env).ok
+
+
+def test_a_module_of_the_project_or_one_the_work_adds_is_no_stop(project, env):
+    (project / "mine").mkdir()
+    (project / "mine" / "__init__.py").write_text("")
+    py = sys.executable
+    assert preflight.check(f"{py} -m mine", project, env=env).ok
+    named = preflight.check(f"{py} -m no_such_module_here", project, env=env, asked="add no_such_module_here")
+    assert named.ok and named.unknown
+    assert preflight.check(f"{py} -m no_such_module_here", project, env=env, installing=True).ok
+
+
+def test_a_venv_that_has_the_module_is_named_in_the_fix(project, env):
+    venv = project / ".venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python").symlink_to(sys.executable)
+    result = preflight.check(f"{sys.executable} -m no_such_module_here", project, env=env)
+    assert ".venv/bin/python -m no_such_module_here" in result.reason()

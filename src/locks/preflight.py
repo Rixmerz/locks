@@ -258,6 +258,49 @@ def _python_package(workdir: Path, seen: set[str], result: Result) -> None:
                                "at this one")
 
 
+#: `python -m tool` and `python3 -m tool`: the module the interpreter must import before anything runs.
+_MODULE_RUN = re.compile(r"^(?P<py>\S*python[\d.]*)\s+(?:-[A-Za-z]+\s+)*-m\s+(?P<mod>[A-Za-z_][\w.]*)")
+
+
+def _modules(command: str, workdir: Path, path: str, asked: str, result: Result, installing: bool) -> None:
+    """A `python -m X` whose interpreter cannot import `X` fails before any test runs (`No module named
+    X`, issue: the smoke run's system python had no pytest). Read with the interpreter itself, from the
+    task's directory, so the project's own packages are found; a module the request names or the worker
+    installs, an interpreter it cannot ask, or an answer it cannot read is said, never a stop."""
+    for stage in _stages(command):
+        try:
+            words = [w for w in shlex.split(stage, comments=True) if not ci._ENV_ASSIGN.match(w)]
+        except ValueError:
+            continue
+        found = _MODULE_RUN.match(" ".join(words))
+        if not found:
+            continue
+        python, module = found["py"], found["mod"].split(".")[0]
+        exe = str(workdir / python) if "/" in python and not Path(python).is_absolute() else \
+            (python if "/" in python else shutil.which(python, path=path))
+        if not exe or not Path(exe).exists():
+            continue  # a missing interpreter is `_programs`' to say
+        if _names(asked, module) or installing:
+            result.unknown.append(f"whether `{python}` imports `{module}` (the work may install it)")
+            continue
+        probe = f"import importlib.util as u, sys; sys.exit(0 if u.find_spec({module!r}) else 3)"
+        try:
+            proc = subprocess.run([exe, "-c", probe], cwd=str(workdir), capture_output=True, text=True,
+                                  timeout=IMPORT_TIMEOUT_S, check=False)
+        except (OSError, subprocess.SubprocessError):
+            result.unknown.append(f"whether `{python}` imports `{module}`")
+            continue
+        if proc.returncode == 3:
+            venv = workdir / ".venv" / "bin" / "python"
+            fix = (f"write `.venv/bin/python -m {found['mod']}` in --verify" if venv.exists() and exe != str(venv)
+                   else f"install `{module}` for `{python}` (`{python} -m pip install {module}`, `uv add --dev "
+                   f"{module}`), or name an interpreter that has it in --verify")
+            result.blockers.append(Blocker(f"`{python}` here has no module `{module}` (No module named {module})",
+                                           fix))
+        elif proc.returncode != 0:
+            result.unknown.append(f"whether `{python}` imports `{module}`")
+
+
 #: A check that runs through a container stack named after its folder (issue #119).
 _CONTAINER_CHECK = re.compile(r"(^|[\s;&|(])(\./vendor/bin/sail|sail|docker[ -]compose|docker\s+compose|"
                               r"podman[ -]compose|make\s+up)\b")
@@ -292,6 +335,7 @@ def check(command: str, workdir: Path, *, asked: str = "", env: Mapping[str, str
         named = _scripts(command, workdir, asked, result)
         if named or seen & _NODE_TOOLS:
             _node(workdir, env, path, result)
+        _modules(command, workdir, path, asked, result, installing)
         _python_package(workdir, seen, result)
         _container(command, workdir, result)
     except Exception as exc:  # a preflight that breaks is one that could not tell

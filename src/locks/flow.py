@@ -174,11 +174,30 @@ def _lost_cost(store: Store, task: dict) -> None:
             return
         seq = (started.get("data") or {}).get("seq")
         cost = usage.running_cost(task["id"], seq, since=started["ts"])
+        _keep_lost_transcript(task["id"], seq)
         store.add_event(task["id"], "attempt_lost", seq=seq, cell=(started.get("data") or {}).get("cell"),
                         cost_usd=round(cost, 4) if cost is not None else None)
         if cost:
             store.update_task(task["id"], cost_usd=round(float(task.get("cost_usd") or 0) + cost, 4))
     except Exception:  # noqa: S110 - a death is recorded whatever its cost says
+        pass
+
+
+def _keep_lost_transcript(task_id: int, seq: object, env: Mapping[str, str] | None = None) -> None:
+    """With the person's trace on, a dead worker's transcript is kept beside the traces as a
+    finished one's is (`launch._keep_worker_transcript`): it died before its attempt ended, which
+    is the one place that kept it, so what it read and called was nowhere. Never fails the sweep."""
+    try:
+        from locks import phase, trace, usage
+
+        env = os.environ if env is None else env
+        if not trace.enabled(env):
+            return
+        session = phase.session_of(task_id, seq if isinstance(seq, int) else None, env)
+        source = usage.transcript_of(session, env) if session else None
+        if source is not None:
+            trace.keep_transcript({"transcript_path": str(source), "session_id": session}, env)
+    except Exception:  # noqa: S110 - a trace never fails what it watches
         pass
 
 

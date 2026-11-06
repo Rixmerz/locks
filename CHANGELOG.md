@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.83.1] - 2026-11-06
+
+- With the trace on, a worker that died keeps its transcript beside the trace, as one whose
+  attempt ended does: the sweep that reads what a dead attempt cost copies it
+  (`flow._keep_lost_transcript`). Before, a worker killed by a restart left only its tool-call
+  lines, so why it never called livespec could not be read.
+- `scripts/smoke.py`: one real task on the checkout's locks (a throwaway repository, a real
+  worker, its own locks home with the trace on), checked for a first-try pass, the kept branch
+  and the worker's transcript. Run before every release; real money (cents).
+- `/locks:insight` first judges the last releases' claims against their records (worked, no
+  effect, regressed, not exercised, too few), cites a record and a count for every claim,
+  labels a cause without code or a quoted brief as a hypothesis, and searches locks' code and
+  rules before proposing what may already exist.
+
 ## [0.83.0] - 2026-11-05
 
 - A request that asks for its change everywhere ("everywhere", "all screens", "en todas las

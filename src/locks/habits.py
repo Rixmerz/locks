@@ -327,12 +327,56 @@ REVIEW_DAYS = 30
 REVIEW_SECONDS = 30
 
 
+#: The files that say which tools a repository has: a habit reviewed before one of them changed may
+#: have a tool it did not have then, so it is reviewed again.
+TOOL_FILES = ("package.json", "pyproject.toml", "deno.json", "deno.jsonc", "Makefile", "Cargo.toml", "go.mod",
+              "composer.json", "Gemfile", ".pre-commit-config.yaml")
+#: Statuses of a review that answered: one that ended any other way leaves its habits unreviewed.
+_ANSWERED = frozenset({"done", "queued", "running"})
+
+
+def tooling(repo_dir: Path | None) -> str:
+    """A fingerprint of the files that say which tools the repository has (`TOOL_FILES`)."""
+    if repo_dir is None:
+        return ""
+    digest = hashlib.sha256()
+    for name in TOOL_FILES:
+        try:
+            digest.update(name.encode() + b"\0" + (repo_dir / name).read_bytes() + b"\0")
+        except OSError:
+            continue
+    return digest.hexdigest()[:16]
+
+
+def _marks(store: Store, repo: str) -> dict[str, dict[str, Any]]:
+    """The habits a review was queued for here, each with its review task and the tooling then.
+    The list an older locks kept is read as marks with neither."""
+    raw = json.loads(store.meta(REVIEWED_PREFIX + repo) or "[]")
+    return {str(i): {} for i in raw} if isinstance(raw, list) else dict(raw)
+
+
+def reviewed(store: Store, repo: str, repo_dir: Path | None) -> set[str]:
+    """The habits whose review still stands: queued, running or answered, on the tooling the
+    repository has now. A review that died, was cancelled or failed answered nothing, and one made
+    before the repository's tool files changed answered for tools it may not have had."""
+    now = tooling(repo_dir)
+    out = set()
+    for cid, mark in _marks(store, repo).items():
+        task = store.get_task(int(mark["task"])) if mark.get("task") else None
+        if mark.get("task") and (task is None or task["status"] not in _ANSWERED):
+            continue
+        if mark.get("tooling") and now and mark["tooling"] != now:
+            continue
+        out.add(cid)
+    return out
+
+
 def unreviewed(store: Store, repo: str, repo_dir: Path | None, *, days: int = REVIEW_DAYS) -> list[Candidate]:
-    """The habits found in a repository that no review was queued for and none installed:
+    """The habits found in a repository that no standing review covers (`reviewed`) and none installed:
     its own, and those of other repositories whose tool it has."""
     load_events(store)
     here, elsewhere = for_repo(store.tool_events(days=days), repo, repo_dir)
-    done = set(json.loads(store.meta(REVIEWED_PREFIX + repo) or "[]"))
+    done = reviewed(store, repo, repo_dir)
     installed = {h["candidate"] for h in store.habits() if not h["removed"]
                  and repo_dir is not None and Path(h["settings_path"]).parent.parent == repo_dir}
     return [c for c in [*here, *elsewhere] if c.id not in done and c.id not in installed]
@@ -397,17 +441,19 @@ def queue_review(store: Store, *, repo: str, cwd: str, session_id: str | None,
     if not found or top is None:
         return None
     with store.immediate():
-        done = json.loads(store.meta(REVIEWED_PREFIX + repo) or "[]")
+        done = reviewed(store, repo, top)
         found = [c for c in found if c.id not in done]
         if not found:
             return None
-        store.set_meta(REVIEWED_PREFIX + repo, json.dumps([*done, *(c.id for c in found)]))
         task = store.create_task(review_brief(found), status="queued", source="queue", author="habits",
                                  repo=repo, cwd=str(top), session_id=session_id,
                                  title=f"[habits review] {len(found)} habit(s): "
                                        + ", ".join(c.id for c in found)[:150],
                                  options=json.dumps({"kind": "explore", "keep_learned": False,
                                                      "habit_review": [c.id for c in found]}))
+        marks, at = _marks(store, repo), tooling(top)
+        marks.update({c.id: {"task": int(task["id"]), "tooling": at} for c in found})
+        store.set_meta(REVIEWED_PREFIX + repo, json.dumps(marks))
     if kick is not None:
         kick(str(top), repo)
     return task

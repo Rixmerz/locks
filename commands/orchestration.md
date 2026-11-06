@@ -15,7 +15,7 @@ This is the core. `locks guide <topic>` prints the detail when you need it:
 Node, worktrees, workspaces, the queue), `endings` (every status and what to
 do), `orchestrator` (your role, routes, speed), `workflows`, `panels` (a
 Workflow script of your own, and its findings as locks work), `loops` (goals
-that run in rounds), `notes` (and compacting), `memory`, `relay`.
+that run in rounds), `notes` (and compacting), `memory`, `relay`, `models`.
 
 1. **Do it yourself when it fits in what this session already holds** — a
    question, a lookup a few searches settle, a small change in files you have

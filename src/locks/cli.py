@@ -1921,6 +1921,20 @@ def cmd_trust(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cells(args: argparse.Namespace) -> int:
+    """Per kind, where locks starts it and how each cell's first tries went here: no model."""
+    from locks import cells_by_kind
+
+    key = None if args.all else repo.key(Path(args.repo or ".").resolve())
+    store = Store.open()
+    try:
+        rows = cells_by_kind.report(store, key)
+    finally:
+        store.close()
+    print(json.dumps(rows, indent=2) if args.json else "\n".join(cells_by_kind.text(rows, key)))
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """States the store should never hold, read, never written: 1 when something is broken now."""
     from locks import doctor
@@ -3080,6 +3094,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="every repository")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_trust)
+    p = sub.add_parser("cells", help="per kind of work, the model and effort locks starts it on here and how "
+                       "each cell's first tries went: which models fit which work, measured")
+    p.add_argument("--repo", help="the repository (default: here)")
+    p.add_argument("--all", action="store_true", help="every repository")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_cells)
     p = sub.add_parser("doctor", help="states the store should never hold: work stuck now (broken) and what went "
                        "wrong over the last days (suspect); exits 1 when something is broken")
     p.add_argument("--days", type=int, default=2, help="how far back the suspect rules read (0: everything)")

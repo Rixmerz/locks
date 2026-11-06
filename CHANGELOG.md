@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-11-06
+
+### Added
+- **`locks cells`**: per kind of work, the model and effort locks starts it on in this repository
+  (a calibrated standard, else the ladder's first rung), each cell's first tries here, and the
+  cheapest cell proven by them. For the session that delegates: which model fits which work,
+  measured, for its own subagents and for knowing what a kind costs. `locks guide models` says how
+  to read it; locks still chooses the cell of every task it runs.
+
+### Fixed
+- **Habit reviews that answered nothing are tried again**: a habit was marked reviewed when its
+  review was queued, so a review that died or was cancelled left it unreviewed forever. A mark now
+  keeps its review task and stands only while that task is queued, running or done.
+- **A habit is reviewed again when the repository's tools change**: a review records a fingerprint of
+  the files that say which tools a repository has (`habits.TOOL_FILES`); a habit not installed is
+  reviewed again once they change (a linter added later). An installed habit never is.
+
 ## [0.83.3] - 2026-11-06
 
 ### Fixed

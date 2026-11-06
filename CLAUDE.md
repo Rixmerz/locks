@@ -69,6 +69,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/methods.py` | how a kind's workers are briefed to work, tried against its absence: a diagnosis protocol for `debug-unclear`, a pre-mortem for `plan` whose `Risks:` reach the independent check of the steps after it; arms per repository (`method_arm`); no model |
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
 | `src/locks/cells.py` | where a lesson belongs: the area a path or a change is in, the role that met it, or everyone (`scope`); the text a failure is kept and matched by (a workflow step's goal, never its template); the cell's primer (how its workers got oriented) and its trial; no model |
+| `src/locks/cells_by_kind.py` | `locks cells`: per kind, the cell locks starts it on here and each cell's first tries, the cheapest proven one named; for the delegating session's own choices, never a rule; read only, no model |
 | `src/locks/doctor.py` | `locks doctor`: states the store should never hold, each a bug that shipped turned into a query (broken: stuck now; suspect: over the last days); read only, no model; SessionStart names what is broken |
 | `bench/review/` | the review benchmark: real review chains (one review, two blind ones, two with different purposes, a classifier before a quality check) on a change with planted bugs, matched by `analyze.py`; what it measured is in its README |
 | `bench/speed/kinds.py` | whether Haiku does `refactor` and `test` work as right as their first rung: real workers on the memory bench's pricing engine, a refactor judged by its layout and prices kept, tests judged by mutants killed (real money: run on purpose) |
@@ -1013,7 +1014,8 @@ yields the default kind, not a guess.
 - Nothing in locks writes to a settings file but a habit: `locks habits install`, run by a
   person, or locks itself installing a reviewed habit (`habits.apply_reviews`, the
   `habit_auto` setting), and only the repository's `.claude/settings.local.json`. A
-  project's new habits are reviewed once each by a read-only worker, queued at
+  project's new habits are reviewed once each by a read-only worker (again when that review
+  answered nothing, or once the repository's tool files changed: `habits.reviewed`, `TOOL_FILES`), queued at
   SessionStart at most once a day (`habits.queue_review`, the `habit_review` setting,
   with `autowork`): it finds the tool, a command scoped to the edited file
   (`$LOCKS_EDITED`), runs and times it. Its proposal is never trusted: in

@@ -284,6 +284,15 @@ def test_new_habits_are_reviewed_once_by_a_worker_and_installed_only_on_a_yes(st
     assert json.loads(task["options"]) == {"kind": "explore", "keep_learned": False, "habit_review": [hid]}
     assert f"{hid}: after edit:.py" in task["body"] and "$LOCKS_EDITED" in task["body"]
     assert habits.queue_review(store, repo="py", cwd=str(checkout), session_id="s0") is None  # once each
+    # A review that answered nothing (it died, was cancelled) leaves its habits to review again; so does
+    # one made before the repository's tool files changed.
+    store.update_task(task["id"], status="cancelled")
+    again = habits.queue_review(store, repo="py", cwd=str(checkout), session_id="s0")
+    assert again is not None
+    store.update_task(again["id"], status="done")
+    assert habits.queue_review(store, repo="py", cwd=str(checkout), session_id="s0") is None
+    (checkout / "pyproject.toml").write_text("[tool.pytest]\n")
+    assert habits.queue_review(store, repo="py", cwd=str(checkout), session_id="s0") is not None
 
     evidence = [{"id": "S1", "met": True,
                  "evidence": f"install {hid}: `deno test -A \"$LOCKS_EDITED\"` 2.1 s, 19 passed"}]

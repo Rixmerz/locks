@@ -1,0 +1,41 @@
+{
+  "skill_name": "insight",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/locks:insight — did the last locks releases actually help my workers here?",
+      "expected_output": "A report that opens with one verdict per recent release claim, each backed by records of this store.",
+      "files": [],
+      "expectations": [
+        "The first section judges each recent CHANGELOG claim as worked, no effect, regressed, not exercised or too few",
+        "Every rate is written with its count (for example '2 of 8'), never a percentage alone",
+        "A finding backed by fewer than 5 samples is labelled too few and drives no proposal",
+        "Every claim names its record: a task number, an event kind and its id or timestamp, and the release that wrote it",
+        "A cause not shown by a line of locks' code or a quoted brief is labelled hypothesis, with the record that would confirm it"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "/locks:insight — workers never call livespec, why?",
+      "expected_output": "A diagnosis that checks the known mechanisms before calling zero calls a fault.",
+      "files": [],
+      "expectations": [
+        "The report reads the orientation each brief already carried before calling zero livespec calls a gap",
+        "It reads livespec_index_of on the briefed events, or says the release that wrote them did not record it",
+        "It does not propose re-indexing a worker's worktree without a record showing the index answered wrongly"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "/locks:insight — propose improvements to locks from this session",
+      "expected_output": "Proposals that each name what they change, the record that will show their effect and its value now.",
+      "files": [],
+      "expectations": [
+        "Before each proposal the report says it searched locks' code and CLAUDE.md, and names the function or rule when one already exists",
+        "Each proposal names the function, constant or brief line it changes",
+        "Each proposal names the record that will measure it, its current value and the value that would mean it worked",
+        "Nothing is changed: no setting, file or task is written"
+      ]
+    }
+  ]
+}

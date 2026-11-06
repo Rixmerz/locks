@@ -1,0 +1,27 @@
+{
+  "skill_name": "init",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/locks:init — set locks up for my projects",
+      "expected_output": "Scope and a cost estimate agreed with the person before anything is written or any worker starts.",
+      "files": [],
+      "expectations": [
+        "The skill states the scope (projects and plugins) and an estimate of the investigation's cost, and waits for the person's yes",
+        "No worker starts and nothing is written before that yes",
+        "After the yes, it writes only through locks' own commands (workspace, roles, team, workflow, note, memory record)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "/locks:init — just this repository, keep it cheap",
+      "expected_output": "One investigation of the current project only, its estimate said as an estimate, never a cap.",
+      "files": [],
+      "expectations": [
+        "Only the current project is investigated",
+        "The estimate is said as an estimate; no budget or dollar cap is set on any worker",
+        "A note goes only to the project its evidence came from"
+      ]
+    }
+  ]
+}

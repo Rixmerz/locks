@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -112,3 +113,41 @@ def test_the_dispatch_instructions_send_the_request_through_a_quoted_heredoc():
     for text in (skill, guide):
         assert "locks run - " in text and "<<'EOF'" in text
         assert 'locks run "<the task' not in text
+
+
+#: What the Agent Skills spec allows in a SKILL.md's frontmatter (anthropics/skills' validator), and
+#: the keys Claude Code itself reads on a plugin's skills.
+SPEC_KEYS = {"name", "description", "license", "allowed-tools", "metadata", "compatibility"}
+CLAUDE_CODE_KEYS = {"argument-hint", "disable-model-invocation", "model", "user-invocable"}
+
+
+def _frontmatter(text: str) -> dict[str, str]:
+    """A SKILL.md's frontmatter read as a strict YAML reader would: a plain value holding `: ` or
+    ` #` is no value YAML parses (the spec's validator refuses the file), so it is reported."""
+    match = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    assert match, "no frontmatter"
+    out: dict[str, str] = {}
+    key = None
+    for line in match.group(1).splitlines():
+        if line.startswith((" ", "\t")) and key:
+            out[key] += " " + line.strip()
+            continue
+        key, sep, value = line.partition(":")
+        assert sep, f"not a key: {line!r}"
+        value = value.strip()
+        if value and value[0] not in "'\"|>":
+            assert ": " not in value and " #" not in value, f"{key}: a plain value YAML cannot parse"
+        out[key] = "" if value in (">-", ">", "|", "|-") else value.strip("'\"")
+    return out
+
+
+@pytest.mark.parametrize("skill", sorted([*ROOT.glob("skills/*/SKILL.md"), *ROOT.glob("src/locks/skills/*/SKILL.md")]),
+                         ids=lambda p: p.parent.name)
+def test_every_skill_meets_the_agent_skills_spec(skill):
+    meta = _frontmatter(skill.read_text(encoding="utf-8"))
+    assert set(meta) <= SPEC_KEYS | CLAUDE_CODE_KEYS, set(meta) - SPEC_KEYS - CLAUDE_CODE_KEYS
+    assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", meta.get("name", "")) and len(meta["name"]) <= 64
+    assert meta["name"] == skill.parent.name
+    assert 0 < len(meta.get("description", "")) <= 1024
+    assert "<" not in meta["description"] and ">" not in meta["description"]
+    assert skill.read_text(encoding="utf-8").count("\n") < 500

@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.83.2] - 2026-11-06
+
+- `/locks:insight`'s frontmatter is YAML a strict reader parses (its description held an unquoted
+  `: `, which the Agent Skills spec's validator refuses), and `tests/test_plugin.py` checks every
+  skill locks ships against the spec as anthropics/skills' validator does.
+- Evals for `/locks:insight` and `/locks:init` in `skill-creator`'s format (`evals/evals.json`),
+  with how to run them in `skills/insight/evals/README.md`. Run on the insight skill: its report
+  now leads with what blocks, then a verdict per release claim; one false causal claim found in
+  the first run (that locks' check had a test runner the task's `--verify` lacked) is addressed by
+  a known mechanism the skill now names, and the second run held it.
+
 ## [0.83.1] - 2026-11-06
 
 - With the trace on, a worker that died keeps its transcript beside the trace, as one whose

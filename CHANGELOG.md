@@ -14,6 +14,9 @@
   now leads with what blocks, then a verdict per release claim; one false causal claim found in
   the first run (that locks' check had a test runner the task's `--verify` lacked) is addressed by
   a known mechanism the skill now names, and the second run held it.
+- Tests: the `kicks` fixture also stops `dispatch.start`, so no real dispatcher starts under
+  `LOCKS_TEST_ALL_ON=1` (autowork on). `locks queue add` started one, which took queued tasks the
+  test was reading: `test_after.py` failed in about 1 of 4 parallel all-on runs, 0 of 12 after.
 
 ## [0.83.1] - 2026-11-06
 

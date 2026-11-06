@@ -123,6 +123,11 @@ def kicks(monkeypatch):
     """No real dispatcher: each start the engine asks for is recorded."""
     seen: list[tuple[str, str | None]] = []
     monkeypatch.setattr(workflows, "_kick", lambda cwd, key: seen.append((cwd, key)))
+    # `locks queue add` and a run's ending start one through `dispatch.start`: with autowork on
+    # (`LOCKS_TEST_ALL_ON=1`) a real dispatcher would take the queue the test is reading.
+    from locks import dispatch
+
+    monkeypatch.setattr(dispatch, "start", lambda repo_dir, root, scope, **kw: False)
     return seen
 
 

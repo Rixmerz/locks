@@ -123,6 +123,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 LOCKS_TEST_ALL_ON=1 .venv/bin/python -m pytest -n auto
 claude plugin validate .
 claude plugin test .
+.venv/bin/python scripts/smoke.py   # before a release: one real task, real money
 ```
 
 Coverage measures the processes the tests start too (`patch = ["subprocess"]`): `combine` gathers them.

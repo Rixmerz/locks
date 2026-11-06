@@ -9,6 +9,16 @@ Your job: compare what locks **should** do with what its records show it **did**
 where they differ, with the record that shows it. Read only: you change no setting, start
 no work and edit no file unless the person asks after your report.
 
+## 0. Did the last releases do what they said?
+
+Before anything else, read `${CLAUDE_PLUGIN_ROOT}/CHANGELOG.md` for the releases since the
+person's previous insight (or the last three). Each entry claims an effect. For each one, name
+the record that would show it (a field, an event, a `locks stats` row), read it for the tasks
+run on that release (`version` on their events) against the tasks before it, and give one verdict:
+**worked**, **no effect**, **regressed**, **not exercised** (no task of this session reached it) or
+**too few** (under 5 tasks on either side). A release whose change cannot be read from any record
+is said as unverifiable, never assumed to work. This section is the report's first.
+
 ## 1. Is tracing on?
 
 ```bash
@@ -59,6 +69,17 @@ tokens are in the summary's `tokens`.
 
 ## 4. From a symptom to its cause
 
+Known mechanisms — check them before reading a count as a fault:
+
+- A brief opens with livespec's orientation, which **locks itself** asked livespec for
+  (`Livespec.orient`): a worker that never calls livespec may have had what it needed already.
+  Compare the orientation in its brief with the files it opened, before calling zero a gap.
+- A worker's transcript is kept beside the trace only with the trace on, when its attempt ends,
+  and (from 0.83.1) when the sweep finds it dead: `transcript: false` on an older worker is no fault.
+- A note no worker names goes back on trial by itself (`notes.retry_idle`, with `note_trials` on).
+- A resume a session's shell starts runs in its own process group (`cli._shielded`); a death at a
+  container restart is the machine's, and `dispatch.recover` resumes it once.
+
 A count is a symptom, never a conclusion: "livespec was called 0 times" or "notes went unused"
 says nothing of why. Before you propose anything for a gap, find its mechanism:
 
@@ -78,7 +99,13 @@ says nothing of why. Before you propose anything for a gap, find its mechanism:
 - **One sample is no rate.** Give the count beside every rate, and say when it is too few to
   move anything.
 
-## 5. Check each proposal against locks' rules
+## 5. Check each proposal against locks' rules and code
+
+Before you propose a change, search for it: `grep -rn` in `${CLAUDE_PLUGIN_ROOT}/src/locks/`
+and `CLAUDE.md` for its words. When locks already does it, say "exists: <function or rule>" and
+ask why it did not act here, instead of proposing it again. A proposal must name what it
+changes (a function, a constant, a brief line), the record that will show its effect, the
+number that record holds now, and the number that would say it worked.
 
 locks' rules are in `${CLAUDE_PLUGIN_ROOT}/CLAUDE.md` ("Rules the router keeps", "Fail open,
 fail closed"). Before you propose a change, find the rule it touches. A proposal that breaks
@@ -91,6 +118,13 @@ Keep two things apart: what blocks the person's own work now (a task waiting on 
 with the line that continues it) and what locks itself should change.
 
 ## 6. Report
+
+Rules for every claim: it cites its record (task `#N`, event kind and id or `ts`, release); a rate
+is written with its count (`2 of 8`, never "25%" alone); anything under 5 samples is labelled
+**too few** and moves nothing; a cause is either a line of code or a brief you quote, or it is
+labelled **hypothesis** with the record that would confirm it. No adjective stands in for a
+number ("mostly", "rarely", "better"). Prefer a short table per section to prose.
+
 
 First what blocks the person's work, if anything, with its line. Then, for each question:
 expected, observed (quote the record: tag, task, ts, release), the gap, and its cause (the code

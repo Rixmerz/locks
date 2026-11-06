@@ -2,6 +2,8 @@
 left `notes_used` out is told apart from one that said none helped."""
 from __future__ import annotations
 
+import os
+
 from locks import analysis, flow, launch, usage
 from locks.store import Store
 
@@ -56,3 +58,20 @@ def test_stats_count_tasks_whose_workers_did_not_say():
               {"task_id": 2, "kind": "attempt_finished", "data": {"passed": True, "notes_used": []}}]
     relied = analysis.notes_relied_on(events, {1, 2})
     assert relied["tasks_unsaid"] == 1 and relied["relied_on"] == 0
+
+
+def test_a_dead_workers_transcript_is_kept_beside_the_trace(tmp_path, monkeypatch):
+    from locks import flow, phase, trace, usage
+
+    source = tmp_path / "worker.jsonl"
+    source.write_text('{"type": "assistant"}\n')
+    monkeypatch.setenv("LOCKS_TRACE", "on")
+    monkeypatch.setattr(phase, "session_of", lambda task_id, attempt, env=None: "w-1")
+    monkeypatch.setattr(usage, "transcript_of", lambda session, env=None: source)
+    flow._keep_lost_transcript(7, 1)
+    kept = trace.path(os.environ, "w-1").with_suffix(".transcript.jsonl")
+    assert kept.read_text() == source.read_text()
+    monkeypatch.setenv("LOCKS_TRACE", "off")
+    kept.unlink()
+    flow._keep_lost_transcript(7, 1)
+    assert not kept.exists()

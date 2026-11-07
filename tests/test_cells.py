@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from locks import cells, hooks
+from locks import arms, cells, hooks
 from locks.store import Store
 
 from .test_hooks import prompt
@@ -176,8 +176,10 @@ def _trial_task(store: Store, arm: str, *, passed: bool, calls: int, repo="r"):
 
 
 def test_the_primer_s_trial_alternates_then_keeps_the_winner(store: Store):
-    arm, why = cells.primer_arm(store, "r", 7)
-    assert arm == "control" and "trial" in why and cells.primer_arm(store, "r", 8)[0] == "primer"
+    # Which task goes in which arm is the hash of the trial, the repository and the task (`arms.side`).
+    ids = {cells.ARMS[arms.side("primer", "r", n, 0, 0)]: n for n in range(1, 30)}
+    arm, why = cells.primer_arm(store, "r", ids["control"])
+    assert arm == "control" and "trial" in why and cells.primer_arm(store, "r", ids["primer"])[0] == "primer"
     assert cells.primer_arm(store, None, 7)[0] == "primer"
     for _ in range(cells.PRIMER_TRIAL):
         _trial_task(store, "primer", passed=True, calls=8)
@@ -227,12 +229,15 @@ def test_a_run_leaves_its_orientation_and_the_next_run_s_brief_follows_its_arm(g
         "the export lives in src/export.py; run pytest -q tests"]
     assert "primer_arm" not in store.last_event(report.task_id, "briefed")["data"]  # nothing to prime with yet
     seen = {}
-    for _ in range(2):
+    # The arm is the task's hash until the arms drift two apart (`arms.side`): a few runs see both.
+    for _ in range(2 + arms.BALANCE):
         script = Script(ok(), write="import.py")
         again = run("add the import", git_repo, store, registry={}, launcher=script, classifier=kind("implement"))
         briefed = store.last_event(again.task_id, "briefed")["data"]
         seen[briefed["primer_arm"]] = "src/export.py" in script.specs[0].prompt
         assert briefed["primer_lines"] == 1 and "trial" in briefed["primer_why"]
+        if len(seen) == 2:
+            break
     assert seen == {"primer": True, "control": False}
     monkeypatch.setenv("LOCKS_PRIMER", "off")
     off = Script(ok(), write="other.py")

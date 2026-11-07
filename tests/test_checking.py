@@ -960,9 +960,11 @@ def test_the_cli_sets_a_step_s_ledger_part(git_repo, capsys, monkeypatch):
     assert "ledger" not in json.loads(capsys.readouterr().out)["steps"][1]
 
 
-def test_the_check_keeps_only_the_neighbours_that_measure(git_repo, store, verifier_on):
+def test_the_check_keeps_only_the_neighbours_that_measure(git_repo, store, verifier_on, monkeypatch):
     from locks import capabilities as caps
 
+    # rastro handed to writing work is held to evidence on the gate arm (`evidence.arm`): not this test's.
+    monkeypatch.setenv("LOCKS_EVIDENCE", "off")
     registry = {"layout-inspector": caps.Capability("layout-inspector", {"command": "li"}),
                 "rastro": caps.Capability("rastro", {"command": "rastro"})}
     script = Script(passing(), check("pass"), write="app.py")
@@ -1338,3 +1340,13 @@ def test_a_broad_change_is_high_whatever_its_tests():
     assert any("broad change" in r for r in got.reasons)
     narrow = risk_mod.of_change(risk_mod.Risk("passive"), [*changed[:3], "src/feature/part.test.ts"])
     assert narrow.tier == "medium"
+
+
+def test_a_reading_worker_is_told_where_its_whole_answer_goes(tmp_path):
+    from locks.matrix import Cell
+
+    reading = launch.LaunchSpec(prompt="p", cell=Cell("haiku", "medium"), launch_dir=tmp_path, report=True)
+    told = launch.instructions(reading)
+    assert told.endswith(launch.REPORT_INSTRUCTIONS) and "`locks-report`" in told
+    assert launch.REPORT_INSTRUCTIONS not in launch.instructions(
+        launch.LaunchSpec(prompt="p", cell=Cell("haiku", "medium"), launch_dir=tmp_path))

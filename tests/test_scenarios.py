@@ -380,6 +380,17 @@ def test_a_step_forks_the_session_of_the_step_that_read_for_it(world, tmp_path):
         {"match": "(?s)everything above is the session of the workflow step 'look'.*MAKE-STEP",
          "do": [{"pass": True, "write": {"greeting.txt": "hi\n"}}]},
         {"match": "LOOK-STEP", "do": [{"pass": True}]}])
+    # Two fresh first tries here already: the trial's arms are `arms.BALANCE` apart, so this step forks.
+    from locks import repo as repo_mod
+
+    seeded = Store(world.home / "locks.db")
+    try:
+        for _ in range(2):
+            task = seeded.create_task("t", status="done", source="queue", repo=repo_mod.key(world.repo))
+            seeded.add_event(task["id"], "briefed", trunk_arm="fresh")
+            seeded.add_attempt(task["id"], cell="sonnet/high", max_turns=80, passed=1, input_tokens=1000)
+    finally:
+        seeded.close()
     world.locks("workflow", "run", "scout", "the greeting")
     def run_ended(store):
         return next((r for r in store.list_runs(limit=5) if r["status"] not in ("running", "active")), None)

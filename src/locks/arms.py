@@ -7,8 +7,26 @@ tries no less often. No model, no clock: the record of first tries decides.
 """
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
+
+#: How far apart two arms' task counts may be before the one with fewer goes next. Under it the
+#: task's hash decides, salted with the trial's name: two trials over the same tasks (the primer and
+#: a role's lessons, a method and the recall order) then land their arms on different tasks, where
+#: one parity shared by every trial put the same tasks in every "with" arm and made each trial's
+#: effect read as every other's.
+BALANCE = 2
+
+
+def side(name: str, repo: str | None, task_id: int, with_n: int, without_n: int) -> int:
+    """Which arm a task goes in: 0 the change, 1 its absence. The arm with fewer tasks once they
+    differ by `BALANCE` or more; else the parity of a hash of the trial, the repository and the
+    task, so no two trials share it and no clock enters."""
+    if abs(with_n - without_n) >= BALANCE:
+        return 0 if with_n < without_n else 1
+    digest = hashlib.sha256(f"{name}|{repo or ''}|{task_id}".encode()).digest()
+    return digest[0] % 2
 
 
 def tally(rows: Iterable[Mapping[str, Any]], arms: Sequence[str]) -> dict[str, dict[str, Any]]:
@@ -27,13 +45,13 @@ def tally(rows: Iterable[Mapping[str, Any]], arms: Sequence[str]) -> dict[str, d
 
 
 def pick(found: Mapping[str, Mapping[str, Any]], arms: Sequence[str], task_id: int, trial: int,
-         name: str) -> tuple[str, str]:
+         name: str, repo: str | None = None) -> tuple[str, str]:
     """The arm this task goes in, and why: `arms[0]` is the change, `arms[1]` its absence."""
     on, off = arms
     w, wo = found[on], found[off]
     if min(w["tries"], wo["tries"]) < trial:
-        side = arms[task_id % 2] if w["tasks"] == wo["tasks"] else on if w["tasks"] < wo["tasks"] else off
-        return side, f"the {name} trial here ({w['tries']} {on}, {wo['tries']} {off}, {trial} each)"
+        chosen = arms[side(name, repo, task_id, w["tasks"], wo["tasks"])]
+        return chosen, f"the {name} trial here ({w['tries']} {on}, {wo['tries']} {off}, {trial} each)"
     said = f"first tries passed {w['rate']:.0%} {on} and {wo['rate']:.0%} {off}"
     if w["rate"] >= wo["rate"]:
         return on, f"the {name} won its trial here: {said}"

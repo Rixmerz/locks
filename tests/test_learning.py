@@ -8,7 +8,7 @@ from datetime import datetime
 
 import pytest
 
-from locks import flow, loops, methods, notes, orchestrate
+from locks import arms, flow, loops, methods, notes, orchestrate
 from locks.orchestrate import Options, run
 from locks.store import Store
 
@@ -99,15 +99,17 @@ def test_a_method_alternates_then_stays_where_it_did_no_worse(store: Store):
         store.add_attempt(t["id"], cell="opus/high", max_turns=30, passed=int(passed), input_tokens=10)
         store.add_event(t["id"], "briefed", method_arm=f"diagnosis:{side}")
 
-    assert methods.arm(store, "r", diagnosis, 2)[0] == "with"
+    ids = {methods.ARMS[arms.side("diagnosis", "r", n, 0, 0)]: n for n in range(1, 30)}
+    assert methods.arm(store, "r", diagnosis, ids["with"])[0] == "with"
     task("with", True)
-    assert methods.arm(store, "r", diagnosis, 2)[0] == "without"
+    task("with", True)
+    assert methods.arm(store, "r", diagnosis, ids["with"])[0] == "without"  # two apart: fewer goes next
     for n in range(methods.TRIAL):
         task("with", True)
         task("without", n < 3)
     side, why = methods.arm(store, "r", diagnosis, 2)
     assert side == "with" and why.startswith("the diagnosis won its trial here")
-    for _ in range(8):  # 7 of 15 with it against 3 of 6 without: it lost
+    for _ in range(9):  # 8 of 17 with it against 3 of 6 without: it lost
         task("with", False)
     assert methods.arm(store, "r", diagnosis, 2)[0] == "without"
     assert methods.arm(store, None, diagnosis, 1)[0] == "with"
@@ -232,9 +234,11 @@ def test_the_recall_order_alternates_then_stays_where_it_did_no_worse(store: Sto
         store.add_attempt(t["id"], cell="sonnet/medium", max_turns=30, passed=int(passed), input_tokens=10)
         store.add_event(t["id"], "briefed", recall_arm=side)
 
-    assert notes.recall_arm(store, "r", 0)[0] == "fused"
+    ids = {notes.RECALL_ARMS[arms.side("recall order", "r", n, 0, 0)]: n for n in range(1, 30)}
+    assert notes.recall_arm(store, "r", ids["fused"])[0] == "fused"
     task("fused", True)
-    assert notes.recall_arm(store, "r", 0)[0] == "ordered"
+    task("fused", True)
+    assert notes.recall_arm(store, "r", ids["fused"])[0] == "ordered"
     for n in range(notes.RECALL_TRIAL):
         task("fused", n < 2)
         task("ordered", True)
@@ -301,3 +305,17 @@ def test_method_files_that_do_not_fit_are_named_by_section(tmp_path, monkeypatch
     lines = tracer.brief_lines(tmp_path, "anything")
     index = next(line for line in lines if line.startswith("Not shown above, by section"))
     assert "Edge readers (docs/tracer/audiences.md:402-403)" in index
+
+
+def test_two_trials_over_the_same_tasks_land_their_arms_on_different_tasks():
+    # One parity for every trial put the same tasks in every "with" arm; a hash salted with the
+    # trial's name does not: over forty tasks the two trials agree on about half.
+    primer = [arms.side("primer", "r", n, 0, 0) for n in range(40)]
+    trunk = [arms.side("trunk", "r", n, 0, 0) for n in range(40)]
+    agreed = sum(a == b for a, b in zip(primer, trunk, strict=True))
+    assert 8 <= agreed <= 32 and set(primer) == {0, 1}
+    # Deterministic: the same trial, repository and task always land the same side.
+    assert arms.side("primer", "r", 7, 0, 0) == arms.side("primer", "r", 7, 1, 1)
+    # Once the arms drift `BALANCE` apart, the one with fewer tasks goes next, whatever the hash says.
+    assert all(arms.side("primer", "r", n, 0, arms.BALANCE) == 0 for n in range(40))
+    assert all(arms.side("primer", "r", n, arms.BALANCE, 0) == 1 for n in range(40))

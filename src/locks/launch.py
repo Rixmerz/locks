@@ -301,11 +301,23 @@ a plan that reads every file spends its turns on their work.
 """.strip()
 
 
+#: What a worker whose answer is the deliverable (a reading kind) is told: the whole answer goes in
+#: a `locks-report` block, which locks keeps on the task (`report` event); `summary` stays short, and
+#: prose outside both blocks is not kept.
+REPORT_INSTRUCTIONS = f"""
+Your answer is the deliverable of this task, and only what is inside a fenced block is kept. \
+Before the result block, put the whole of your answer (the findings, the tables, the list of \
+changes, whatever was asked) in one block fenced as `{REPORT_FENCE}`, written in markdown with \
+no triple backticks inside it. `summary` stays one or two sentences; prose outside the two \
+blocks is dropped.
+""".strip()
+
+
 def instructions(spec: LaunchSpec) -> str:
-    """The result contract a worker is given, with the judging note for a step that judges
-    and what a plan a workflow fans out over must add."""
+    """The result contract a worker is given, with the judging note for a step that judges,
+    what a plan a workflow fans out over must add, and where a reading worker's answer goes."""
     return RESULT_INSTRUCTIONS + ("\n\n" + JUDGING_INSTRUCTIONS if spec.judging else "") + (
-        "\n\n" + PARTS_INSTRUCTIONS if spec.parts else "")
+        "\n\n" + PARTS_INSTRUCTIONS if spec.parts else "") + ("\n\n" + REPORT_INSTRUCTIONS if spec.report else "")
 
 
 #: What a session given more turns is told: its brief, its context and its prompt
@@ -370,6 +382,8 @@ class LaunchSpec:
     verdict_words: tuple[str, ...] = ()
     #: A plan a workflow fans out over: a pass carries its `parts` and their `contract` (`read_parts`).
     parts: bool = False
+    #: Its answer is the deliverable: told to put the whole of it in a `locks-report` block.
+    report: bool = False
     persist_session: bool = False
     #: The worker session this attempt continues (`--resume`), told to go on:
     #: an attempt given more turns on the same cell, in the same directory. "" starts fresh.

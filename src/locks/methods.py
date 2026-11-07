@@ -94,7 +94,7 @@ def arm(store: Store, repo: str | None, method: Method, task_id: int) -> tuple[s
     with fewer tasks next; after it, where its arm did no worse than the arm without it."""
     if repo is None:
         return "with", "no repository to run a trial in"
-    return arms_mod.pick(trial(store, repo, method), ARMS, task_id, TRIAL, method.name)
+    return arms_mod.pick(trial(store, repo, method), ARMS, task_id, TRIAL, method.name, repo)
 
 
 _RISKS = re.compile(r"^[ \t]*\**risks\**[ \t]*:[ \t]*(.*)$", re.IGNORECASE | re.MULTILINE)

@@ -22,7 +22,9 @@ From those records:
   time, so it does not spend turns rediscovering them.
 - **automation** — a candidate becomes a `PostToolUse` hook only when a person
   runs `locks habits install` with the command to run. Nothing in locks
-  installs one by itself. An installed habit that fails three times in a row
+  installs one by itself. An installed habit that breaks three times in a row
+  (its command cannot start, hangs, or runs too slow; a linter's findings are
+  its job, counted as `caught`, never a break)
   turns itself off, and `locks habits uninstall` removes it.
 """
 from __future__ import annotations
@@ -109,19 +111,24 @@ class Candidate:
     score: float
     #: The repositories it was seen in.
     repos: int = 1
+    #: The tool file that declares it, for a habit no session has shown yet (`declared`); "" for one mined.
+    declared_by: str = ""
 
     @property
     def id(self) -> str:
         return hashlib.sha256(" > ".join(self.steps).encode()).hexdigest()[:8]
 
     def line(self) -> str:
+        if self.declared_by:
+            return f"{self.id}  {' → '.join(self.steps)}  declared by {self.declared_by}, not seen in a session yet"
         where = f", {self.repos} repositories" if self.repos > 1 else ""
         return (f"{self.id}  {' → '.join(self.steps)}  ×{self.occurrences} in {self.sessions} sessions{where}, "
                 f"{self.success:.0%} ok")
 
     def data(self) -> dict[str, Any]:
         return {"id": self.id, "steps": list(self.steps), "occurrences": self.occurrences,
-                "sessions": self.sessions, "repos": self.repos, "success": self.success, "score": self.score}
+                "sessions": self.sessions, "repos": self.repos, "success": self.success, "score": self.score,
+                **({"declared_by": self.declared_by} if self.declared_by else {})}
 
 
 def _runs(events: Sequence[Mapping[str, Any]]) -> dict[str, list[Mapping[str, Any]]]:
@@ -254,13 +261,79 @@ def has_tool(repo_dir: Path | None, steps: Sequence[str]) -> bool:
     return bool(markers) and any((repo_dir / m).is_file() for m in markers)
 
 
+#: Linters, formatters and type checkers a repository declares in its own tool files, as the habit
+#: a hook would make of each: the program, what in which file declares it, and the file types it
+#: checks (only the ones the repository tracks are offered). A habit offered before any session
+#: repeats it: the review worker still finds the command and times it, and `vet` runs it before
+#: it is installed, as for one mined.
+DECLARED: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    ("ruff", "pyproject.toml", "[tool.ruff", (".py",)),
+    ("ruff", "ruff.toml", "", (".py",)),
+    ("ruff", ".ruff.toml", "", (".py",)),
+    ("mypy", "pyproject.toml", "[tool.mypy", (".py",)),
+    ("mypy", "mypy.ini", "", (".py",)),
+    ("black", "pyproject.toml", "[tool.black", (".py",)),
+    ("eslint", "package.json", '"eslint"', (".ts", ".tsx", ".js", ".jsx")),
+    ("prettier", "package.json", '"prettier"', (".ts", ".tsx", ".js", ".jsx", ".css", ".scss", ".md")),
+    ("tsc", "package.json", '"typescript"', (".ts", ".tsx")),
+    ("biome", "package.json", '"@biomejs/biome"', (".ts", ".tsx", ".js", ".jsx")),
+    ("deno-lint", "deno.json", "", (".ts", ".tsx")),
+    ("deno-lint", "deno.jsonc", "", (".ts", ".tsx")),
+    ("cargo-clippy", "Cargo.toml", "", (".rs",)),
+    ("gofmt", "go.mod", "", (".go",)),
+    ("go-vet", "go.mod", "", (".go",)),
+)
+
+
+def _tracked_types(repo_dir: Path) -> set[str]:
+    """The file types a repository tracks, from git; none when git cannot say (nothing is offered)."""
+    try:
+        done = subprocess.run(["git", "-C", str(repo_dir), "ls-files", "-z"], capture_output=True, text=True,
+                              timeout=20, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if done.returncode != 0:
+        return set()
+    return {Path(name).suffix for name in done.stdout.split("\0") if name and Path(name).suffix}
+
+
+def declared(repo_dir: Path | None) -> list[Candidate]:
+    """The habits a repository's tool files declare (`DECLARED`): one per program and tracked file
+    type, with no count, marked by the file that declares it. Read only; nothing is run."""
+    if repo_dir is None:
+        return []
+    types = _tracked_types(repo_dir)
+    if not types:
+        return []
+    out: dict[tuple[str, ...], Candidate] = {}
+    for program, marker, says, suffixes in DECLARED:
+        path = repo_dir / marker
+        if not path.is_file():
+            continue
+        if says:
+            try:
+                if says not in path.read_text(encoding="utf-8", errors="replace"):
+                    continue
+            except OSError:
+                continue
+        for suffix in suffixes:
+            steps = (f"edit:{suffix}", f"bash:{program}")
+            if suffix in types and steps not in out:
+                out[steps] = Candidate(steps, 0, 0, 1.0, 0, 0.0, declared_by=marker)
+    return list(out.values())
+
+
 def for_repo(events: Sequence[Mapping[str, Any]], repo: str,
              repo_dir: Path | None = None) -> tuple[list[Candidate], list[Candidate]]:
-    """A repository's habits, mined from its own events and gated on them alone,
-    and those other repositories share that it does not have yet and whose tool it has
-    (`has_tool`). A habit is per project: its command is this project's tooling, and a
-    count summed over unrelated projects says nothing about this one."""
+    """A repository's habits, mined from its own events and gated on them alone, then the ones
+    its tool files declare that no session has shown yet (`declared`), and those other
+    repositories share that it does not have yet and whose tool it has (`has_tool`). A habit is
+    per project: its command is this project's tooling, and a count summed over unrelated
+    projects says nothing about this one."""
     here = candidates([e for e in events if e.get("repo") == repo])
+    mine = [c.steps for c in here]
+    here += [c for c in declared(repo_dir)
+             if not any(c.steps == m or (m[0] == c.steps[0] and m[-1] == c.steps[-1]) for m in mine)]
     mine = [c.steps for c in here]
     elsewhere = [c for c in candidates([e for e in events if _project(e.get("repo"))])
                  if c.repos >= MIN_REPOS_ELSEWHERE and has_tool(repo_dir, c.steps)
@@ -385,11 +458,17 @@ def unreviewed(store: Store, repo: str, repo_dir: Path | None, *, days: int = RE
 def review_brief(found: Sequence[Candidate]) -> str:
     """A read-only worker's request: one criterion per habit, each answered with whether it is
     worth a hook here and, if so, the exact command, run and timed."""
-    lines = "\n".join(f"- {c.id}: after {c.steps[0]}, the session ran {' → '.join(c.steps[1:])} "
-                       f"({c.occurrences} times in {c.sessions} sessions)" for c in found)
+    from locks.launch import REPORT_FENCE
+
+    lines = "\n".join(
+        f"- {c.id}: after {c.steps[0]}, this repository declares {c.steps[-1].removeprefix('bash:')} in "
+        f"{c.declared_by} (no session ran it after an edit yet)" if c.declared_by else
+        f"- {c.id}: after {c.steps[0]}, the session ran {' → '.join(c.steps[1:])} "
+        f"({c.occurrences} times in {c.sessions} sessions)" for c in found)
     return (
-        "Review these habits locks found in this repository's tool calls, each an edit followed by the same "
-        "command, as candidates for a hook that runs a command after every such edit. Change no file. "
+        "Review these habits locks found in this repository's tool calls (each an edit followed by the same "
+        "command) or in its tool files (a linter, formatter or type checker it declares), as candidates for a "
+        "hook that runs a command after every such edit. Change no file. "
         "Answer each one below as its own criterion:\n"
         f"{lines}\n\n"
         "For each, find whether this repository has the tool and how it is run here (its scripts in "
@@ -402,7 +481,8 @@ def review_brief(found: Sequence[Candidate]) -> str:
         "with no `;`, `&&`, pipe, redirection or `$(…)`: a hook that needs a script is a skip. locks runs it "
         "again itself before it installs it. Each criterion's evidence starts with its verdict, exactly "
         f"`install <id>: `<command>`` (the command in backticks, as you ran it) or `skip <id>: <why>`, then "
-        "its wall time and what you found.")
+        "its wall time and what you found. Write the same verdict lines, one per habit, at the top of your "
+        f"`{REPORT_FENCE}` block and in `evidence`: locks reads the verdicts from there too.")
 
 
 #: A habits review's verdict at the start of a criterion's evidence (`review_brief`): a command
@@ -486,7 +566,8 @@ def shaped(command: str, candidate: Candidate) -> str | None:
         return "it does not parse as a command"
     words = [w for w in words if not re.fullmatch(r"[A-Z_][A-Z0-9_]*=\S*", w)]
     program = candidate.steps[-1].removeprefix("bash:").split("-")
-    while words and words[0] in _RUNNERS and words[0] != program[0]:
+    # A runner by its name wherever it is (`.venv/bin/python -m ruff`, as a project's own docs run it).
+    while words and Path(words[0]).name in _RUNNERS and Path(words[0]).name != program[0]:
         words = words[1:]
     if not words or Path(words[0]).name != program[0] or (len(program) > 1 and program[1] not in words[1:3]):
         return f"it does not run the habit's program ({' '.join(program)})"
@@ -529,6 +610,23 @@ def vet(command: str, candidate: Candidate, repo_dir: Path, root: Path) -> tuple
         return f"it could not be tried: {exc}", None
 
 
+def review_texts(store: Store, task: Mapping[str, Any], finished: Mapping[str, Any] | None = None) -> list[str]:
+    """Where a review's verdicts are read from: each criterion's evidence on its ending, its summary,
+    the report block it kept (`report` event) and each attempt's evidence. A review of one habit has
+    no criteria (a list is two items or more), so its verdict lives in the report or the evidence."""
+    if finished is None:
+        finished = next((e["data"] for e in reversed(store.events(task_id=int(task["id"]), limit=500))
+                         if e["kind"] == "finished"), {})
+    texts = [str(c.get("evidence") or "") for c in (finished.get("verdict") or {}).get("criteria") or ()]
+    texts.append(str(task.get("result") or ""))
+    for e in store.events_of(int(task["id"]), "report"):
+        report = e["data"].get("report")
+        texts.append(str(report.get("unparsed")) if isinstance(report, dict) and "unparsed" in report
+                     else json.dumps(report, ensure_ascii=False))
+    texts += [str(a.get("evidence") or "") for a in store.attempts(int(task["id"]))]
+    return texts
+
+
 def apply_reviews(store: Store, root: Path, *, env: Mapping[str, str] | None = None,
                   task_ids: Sequence[int] | None = None) -> list[dict[str, Any]]:
     """Install what passing habits reviews proposed and locks' own check (`vet`) passed, once
@@ -540,8 +638,10 @@ def apply_reviews(store: Store, root: Path, *, env: Mapping[str, str] | None = N
     if not config.enabled(AUTO, dict(os.environ) if env is None else env):
         return []
     done: list[dict[str, Any]] = []
+    # A review is queued as `queue` and runs as `locks` (`orchestrate` sets a started task's source):
+    # it is found by its options, never by its source.
     tasks = ([t for t in (store.get_task(i) for i in task_ids) if t and t["status"] == "done"]
-             if task_ids is not None else store.list_tasks(source=("queue",), status=("done",), limit=200))
+             if task_ids is not None else store.list_tasks(status=("done",), limit=200))
     for task in tasks:
         options = json.loads(task.get("options") or "{}")
         reviewed = options.get("habit_review")
@@ -552,11 +652,15 @@ def apply_reviews(store: Store, root: Path, *, env: Mapping[str, str] | None = N
                 continue
             store.set_meta(f"habits.applied:{task['id']}", "1")
         top = checkout_of(task.get("cwd"))
-        finished = next((e["data"] for e in reversed(store.events(task_id=task["id"], limit=500))
-                         if e["kind"] == "finished"), {})
-        texts = [str(c.get("evidence") or "") for c in (finished.get("verdict") or {}).get("criteria") or ()]
-        installs, _ = review_verdicts([*texts, str(task.get("result") or "")], reviewed)
+        installs, skips = review_verdicts(review_texts(store, task), reviewed)
         known = {c.id: c for c in current(store, task.get("repo"), top)}
+        for cid in reviewed:
+            if cid not in installs and cid not in skips:
+                # Said, never silent: a verdict locks could not read installs nothing and is an event.
+                store.add_event(task["id"], "habit_refused", candidate=cid, command=None, seconds=None,
+                                why="the review gave no verdict locks could read (`install <id>: `<command>`` "
+                                    "or `skip <id>: <why>`; `locks show` has its words)")
+                done.append({"task": task["id"], "candidate": cid, "refused": "no verdict"})
         for cid, command in installs.items():
             candidate = known.get(cid)
             why, seconds = (("it no longer passes the gates", None) if candidate is None else
@@ -669,14 +773,18 @@ def uninstall(store: Store, habit_id: int) -> bool:
 
 #: How much of a failed habit's output the session is shown.
 OUTPUT_CHARS = 2000
+#: Exit codes that say the command itself could not run (the shell's: not executable, not found):
+#: a break of the hook, never a finding of the check.
+_CANNOT_RUN = frozenset({126, 127})
 
 
 def run_habit(store: Store, habit_id: int, event: Mapping[str, Any]) -> str | None:
-    """The hook body. Runs the person's command after a matching edit; three
-    failures in a row and the habit turns itself off. Returns what the session
-    should hear: the end of a failed run's output, so the check it ran saves the
-    model a turn instead of being run again by hand. None when it passed or did
-    not apply."""
+    """The hook body. Runs the person's command after a matching edit. A command that exits
+    non-zero with something to say found something (`caught`): that is the check doing its job,
+    and the session hears the end of its output, so the check saves the model a turn instead of
+    being run again by hand. A command that cannot start (exit `_CANNOT_RUN`), hangs, or runs
+    past `SLOW_SECONDS` broke: three breaks in a row and the habit turns itself off. None when
+    it passed or did not apply."""
     habit = store.habit(habit_id)
     if habit is None or habit["disabled_at"] or habit["removed"]:
         return None
@@ -690,20 +798,25 @@ def run_habit(store: Store, habit_id: int, event: Mapping[str, Any]) -> str | No
                               capture_output=True, text=True, timeout=110, check=False,
                               env={**os.environ, EDITED_VAR: path, OLD_EDITED_VAR: path})
         ok, output = proc.returncode == 0, (proc.stdout + proc.stderr).strip()
-        if ok and time.monotonic() - started > SLOW_SECONDS:
-            ok, output = False, f"it passed but took over {SLOW_SECONDS} s: too slow to run after every edit"
+        found = not ok and proc.returncode not in _CANNOT_RUN
+        if time.monotonic() - started > SLOW_SECONDS:
+            ok, found = False, False
+            output = (f"it took over {SLOW_SECONDS} s: too slow to run after every edit"
+                      + (f"\n{output}" if output else ""))
     except subprocess.TimeoutExpired:
-        ok, output = False, "it ran past 110 seconds and was stopped"
+        ok, found, output = False, False, "it ran past 110 seconds and was stopped"
     except OSError as exc:
-        ok, output = False, str(exc)
-    store.habit_ran(habit_id, ok=ok, max_failures=MAX_FAILURES)
+        ok, found, output = False, False, str(exc)
+    store.habit_ran(habit_id, ok=ok, max_failures=MAX_FAILURES, found=found)
     if ok:
         return None
     tail = output[-OUTPUT_CHARS:]
+    if found:
+        return f"locks habit #{habit_id} ran `{habit['command']}` after this edit, and it found:\n{tail}"
     now = store.habit(habit_id)
-    off = (" It failed three times in a row and is off now (`locks habits status` lists it)."
+    off = (" It broke three times in a row and is off now (`locks habits status` lists it)."
            if now and now["disabled_at"] else "")
-    return f"locks habit #{habit_id} ran `{habit['command']}` after this edit, and it failed:{off}\n{tail}"
+    return f"locks habit #{habit_id} ran `{habit['command']}` after this edit, and it broke:{off}\n{tail}"
 
 
 def _read_settings(path: Path) -> dict[str, Any]:

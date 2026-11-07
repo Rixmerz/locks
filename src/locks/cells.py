@@ -31,6 +31,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from locks import arms as arms_mod
 from locks import capabilities, risk
 from locks.store import Store
 from locks.text import fold
@@ -270,8 +271,9 @@ def primer_arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
     early = min(p["tasks"], c["tasks"]) >= PRIMER_EARLY and \
         p["passed_first"] / p["tasks"] < c["passed_first"] / c["tasks"] - PRIMER_EARLY_MARGIN
     if min(p["tasks"], c["tasks"]) < PRIMER_TRIAL and not early:
-        # The arm with fewer tasks, so both fill at the same pace; a tie by the task's parity.
-        arm = ARMS[task_id % 2] if p["tasks"] == c["tasks"] else "primer" if p["tasks"] < c["tasks"] else "control"
+        # The arm with fewer tasks once they drift apart, so both fill at the same pace; else the
+        # task's hash, salted with this trial, so no other trial lands its arms on the same tasks.
+        arm = ARMS[arms_mod.side("primer", repo, task_id, p["tasks"], c["tasks"])]
         return arm, f"the primer's trial here ({p['tasks']} primed, {c['tasks']} without, {PRIMER_TRIAL} each)"
     rate_p, rate_c = p["passed_first"] / p["tasks"], c["passed_first"] / c["tasks"]
     if early:

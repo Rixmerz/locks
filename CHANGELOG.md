@@ -4,7 +4,59 @@
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-11-07
+
+### Changed
+- **Trials no longer move in lockstep**: every two-arm trial (a method, the primer, a trunk, the
+  evidence gate, a role's lessons, the recall order) broke a tie by the task's parity and then kept
+  the arms level, so trials that ran over the same tasks put the same tasks in every "with" arm and
+  read each other's effect as their own. The side is now the hash of the trial, the repository and
+  the task (`arms.side`), and the arm with fewer tasks goes next only once they are `arms.BALANCE`
+  apart. Deterministic, no clock, no model; the `briefed` event's arm fields show it.
+- **A pass nobody read moves no start cell cheaper**: a first try the independent check's sampling
+  let through (`verifier_sampled`) counted as a first-try pass, so a cheap cell looked better the less
+  it was checked and the calibration chose it sooner. `Ended.unread` marks it, `standards.rates(read=True)`
+  leaves it out, and `start_cell` moves to a cheaper rung only on first tries that were read (the
+  change's evidence keeps `read` and `held`); a move up reads every try as before.
+- **A linter's findings no longer turn its habit off**: an installed habit counted every non-zero
+  exit as a failure of the hook, so three edits in a row with something to fix (the very runs it
+  is for) disabled it. A command that exits non-zero with output has *found* something: the session
+  hears it as before, the run is counted as `caught` (`locks habits status` shows it beside the
+  runs), and the streak resets. Only a command that cannot start (exit 126 or 127), hangs, or runs
+  past `habits.SLOW_SECONDS` breaks the hook, and three breaks in a row turn it off.
+
+### Added
+- **A reading worker's answer is kept whole**: a worker of a reading kind (explore, a review, a plan,
+  chat) is told to put its whole answer in a `locks-report` block (`launch.REPORT_INSTRUCTIONS`),
+  which was already parsed and kept as a `report` event and shown only for investigations. The
+  result contract's `summary` is one or two sentences, and the tables and lists a reading task was
+  asked for were dropped with the rest of the prose. `locks show N` prints the report whole, the
+  ending notice says it is kept, and the UI's task detail carries it (`report`). The surveyor keeps
+  its own JSON report.
+- **`attempt_finished.tools_logged`**: whether any tool call of the attempt reached the log. A worker
+  whose hooks did not run (no locks plugin installed where it ran) logs none, and its
+  `capability_calls` zeros, its missing `behavior` and `livespec_calls: {}` were read as "never
+  called". `locks stats` counts such attempts apart ("not recorded") instead of as silent.
+- **Habits a repository's tool files declare**: a linter, formatter or type checker a repository
+  declares (`[tool.ruff]` or `[tool.mypy]` in pyproject.toml, eslint, prettier, typescript or biome
+  in package.json, deno.json, Cargo.toml, go.mod: `habits.DECLARED`) is offered as a habit for each
+  file type the repository tracks, before any session repeats the sequence (a mined habit needed
+  three runs in two sessions). It is listed by `locks habits list` as "declared by <file>", reviewed
+  by the same read-only worker (which finds the command and times it) and vetted by locks before it
+  is installed, as a mined one is; a habit a session already showed is the mined one.
+
 ### Fixed
+- **A habits review the dispatcher ran was never applied**: `habits.apply_reviews` looked for reviews
+  by the `queue` source they were created with, and a task's source becomes `locks` once it runs, so
+  the vetted install from `evolution.settle` never happened (only an ending delivered to a session
+  applied it). Reviews are found by their options now. A review whose verdict locks cannot read
+  (`install <id>: `<command>`` or `skip <id>: <why>`) is a `habit_refused` event that says so, never
+  silence; a review of one habit has no criteria (a list is two items or more), so the verdicts are
+  read from its `locks-report` block and its evidence too, and the brief asks for them there.
+  `locks doctor` says a passed review nothing applied (`habit-review-unapplied`).
+- **A runner named by its path is the habit's program**: `.venv/bin/python -m ruff check` (how a
+  project's own docs run it) was refused as not running `ruff`; a runner is read by its name wherever
+  it is.
 - **An older install a live session still runs from is no longer offered for removal**: SessionStart
   named every older install with an `rm -rf` line, and removing one a session started before the
   update still ran its hooks from made that session's next hook fail to start (after a compaction,

@@ -290,6 +290,8 @@ def task_detail(store: Store, task_id: int) -> dict[str, Any] | None:
         "stop": stops.view(store, task),
         "branch": finished["data"].get("branch") if finished else None,
         "impact": finished["data"].get("impact", []) if finished else [],
+        # A reading worker's answer, kept whole (`locks-report`); the summary is in `result`.
+        "report": ((store.last_event(task_id, "report") or {}).get("data") or {}).get("report"),
         # What it was shown when it ran; the memory as it is now would include later ones.
         "dead_ends": ((store.last_event(task_id, "dead_ends") or {}).get("data") or {}).get("shown") or [],
         "events": store.events(task_id=task_id, limit=500),

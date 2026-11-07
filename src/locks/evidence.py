@@ -27,6 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from locks import arms as arms_mod
 from locks import capabilities, config
 from locks.matrix import READ_ONLY_KINDS
 from locks.store import Store
@@ -157,7 +158,7 @@ def arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
     found = trial(store, repo)
     g, f = found["gate"], found["free"]
     if min(g["read"], f["read"]) < TRIAL:
-        pick = ARMS[task_id % 2] if g["tasks"] == f["tasks"] else "gate" if g["tasks"] < f["tasks"] else "free"
+        pick = ARMS[arms_mod.side("evidence", repo, task_id, g["tasks"], f["tasks"])]
         return pick, (f"the evidence trial here ({g['read']} held and {f['read']} free read by the independent "
                       f"check, {TRIAL} each)")
     said = (f"the independent check blocked {g['blocked']} of {g['read']} passes held to evidence and "

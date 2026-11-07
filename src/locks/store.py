@@ -217,6 +217,9 @@ OPEN_FOR_A_RELAY = ("queued", "running", "blocked", "needs_approval", "replan")
 #: alters a table that exists, so each one is added here when it is missing.
 #: Append-only: a column is never renamed or removed once a database has it.
 _ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    # A habit's runs whose check found something: the linter's findings after an edit, shown to
+    # the session; never a failure of the hook (`habits.run_habit`).
+    "habits": {"caught": "INTEGER NOT NULL DEFAULT 0"},
     "tasks": {
         "pid": "INTEGER",  # the `locks run` process driving it, while it runs
         "current_cell": "TEXT",  # the cell of the attempt in flight
@@ -1352,10 +1355,13 @@ class Store:
         sets = ", ".join(f"{k} = ?" for k in fields)
         self._conn.execute(f"UPDATE habits SET {sets} WHERE id = ?", [*fields.values(), habit_id])  # noqa: S608
 
-    def habit_ran(self, habit_id: int, *, ok: bool, max_failures: int) -> None:
-        """Count a run; reset the streak on success, turn the habit off on the third failure."""
-        if ok:
-            self._conn.execute("UPDATE habits SET runs = runs + 1, failures = 0 WHERE id = ?", (habit_id,))
+    def habit_ran(self, habit_id: int, *, ok: bool, max_failures: int, found: bool = False) -> None:
+        """Count a run; reset the streak on success, turn the habit off on the third failure. A run
+        whose check found something (`found`) is counted as caught and resets the streak: the
+        command ran, which is what the streak measures."""
+        if ok or found:
+            self._conn.execute("UPDATE habits SET runs = runs + 1, failures = 0, caught = caught + ? WHERE id = ?",
+                               (int(found), habit_id))
             return
         self._conn.execute(
             "UPDATE habits SET runs = runs + 1, failures = failures + 1, "

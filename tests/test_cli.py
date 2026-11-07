@@ -1669,3 +1669,18 @@ def test_show_never_says_a_running_task_cost_nothing(capsys, monkeypatch):
     monkeypatch.setattr(usage, "running_cost", lambda *a, **k: None)
     assert cli.main(["show", str(t["id"])]) == 0
     assert "$0.00 + the running attempt's, not read yet" in capsys.readouterr().out
+
+
+def test_show_prints_a_reading_worker_s_whole_answer(capsys, git_repo):
+    store = Store.open()
+    t = store.create_task("where is x?", status="done", source="locks", repo="github.com/o/r", kind="explore")
+    store.add_attempt(t["id"], cell="haiku/medium", max_turns=30, passed=1, summary="x lives in a.py")
+    store.add_event(t["id"], "report", seq=1, passed=True, report={"unparsed": "# where\n\n| a | b |\n|---|---|"})
+    other = store.create_task("survey", status="done", source="locks", repo="github.com/o/r", kind="explore")
+    store.add_event(other["id"], "report", seq=1, passed=True, report={"project": "x", "flows": []})
+    store.close()
+    assert cli.main(["show", str(t["id"])]) == 0
+    out = capsys.readouterr().out
+    assert "--- report (attempt 1)\n# where\n\n| a | b |\n|---|---|" in out
+    assert cli.main(["show", str(other["id"])]) == 0
+    assert '"project": "x"' in capsys.readouterr().out

@@ -1609,6 +1609,10 @@ def run(
                 workdir=workdir if workdir != launch_dir else None,
                 max_turns=turns,
                 timeout_s=launch.timeout_for(turns),
+                # A reading worker's answer is its deliverable: kept whole in a `locks-report` block
+                # (an internal role, the surveyor, has a report shape of its own).
+                report=the_plan.kind in READ_ONLY_KINDS
+                and (the_plan.role is None or the_plan.role.name not in roles.INTERNAL),
                 disallowed_tools=tuple(dict.fromkeys([*(() if writes else launch.WRITE_TOOLS),
                                                       *(the_plan.role.disallowed_tools if the_plan.role else ())])),
                 # The person's rules, for this run and for this repository, the
@@ -1893,6 +1897,9 @@ def run(
                             # Every capability it was handed, and the calls of its tools (`evidence.calls`).
                             **({"capability_calls": evidence_mod.calls(store, task["id"], nth, selection.names)}
                                if selection.names else {}),
+                            # Whether its tool calls reached the log at all: a worker whose hooks did not
+                            # run (no plugin where it ran) logs none, and its zeros are not zeros.
+                            tools_logged=bool(store.tool_counts(task["id"], nth, "")),
                             # How its worker worked, from its own tool calls (`locks.behavior`): observed.
                             **({"behavior": shown} if (shown := behavior.of_attempt(store, task["id"], nth)) else {}),
                             # What locks' check said where it failed: shown by `locks show`, the board and

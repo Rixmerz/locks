@@ -1276,6 +1276,10 @@ def cmd_show(args: argparse.Namespace) -> int:
                     print(f"      · skipped {line}")
         for line in run_lines(store, args.id):
             print(line)
+        for e in store.events_of(args.id, "report"):
+            # A reading worker's answer, kept whole: its deliverable, never clipped here.
+            print(f"--- report (attempt {e['data'].get('seq')})")
+            print(report_text(e["data"].get("report")))
         stop = stops.view(store, task)
         if stop:
             print(f"stopped by {stop['who']}: {stop['reason']}")
@@ -1285,6 +1289,13 @@ def cmd_show(args: argparse.Namespace) -> int:
     finally:
         store.close()
     return 0
+
+
+def report_text(report: object) -> str:
+    """A kept `locks-report` as text: the markdown a reading worker wrote (`unparsed`), else its JSON."""
+    if isinstance(report, dict) and set(report) == {"unparsed"}:
+        return str(report["unparsed"])
+    return json.dumps(report, ensure_ascii=False, indent=1)
 
 
 def run_lines(store: Store, task_id: int) -> list[str]:
@@ -2424,9 +2435,9 @@ def cmd_habits(args: argparse.Namespace) -> int:
                 print(json.dumps(installed, ensure_ascii=False))
                 return 0
             for h in installed:
-                state = f"off since {h['disabled_at']} after {h['failures']} failures" if h["disabled_at"] else "on"
-                print(f"#{h['id']} {' → '.join(h['steps'])}: `{h['command']}` ({h['runs']} runs) {state}"
-                      f"  in {h['repo']}")
+                state = f"off since {h['disabled_at']} after {h['failures']} breaks" if h["disabled_at"] else "on"
+                print(f"#{h['id']} {' → '.join(h['steps'])}: `{h['command']}` ({h['runs']} runs, "
+                      f"{h.get('caught') or 0} found something) {state}  in {h['repo']}")
             return 0
         key = None if args.all else _habit_repo(args.repo)
         if key is None:

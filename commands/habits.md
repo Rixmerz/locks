@@ -62,8 +62,8 @@ A candidate whose last step is the model running a script (`bash:python3`,
 `bash:node` on a one-off file) or a tool you cannot place is no habit to
 install, whatever its count: leave it out and say why in one line.
 
-Also look at what is installed here: a habit that is **off** (three failures
-in a row) or a **second copy** of one already on (same command, same file
+Also look at what is installed here: a habit that is **off** (its command broke
+three times in a row: it could not start, hung or was too slow) or a **second copy** of one already on (same command, same file
 type) is one to remove. Offer that too.
 
 ## 3. Ask, then install

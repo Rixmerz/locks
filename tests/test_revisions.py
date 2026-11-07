@@ -378,11 +378,14 @@ def test_a_run_s_brief_records_the_role_s_version_and_follows_the_trial_s_arm(gi
                             hash=revisions.lessons_hash(LESSONS), lessons=LESSONS, version="0.32.0")
     monkeypatch.setenv("LOCKS_ROLE_TRIALS", "on")
     seen = {}
-    for name in ("b.py", "c.py"):
+    # The arm is the task's hash until the arms drift two apart (`arms.side`): a few runs see both.
+    for name in ("b.py", "c.py", "d.py", "e.py")[:2 + arms.BALANCE]:
         script = Script(ok(), write=name)
         again = run(f"add the {name}", git_repo, store, registry={}, launcher=script, classifier=kind("implement"))
         data = store.last_event(again.task_id, "briefed")["data"]
         seen[data["revision_arm"]] = LESSONS[0] in script.specs[0].prompt
+        if len(seen) == 2:
+            break
     assert seen == {"candidate": True, "current": False}
     monkeypatch.setenv("LOCKS_ROLE_TRIALS", "off")
     off = run("add the d", git_repo, store, registry={}, launcher=Script(ok(), write="d.py"),

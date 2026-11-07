@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Changed
+- **livespec raises a start only on a symbol the request names**: the code map's best full-text
+  matches (the request's words against every symbol's text) could name a widely used or critical
+  symbol the work never touches, and a rung was added for it (a test task on `arms.py` started at
+  sonnet/high because "state" matched a 27-caller function elsewhere). The map still shows what the
+  words found; only a symbol the request names outright (`_matching_symbols`' `named`) raises the
+  start or marks a critical spec.
+- **A clause may open with where the change goes**: "In src/x.py add a function … Add a test for it"
+  read as `test` work, since no verb of change opened a clause before the tests were mentioned
+  (`classify._WHERE`); the first change is the function, and the tests are how it proves itself.
+
 ## [0.85.1] - 2026-11-07
 
 ### Fixed

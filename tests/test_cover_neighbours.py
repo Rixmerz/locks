@@ -317,7 +317,7 @@ def test_a_map_of_quiet_code_raises_nothing_and_reach_names_the_tests(tmp_path, 
     reach = a.reach(["src/parse.py"], git_repo, status)
     assert "livespec: tests that exercise them: tests/test_parse.py" in reach
     conn = livespec_mod._connect(Path(status.data["db"]))
-    assert livespec_mod._matching_symbols(conn, 1, "") == []
+    assert livespec_mod._matching_symbols(conn, 1, "") == ([], [])
     conn.close()
 
 

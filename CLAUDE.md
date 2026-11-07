@@ -287,7 +287,8 @@ yields the default kind, not a guess.
   on PYTHONPATH (`runtime.env_for`). Ports stay `locks.services`'.
 - A request that opens with a verb of change is never read as a read-only
   kind unless a tag says so, and is read as `test` only when its
-  first change is about tests: a fix that asks for its own tests is the fix.
+  first change is about tests: a fix that asks for its own tests is the fix. A clause may open
+  with where the change goes before its verb ("In src/x.py add …", `classify._WHERE`).
   A reading kind a caller passes with `--kind` (`chat`, `explore`, a review) on
   such a request is widened to `implement` and the plan says so
   (`orchestrate._caller_kind`), unless the text says it changes nothing, is a
@@ -541,7 +542,9 @@ yields the default kind, not a guess.
   cost), and a plan for parts at opus/high (`feature-parallel`'s step, where it was measured).
 - A high complexity raises a reading kind's start one rung, never a writing kind's: a build
   classified high passed as often at its ladder's first cell, in less than half the time
-  (`bench/speed/versus.py`). History may raise where a task starts, never lower it below its ladder, and only on
+  (`bench/speed/versus.py`). livespec's code map raises a start one rung only for a symbol the
+  request names outright (widely used, or implementing a critical spec), never for one its words
+  merely match (`Livespec.brief`, `_matching_symbols`' `named`). History may raise where a task starts, never lower it below its ladder, and only on
   climbs: a writing task that passed where it started is no evidence a lower cell fails
   (`Store.landings`, `""`), or a start history raised keeps every later task as high; a
   reading kind's pass is its answer, so its landings count where they passed. So may it

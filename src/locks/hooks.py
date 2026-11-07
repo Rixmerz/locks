@@ -1118,8 +1118,11 @@ def verdict_lines(verdict: Mapping | None) -> list[str]:
         lines.append(f"  {c.get('id')} {mark}: {c.get('evidence') or 'no evidence given'}")
     ind = verdict.get("independent") or {}
     if ind.get("ran"):
-        lines.append("  independent check: " + ("passed" if ind.get("passed") else
-                                                 f"{ind.get('blocking')} blocker(s) left, recorded"))
+        # An unread check reported no finding twice and read no code either time (`orchestrate._reread`):
+        # it decided nothing, and the pass stands on locks' own check.
+        lines.append("  independent check: " + (
+            "read nothing twice; the pass stands on locks' own check" if ind.get("unread") else
+            "passed" if ind.get("passed") else f"{ind.get('blocking')} blocker(s) left, recorded"))
         if ind.get("unchecked"):
             lines.append(f"  TRACER CORRECT lines nobody checked: {', '.join(ind['unchecked'])}")
     elif ind.get("late") or ind.get("sampled"):
@@ -1128,8 +1131,8 @@ def verdict_lines(verdict: Mapping | None) -> list[str]:
         lines.append(f"  independent check: not run ({ind['why']})")
     if verdict.get("unchecked"):
         lines.append(f"  not self-checked: {verdict['unchecked']}")
-    unverified = not isinstance(check, Mapping) or bool(verdict.get("unchecked")) or bool(ind.get("unchecked")) or any(
-        not c.get("met") for c in verdict.get("criteria") or ())
+    unverified = not isinstance(check, Mapping) or bool(verdict.get("unchecked")) or bool(ind.get("unchecked")) \
+        or bool(ind.get("unread")) or any(not c.get("met") for c in verdict.get("criteria") or ())
     lines.append("  this verdict is locks' own record: do not re-read the code or re-run the check to confirm it"
                  + ("; open the diff only where it says something was not checked or not met" if unverified
                     else "; open the diff only if the person asks"))

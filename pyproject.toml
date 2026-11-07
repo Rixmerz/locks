@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locks"
-version = "0.90.0"
+version = "0.91.0"
 description = "One core for Claude Code: route each task to the right model, effort and capabilities, escalate on evidence, and remember what failed across repositories"
 readme = "README.md"
 license = { text = "Apache-2.0" }

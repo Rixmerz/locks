@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-11-07
+
 ### Added
 - A plan that a workflow fans out over is read blind before its parts are built (`locks.critique`, the
   `critique` setting, on by default; the idea is Google's Elephant-Goldfish Model: a fresh reader with

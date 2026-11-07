@@ -23,7 +23,8 @@ There are three scopes, and the nearest one wins:
 - `project`: `.locks/workflows/` in this checkout, shared through the repository.
 - `user`: the person's locks home.
 - `bundled`: the templates `feature`, `feature-parallel`, `bugfix`, `review-fix`,
-  `dual-review` and `panel` (four blind reviews, one lens each). `feature-parallel` is for a feature that touches several
+  `dual-review`, `panel` (four blind reviews, one lens each) and `drift` (a read-only
+  comparison of the documents in a folder with the code, `--input dir=docs/designs`). `feature-parallel` is for a feature that touches several
   areas; with a plan of one part it is `feature`.
 
 A workflow in a nearer scope hides one of the same name further away.

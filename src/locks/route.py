@@ -185,7 +185,10 @@ _RULE_ITEM = re.compile(
 
 
 def is_rule(item: str) -> bool:
-    return _RULE_ITEM.search(item) is not None
+    """A listed item that states a rule rather than a change: it has a rule's words and opens with no
+    verb of change. "Add the endpoint, only for admins" is a piece; "Do not edit CHANGELOG.md",
+    "Tests: cover each item" and "Standard library only" are rules."""
+    return _RULE_ITEM.search(item) is not None and not opens_with_change(item)
 
 
 def pieces_of(text: str) -> list[str]:

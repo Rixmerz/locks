@@ -233,6 +233,9 @@ def test_listed_rules_are_no_pieces_and_one_module_is_one_task():
     assert route.pieces_of(rules) == [
         item for item in route.criteria_mod.items(rules) if not item.startswith(("Tests", "Standard"))]
     assert route.split_first(rules, "implement") is None
+    # an item that opens with a verb of change is a piece whatever rule words follow it
+    assert not route.is_rule("Add the export endpoint, only for admins, without a page size")
+    assert route.is_rule("Do not edit CHANGELOG.md") and route.is_rule("Standard library only")
     one = ("Change the router:\n- add src/locks/route.py helper\n- add src/locks/route.py test hook\n"
            "- fix src/locks/route.py docs\n- update src/locks/route.py names\n- split src/locks/route.py\n"
            "- tidy src/locks/route.py imports " + "word " * 40)

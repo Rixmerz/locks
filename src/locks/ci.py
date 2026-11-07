@@ -14,7 +14,7 @@ import json
 import os
 import re
 import subprocess
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -345,6 +345,22 @@ def _service(name: str, spec: Any) -> str:
     return name
 
 
+#: The triggers that make a workflow a check of a change: it runs on a push or a pull request. One
+#: that runs on a schedule, by hand or after another workflow checks no change of a task's.
+CHANGE_TRIGGERS = frozenset({"push", "pull_request", "pull_request_target", "merge_group"})
+
+
+def checks_changes(doc: Mapping[str, Any]) -> bool:
+    """Whether a workflow runs on a change (`CHANGE_TRIGGERS`); one with no readable `on` is taken as one."""
+    on = doc.get("on", doc.get(True))
+    if isinstance(on, str):
+        # `on: push`, or a flow list the line reader keeps as text: `on: [push, pull_request]`.
+        return bool(set(re.findall(r"[a-z_]+", on)) & CHANGE_TRIGGERS)
+    if isinstance(on, (list, dict)):
+        return any(str(t) in CHANGE_TRIGGERS for t in on)
+    return True
+
+
 def jobs(where: Path) -> tuple[list[Job], list[str]]:
     """The jobs of the repository's CI, and the workflow files that could not be read."""
     top = repo.toplevel(where) or where
@@ -364,6 +380,10 @@ def jobs(where: Path) -> tuple[list[Job], list[str]]:
             continue
         if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
             unreadable.append(rel)
+            continue
+        if not checks_changes(doc):
+            # A workflow that runs on a schedule, by hand or after another (a weekly pin, a release)
+            # checks no change: its jobs are not what a task's check leaves out.
             continue
         shared = _keys(doc.get("env"))
         for name, job in doc["jobs"].items():

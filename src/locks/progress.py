@@ -108,13 +108,20 @@ def _changes_in(places: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
     return {"files": len(files), "added": added, "removed": removed, "paths": sorted(files)}
 
 
+def _linked(path: str, links: Sequence[str]) -> bool:
+    return any(path == rel or path.startswith(rel + "/") for rel in links)
+
+
 def changes(task_id: int, base: str | None, root: Path | None = None,
-            places: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any] | None:
+            places: Sequence[Mapping[str, Any]] | None = None,
+            links: Sequence[str] = ()) -> dict[str, Any] | None:
     """What a task's worker has written in its worktree so far, against the commit it started on:
     the files and the lines added and removed, new files counted whole. A task with no worktree
     (a run in the checkout, or in a folder of several) is read in each checkout its attempt
-    recorded in `places`, its files named from the folder. None when it has neither, or git
-    cannot say."""
+    recorded in `places`, its files named from the folder. The checkout's dependencies linked into
+    the worktree (`links`, as the attempt recorded them: a `.venv` link is untracked, since
+    `.venv/` in .gitignore matches a directory and not a link) are never its writing. None when
+    it has neither, or git cannot say."""
     path = worktree(task_id, root)
     if not path.is_dir():
         return _changes_in(places) if places else None
@@ -125,11 +132,11 @@ def changes(task_id: int, base: str | None, root: Path | None = None,
     files, added, removed = set(), 0, 0
     for line in numstat.splitlines():
         parts = line.split("\t")
-        if len(parts) == 3 and not _artifact(parts[2]):
+        if len(parts) == 3 and not _artifact(parts[2]) and not _linked(parts[2], links):
             files.add(parts[2])
             added += int(parts[0]) if parts[0].isdigit() else 0
             removed += int(parts[1]) if parts[1].isdigit() else 0
-    new = [p for p in untracked.splitlines() if p and not _artifact(p)]
+    new = [p for p in untracked.splitlines() if p and not _artifact(p) and not _linked(p, links)]
     for name in new[:NEW_FILES]:
         added += _new_lines(path / name)
     files.update(new)
@@ -275,7 +282,8 @@ def of(store: Any, task: Mapping[str, Any], *, now: float | None = None, root: P
         out["estimate"] = expected
     if items := asked(task):
         out["criteria"] = items
-    if (written := changes(task_id, begun.get("base"), root, begun.get("places"))) is not None:
+    if (written := changes(task_id, begun.get("base"), root, begun.get("places"),
+                           tuple(begun.get("links") or ()))) is not None:
         out["changes"] = written
         # A worker that writes through its shell (`cat >`, `sed -i`) makes no write call.
         if written["files"] and out.get("phase") == "exploring":

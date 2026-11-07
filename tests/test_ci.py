@@ -265,3 +265,21 @@ def test_a_job_quieted_here_is_named_in_no_plan(project, monkeypatch, capsys):
     listed = capsys.readouterr().out
     assert "e2e  (quiet)" in listed and "verify\n" in listed + "\n"
     assert cli.main(["ci", "speak", "postgres"]) == 0 and "quiet here: e2e" in capsys.readouterr().out
+
+
+def test_a_workflow_that_runs_on_no_change_is_no_job_of_ci(project):
+    (project / ".github" / "workflows").mkdir(parents=True, exist_ok=True)
+    (project / ".github" / "workflows" / "pin.yml").write_text(
+        "name: pin\non:\n  schedule:\n    - cron: '0 6 * * 1'\n  workflow_dispatch:\njobs:\n  pin:\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: python scripts/pin.py\n")
+    (project / ".github" / "workflows" / "release.yml").write_text(
+        "name: release\non:\n  workflow_run:\n    workflows: [ci]\n    types: [completed]\njobs:\n  tag:\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: git tag v1\n")
+    (project / ".github" / "workflows" / "ci.yml").write_text(
+        "name: ci\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: npm test\n")
+    found, unreadable = ci.jobs(project)
+    assert [(j.name, j.commands) for j in found] == [("test", ("npm test",))] and unreadable == []
+    assert ci.checks_changes({"on": "push"}) and ci.checks_changes({"on": ["schedule", "pull_request"]})
+    assert not ci.checks_changes({"on": {"schedule": [], "workflow_dispatch": None}})
+    assert ci.checks_changes({"jobs": {}})  # no readable trigger: taken as a check of a change

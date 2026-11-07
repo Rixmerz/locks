@@ -19,7 +19,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -228,34 +227,21 @@ def _node(workdir: Path, env: Mapping[str, str], path: str, result: Result) -> N
 
 
 def _python_package(workdir: Path, seen: set[str], result: Result) -> None:
-    """A Python project whose `.venv` imports its own package from somewhere else: the check would test
-    that code, not the task's. Said, never a stop: a test runner's own path settings may still win."""
-    python = workdir / ".venv" / "bin" / "python"
-    if not python.exists() or not seen & {"python", "python3", "pytest", "uv", "coverage", "tox", "nox"}:
+    """A Python project whose `.venv` imports its own package from somewhere else (an editable install
+    that points at the checkout, read from a worktree): the check would test that code, not the
+    task's. locks puts the package here first on PYTHONPATH for the worker and the check
+    (`runtime.env_for`), and says so; a test runner's own path settings may still win."""
+    if not seen & {"python", "python3", "pytest", "uv", "coverage", "tox", "nox"}:
         return
     try:
-        name = tomllib.loads((workdir / "pyproject.toml").read_text())["project"]["name"]
-    except (OSError, ValueError, KeyError, TypeError):
+        found = runtime.package_elsewhere(workdir)
+    except runtime.ProbeBroke:
+        result.unknown.append("where `.venv` imports the project's package from")
         return
-    package = re.sub(r"[-.]+", "_", str(name)).lower()
-    if not ((workdir / "src" / package).is_dir() or (workdir / package).is_dir()):
-        return
-    probe = f"import importlib.util as u; s = u.find_spec({package!r}); print(s.origin if s and s.origin else '')"
-    try:
-        proc = subprocess.run([str(python), "-c", probe], cwd=str(workdir), capture_output=True, text=True,
-                              timeout=IMPORT_TIMEOUT_S, check=False)
-    except (OSError, subprocess.SubprocessError):
-        result.unknown.append(f"where `.venv` imports `{package}` from")
-        return
-    origin = proc.stdout.strip()
-    if proc.returncode != 0 or not origin:
-        return
-    try:
-        Path(origin).resolve().relative_to(workdir.resolve())
-    except ValueError:
-        result.warnings.append(f"`.venv` here imports `{package}` from {origin}, not from this directory: a "
-                               "check that imports it tests that code; `uv pip install -e .` from here points it "
-                               "at this one")
+    if found is not None:
+        package, root, origin = found
+        result.warnings.append(f"`.venv` here imports `{package}` from {origin}, not from this directory: {root} "
+                               "goes first on PYTHONPATH for the worker and the check, so they import the work here")
 
 
 #: `python -m tool` and `python3 -m tool`: the module the interpreter must import before anything runs.

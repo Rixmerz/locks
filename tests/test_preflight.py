@@ -160,6 +160,7 @@ def test_a_venv_that_imports_the_package_from_elsewhere_is_warned(project, env, 
     (venv / "python").chmod(0o755)
     result = preflight.check(".venv/bin/python -m pytest", project, env=env)
     assert result.ok and "imports `mypkg` from" in result.warnings[0]
+    assert f"{project / 'src'} goes first on PYTHONPATH for the worker and the check" in result.warnings[0]
     assert any(line.startswith("preflight: ") for line in result.plan_lines())
 
 

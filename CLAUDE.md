@@ -43,7 +43,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/` | the README's screenshots of `locks ui`, taken on demo data with generic project names |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `livespec_trial`, `predict`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `livespec_trial`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -67,6 +67,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/behavior.py` | how a worker worked, per attempt, from its own tool calls (never their arguments): before its first write, the checks it ran, fix loops, an unchecked end, rereads, repeats, silences, tool families; kept on `attempt_finished.behavior`, added up by kind, outcome and cell for `locks stats` and exported per attempt (`--attempts`); observed, no model |
 | `src/locks/arms.py` | two arms tried in turns until each has enough first tries, then the one that did no worse on pass-first and, over `TIME_SAMPLES` timed passes each, no slower than `SLOWER` times the other's median: the shape methods and the recall order share (`tally`, `pick`); which arm a task goes in is the hash of the trial, the repository and the task (`side`), the arm with fewer tasks only once they are `BALANCE` apart, so no two trials over the same tasks move in lockstep; while a repository's arms are short of the trial and every repository's are full, the pooled verdict decides there and says so (`pick`'s `pooled`, `verdict`, `pooled_why`; the primer, evidence and trunk trials the same way), its own arms deciding alone once full; no model |
 | `src/locks/methods.py` | how a kind's workers are briefed to work, tried against its absence: a diagnosis protocol for `debug-unclear`, a pre-mortem for `plan` whose `Risks:` reach the independent check of the steps after it; arms per repository (`method_arm`); no model |
+| `src/locks/critique.py` | a plan a workflow fans out over, read blind before its parts are built (the `critique` setting): a read-only sonnet/low reader given the request, the contract and each part's prompt and surfaces, nothing else, that names the design decisions a part leaves to its worker and the criterion no part answers; the plan goes back once with its findings, its second answer stands; tried in arms per repository (`critique_arm`), judged by the first tries of the parts after the plan as the pre-mortem is; no model of locks' own beyond the reader |
 | `src/locks/predict.py` | where a writing task shaped like ones that failed their first try here starts: one rung up, only where the climbs from that start to the rung above rescued those failures (`shape`: kind, size, risk tier, areas; `start`, the backtest on the repository's record); never a lower, pinned or probation start; kept on `planned.predicted`, shown by `locks stats`; no model |
 | `src/locks/handing.py` | whether a worker is handed livespec's tools (its server, their descriptions, the orientation), tried against withholding them per repository and nature of work (`livespec_arm`, `<nature>:<arm>`): handed afterwards only where handed workers passed their first tries no less often and no slower; what locks reads from the index itself (the code map, the size, the check's impact) is never withheld; no model |
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
@@ -96,7 +97,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/hooks.py` | Claude Code hooks: prompt ↔ task coupling, dead ends into context |
 | `src/locks/loops.py` | goals that run in rounds (`locks loop`): a definition, a diary and a state per loop in the person's locks home, each round a workflow run, the metric measured by locks, stops on evidence, strategies tried in arms; `loop_cli.py` is `locks loop …` and the detached `loop-runner` |
 | `src/locks/trunks.py` | a workflow step whose first try forks the session of a reading step before it (`trunk`): what it forks, the note that marks the role it takes from there, and the trial (`fork` against `fresh`) that keeps forking only where it paid; no model |
-| `src/locks/workflows.py` | saved chains of tasks: definitions in three scopes (project, user, bundled `workflow_templates/`), runs the engine advances when a step passes, each step on the commit the one before kept; a step that fans out over a plan's parts, one that joins their branches, a large change's review by area; steps that choose (`when`), ask the person (`ask`) or run another workflow (`workflow`); the graph as Mermaid (`render`); a change refused on a stale revision (`expect`); `workflow_cli.py` is `locks workflow …` |
+| `src/locks/workflows.py` | saved chains of tasks: definitions in three scopes (project, user, bundled `workflow_templates/`), runs the engine advances when a step passes, each step on the commit the one before kept; a step that fans out over a plan's parts, one that joins their branches, a large change's review by area; the bundled templates (`feature`, `feature-parallel`, `bugfix`, `review-fix`, `dual-review`, `panel`, `tracer-slice`, `design-review`: four blind readings of a design document, one lens each, then a refuter, no fix; `drift`: one read-only step comparing a folder's documents with the code); steps that choose (`when`), ask the person (`ask`) or run another workflow (`workflow`); the graph as Mermaid (`render`); a change refused on a stale revision (`expect`); `workflow_cli.py` is `locks workflow …` |
 | `hooks/locks.tsx` | the mod (function hooks), a thin layer over `bin/locks`: model tools, waking the session on endings, a status line, `/locks` opens the web board; `hooks/locks-cli.ts` its engine-free helpers, `types/index.d.ts` its state contract, `hooks/locks.test.tsx` its tests |
 | `src/locks/services.py` | the servers a task needs up (`--service 'cmd@port'`): started in the task's directory, waited for, stopped with their process group when the run ends |
 | `src/locks/isolate.py` | one git worktree per writing task, the checkout's ignored dependencies linked in; work that stopped for a person kept unverified; `at_base`, a temporary worktree at a task's base for comparing its check |
@@ -436,6 +437,16 @@ yields the default kind, not a guess.
   What each blind review beside another added (rows no other saw, and of those the ones
   kept) is measured from the runs (`workflows.reviewer_yield`, `locks stats`), never a reason
   the engine changes a definition.
+- A review that reports no finding and read nothing is no review: a blind review step (`behavior.REVIEW_KINDS`,
+  or a step that judges) that passes clean (`orchestrate._clean_answer`) while its own calls read no code
+  (`behavior.read_calls`, from the log's signatures: a file read, `grep`, `glob`, `git diff|show|log`, a shell
+  read, a reading livespec tool; a chained or unknown shell call counts as a read, since unknown is not none)
+  is held back once (`behavior.UNREAD_SHAPE`): the same worker goes on in its own session told to read the diff
+  against its base (`UNREAD_PROMPT`), and a second unread clean answer climbs as any inconclusive does. An
+  independent check that passed clean and read nothing runs once more (`orchestrate._reread`); unread twice, it
+  decided nothing: the pass stands on locks' own check and the verdict card says so (`verified.unread`). Calls
+  that never reached the log (`tools_logged` false) hold nothing back. `review_unread` events, `locks stats`
+  (`analysis.reviews_unread`) and `locks doctor` (`clean-review-read-nothing`) keep the count.
   A fix's independent verifier answers its rows in the re-check's words (`verifier_brief`'s
   `rows`): a row it calls open is a blocker of the fix, a correction like any, and when its
   passing check called every row `fixed` (and the fix wrote none only down) the re-check after
@@ -473,7 +484,8 @@ yields the default kind, not a guess.
   has its own turns (`VERIFIER_TURNS`), never the worker's raised ones, and is
   never told to stash the work it checks. A resume after a `review` stop (a
   dismissed one too) gives its first check the blockers the `verified` event
-  kept. When the change will need it, the verifier starts beside locks' own check, not after
+  kept, and its worker too (`orchestrate.review_context`, `REVIEW_FINDINGS`): a resumed worker never told what
+  was wrong verified its earlier work and changed nothing. When the change will need it, the verifier starts beside locks' own check, not after
   it (`orchestrate.Ahead`, the `overlap` setting): a passing writing attempt in a worktree, a
   check to run and no services (their ports would be shared); it reads the diff the check runs
   on and is told the check is running and not to run it itself. A check that fails stops it, its
@@ -492,6 +504,11 @@ yields the default kind, not a guess.
   follows an ending (notes, the late check) in a fresh detached process with its own store
   (`Options.detach_after`, `orchestrate._after_ending`), so the command exits with the ending: never
   a fork, since a forked child's SQLite writes were lost when it closed.
+  The check runs with `--setting-sources user` when the installed CLI lists the flag
+  (`launch.setting_sources_flag`, `LaunchSpec.setting_sources`, `orchestrate.VERIFIER_SETTING_SOURCES`; the first
+  check, a correction's re-check and the late check alike, kept on the `verified` event): the repository it
+  judges cannot choose, by a committed `.claude/settings*.json`, the hooks and rules it runs under. Workers and
+  blind review steps keep the repository's settings.
   Tests run with `LOCKS_VERIFIER=off`, `LOCKS_OVERLAP=off` and `LOCKS_LATE_VERIFIER=off`.
 - A pass the sampling let through unchecked (`verifier_sampled`) is a first try like any, but
   moves no start cell cheaper (`Ended.unread`, `standards.rates(read=True)`, `start_cell`'s `read`):
@@ -563,6 +580,21 @@ yields the default kind, not a guess.
   prediction with its evidence (`predicted`), a predicted task teaches the shape nothing of the start it
   left, and `locks stats` shows the first tries of predicted starts per shape (`predict.report`),
   observed. Tests run with `LOCKS_PREDICT=off`.
+- A plan a workflow fans out over is read blind before its parts are built (`locks.critique`, the `critique`
+  setting; after Google's Elephant-Goldfish Model: a reader with none of the author's context). A read-only
+  sonnet/low reader gets the request, the contract and each part's id, prompt and surfaces, nothing else, and
+  reports as findings the parts it cannot paraphrase, the design decisions a part leaves to its worker and
+  the criterion no part answers. Any finding sends the plan back once to its own cell, in its own session,
+  with those lines (`critique.SHAPE`, `PROMPT`, a reshape `escalate.reshape_streak` never counts); its second
+  answer stands whatever the reader says. Never a plan of one part, a pinned start, or a climb. `critiqued`
+  events keep the findings, cell, cost and seconds, and `critique_cost_usd` on `attempt_finished` is kept
+  apart from the worker's and the check's. A repository's plans with parts alternate `with` and `without`
+  (`briefed.critique_arm`, pooled while short) until each arm has `critique.TRIAL` first tries of the steps
+  after its plans; then it reads only where those passed no less often (`locks stats`). The contract tells a
+  plan the zero-decision rule (`PARTS_INSTRUCTIONS`, the `architect` role): a part leaves no name, schema,
+  endpoint, error strategy or file placement to its worker, and a decision the plan cannot make is a question
+  in its summary, never a part; `locks stats` counts the parts that stopped on a point
+  (`analysis.parts_on_a_point`). Tests run with `LOCKS_CRITIQUE=off`.
 - A high complexity raises a reading kind's start one rung, never a writing kind's: a build
   classified high passed as often at its ladder's first cell, in less than half the time
   (`bench/speed/versus.py`). livespec's code map raises a start one rung only for a symbol the
@@ -672,7 +704,8 @@ yields the default kind, not a guess.
   merges a pull request but the person.
 - Where a task declared no surfaces, the files its text names (`dispatch.named_surfaces`)
   hold it back from work ahead that declares or names files they may touch, or already
-  changed one; never a reason to start beside it, and never enforced on the worker.
+  changed one; never a reason to start beside it, and never enforced on the worker. A path in a clause
+  that negates it ("do not edit X", "never touch Y", `dispatch._negated`) names nothing.
 - `locks roles import` reads Claude Code agents (a file or a folder, read only) into the
   person's roles: their instructions kept, `model` dropped, their tool list as the built-in
   tools taken away, their kinds read from their name and description; a role of the same
@@ -1159,7 +1192,10 @@ yields the default kind, not a guess.
   tasks (`route.split_first`, pure): with `autosplit` (on by default) `locks run` and `locks queue
   add` split it and queue its pieces as `locks split --queue` does (`cli._split_and_queue`); off,
   or when no piece is proposed, they start nothing and exit `EXIT_SPLIT` with how to split it.
-  `--whole` is the session's word that it is one. Tests run with `LOCKS_AUTOSPLIT=off`.
+  `--whole` is the session's word that it is one. A listed item that states a rule (a constraint, a test for
+  the others, what not to do: `route.is_rule`) is no piece and is carried to every piece as context
+  (`split.by_items`), and items that all touch one module of `src/` are one task (`route.one_module`).
+  Tests run with `LOCKS_AUTOSPLIT=off`.
 - An ending names other work in its repository (running, or a kept branch of the last
   `hooks.OVERLAP_DAYS`) that changed the same files: merging both conflicts there. Said,
   never acted on; steps of one run are never named.

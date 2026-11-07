@@ -1351,3 +1351,38 @@ def test_a_reading_worker_is_told_where_its_whole_answer_goes(tmp_path):
     assert told.endswith(launch.REPORT_INSTRUCTIONS) and "`locks-report`" in told
     assert launch.REPORT_INSTRUCTIONS not in launch.instructions(
         launch.LaunchSpec(prompt="p", cell=Cell("haiku", "medium"), launch_dir=tmp_path))
+
+
+@pytest.mark.parametrize("dismissed", [False, True])
+def test_a_resume_after_a_review_stop_briefs_its_worker_with_the_blockers(git_repo, store, verifier_on, monkeypatch,
+                                                                          dismissed):
+    """Task #33: a resume after a `review` stop gave the blockers to its first check only, and its worker
+    "verified the already-committed template", changed nothing, and the blocker stood. The worker of the
+    resume (the dispatcher's `--unattended` one, and one of a dismissed review) is briefed with them."""
+    from locks import cli, stops
+
+    script = Script(passing("added the export endpoint"), check("fail", [BUG]),
+                    passing("fixed the dropped last row"), check("fail", [OTHER]), write="app.py")
+    report = run("add the cart export", git_repo, store, Options(start=Cell("opus", "high"), verify="true"),
+                 registry={}, launcher=script, classifier=kind("feature"))
+    assert report.status == "blocked" and report.stop.cause == "review"
+    if dismissed:
+        assert stops.dismiss(store, store.get_task(report.task_id), via="cli") is not None
+    resumed = Script(passing("fixed the crash"), check("pass"), write="lib.py")
+    monkeypatch.setattr(launch, "run", resumed)
+    assert cli.main(["resume", str(report.task_id), "--unattended", "--no-report"]) == 0
+    worker = resumed.specs[0]
+    assert orchestrate.REVIEW_FINDINGS in worker.prompt
+    section = worker.prompt.split(orchestrate.REVIEW_FINDINGS, 1)[1]
+    # The blocker the last round kept, as `findings.text` writes it; not the one a correction already fixed.
+    assert findings.text([OTHER]) in section and BUG["what"] not in section
+    # Data for the task, after its text.
+    assert worker.prompt.index("add the cart export") < worker.prompt.index(orchestrate.REVIEW_FINDINGS)
+    # Its first check still reads them first.
+    assert OTHER["what"] in resumed.specs[1].prompt
+
+
+def test_a_resume_with_no_review_blockers_says_nothing_of_them():
+    assert orchestrate.review_context([]) == []
+    line = orchestrate.review_context([BUG])[0]
+    assert line.startswith(orchestrate.REVIEW_FINDINGS) and findings.text([BUG]) in line

@@ -290,8 +290,8 @@ def what_to_do(stop: Stop) -> str:
                      "resuming would only repeat them",
         "decision": "its work is done and kept on its branch, and one point needs a decision (quoted in its "
                     "reason): decide it, then merge the branch and send what the decision asks as a new task",
-        "review": "the independent check kept finding problems: read its findings, then fix what is right by "
-                  "hand or resume for one more round",
+        "review": "the independent check kept finding problems: resume it: the worker is briefed with the "
+                  "findings, and the check reads them first",
         "dismissed": "nothing: you took it off the board; resume it if you want it after all",
         "superseded": "nothing: a later task with the same text passed; resume it if you want it after all",
         "landed": "nothing: its work is already in the checkout's branch",

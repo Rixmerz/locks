@@ -109,16 +109,35 @@ def declared_surfaces(task: Mapping[str, Any]) -> tuple[str, ...]:
         return ()
 
 
+#: A clause that tells what not to touch: the paths it names are no surface of the task.
+_NEGATES = re.compile(r"\b(?:not|never|don'?t|without)\b", re.IGNORECASE)
+_LEFT_ALONE = re.compile(r"\bleave\b[^,;]*\balone\b|\buntouched\b", re.IGNORECASE)
+#: Where a clause ends. A dot inside a file name ("CHANGELOG.md") is no end.
+_CLAUSE = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+def _negated(text: str, at: int) -> bool:
+    """Whether the path at `at` sits in a sentence that negates it: a `not`, `never`, `do not`,
+    `don't` or `without` before it, or `leave … alone` / `untouched` in the sentence."""
+    start = max((m.end() for m in _CLAUSE.finditer(text, 0, at)), default=0)
+    end = next((m.start() for m in _CLAUSE.finditer(text, at)), len(text))
+    return bool(_NEGATES.search(text[start:at])
+                or any(m.start() <= at - start < m.end() or m.group(0).lower() == "untouched"
+                       for m in _LEFT_ALONE.finditer(text[start:end])))
+
+
 def named_surfaces(task: Mapping[str, Any]) -> tuple[str, ...]:
     """The files and folders a task's own text names, as surfaces (a folder as `folder/**`):
     what it will likely change when it declared nothing. Only ever a reason to wait, never to
-    run beside other work, and never enforced on the worker."""
+    run beside other work, and never enforced on the worker. A path in a clause that negates
+    it ("do not edit X", "never touch Y") is not one."""
     from locks import points
 
+    text = str(task.get("body") or task.get("title") or "")
     found = []
-    for path in points.named(str(task.get("body") or task.get("title") or "")):
-        clean = path.strip("/")
-        if clean and "*" not in clean:
+    for match in points._PATH.finditer(text):
+        clean = match.group(0).strip("/")
+        if clean and "*" not in clean and not _negated(text, match.start()):
             found.append(clean if "." in clean.rsplit("/", 1)[-1] else f"{clean}/**")
     return tuple(dict.fromkeys(found))
 

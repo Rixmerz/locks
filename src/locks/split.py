@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from locks import criteria, launch, points, surfaces
+from locks import criteria, launch, points, route, surfaces
 
 #: The most pieces a split proposes: past this, a feature workflow plans it.
 MAX_PIECES = 6
@@ -93,13 +93,18 @@ def _surfaces(item: str) -> list[str]:
 
 def by_items(text: str, done: Sequence[str] = ()) -> Proposal:
     """A request that lists its items, split by them with no model: each item a piece."""
-    items = criteria.items(text)
+    listed = criteria.items(text)
+    items = route.pieces_of(text)
     if len(items) < 2:
         return Proposal(problem="it lists fewer than two items")
     if len(items) > MAX_PIECES:
         return Proposal(problem=f"it lists {len(items)} items, more than {MAX_PIECES} pieces: plan it as a "
                                 "feature (`locks workflow run feature`), whose plan groups them")
-    head = _head(text, items)
+    head = _head(text, listed)
+    # rules the request lists (limits, tests, what not to do) are context for every piece
+    if rules := [item for item in listed if route.is_rule(item)]:
+        head = (head + "\n\n" if head else "") + "Rules of the whole request, for this piece too:\n" + "\n".join(
+            f"- {rule}" for rule in rules)
     already = (" Part of this request was already worked on, on the branch this task starts from: finish what "
                "is left of this piece.") if done else ""
     found = [_surfaces(item) for item in items]

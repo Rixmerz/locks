@@ -660,3 +660,13 @@ def test_a_resume_that_never_took_hold_does_not_spend_the_one_resume(store: Stor
     store.add_event(other["id"], "attempt_started", seq=2)  # this one took hold, and died again
     stops.record(store, other["id"], stops.Stop("died", "no sign of life"))
     assert dispatch.recover(store, tmp_path, os.environ, popen=pytest.fail) == []  # the orchestrator's now
+
+
+def test_a_path_in_a_negated_sentence_is_no_named_surface():
+    named = lambda body: dispatch.named_surfaces({"body": body})  # noqa: E731
+    assert named("Do not edit docs/CHANGELOG.md") == ()
+    assert named("Never touch src/a.py or src/b.py") == ()
+    assert named("Edit docs/CHANGELOG.md") == ("docs/CHANGELOG.md",)
+    assert named("Edit src/new.py. Do not edit docs/CHANGELOG.md or CLAUDE.md; also change src/other.py") == (
+        "src/new.py", "src/other.py")
+    assert named("Leave docs/q.md alone, add src/w.py") == ("src/w.py",)

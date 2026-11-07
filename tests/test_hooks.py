@@ -657,3 +657,31 @@ def test_a_session_start_and_a_prompt_keep_the_version_the_session_s_hooks_run(s
     link.record_loaded(store.path.parent, "s2", "0.1.0")
     hooks.user_prompt_submit({"session_id": "s2", "prompt": "hola", "prompt_id": "p"}, store)
     assert link.session_loaded(store.path.parent, "s2") == __version__
+
+
+def test_an_older_install_a_live_session_still_runs_from_is_not_offered_for_removal(tmp_path):
+    from locks import __version__, link
+
+    from .test_link import _plugin
+
+    config = tmp_path / "config"
+    env = {"CLAUDE_CONFIG_DIR": str(config)}
+    _plugin(config, __version__)
+    _plugin(config, "0.1.0")
+    _plugin(config, "0.2.0")
+    link.record_loaded(tmp_path, "old-session", "0.1.0")  # its hooks still run from 0.1.0
+    said = hooks._older_installs(tmp_path, env)
+    assert "still loaded by a session" in said and "/reload-plugins" in said
+    removal = said.split("rm -rf ")[1:]
+    assert removal and all("0.1.0" not in r for r in removal) and any("0.2.0" in r for r in removal)
+
+
+def test_a_session_quiet_past_the_live_window_frees_its_version():
+    import time
+
+    from locks import link
+
+    root = __import__("pathlib").Path(__import__("tempfile").mkdtemp())
+    link.record_loaded(root, "s", "0.1.0")
+    assert link.live_versions(root) == {"0.1.0"}
+    assert link.live_versions(root, now=time.time() + link.LIVE_S + 1) == set()

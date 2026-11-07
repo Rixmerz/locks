@@ -217,6 +217,8 @@ def _older_installs(root: Path, env: Mapping[str, str]) -> str | None:
     except Exception:  # the session starts either way
         note_error(root, "older installs")
         return None
+    live = link.live_versions(root)
+    held = [folder for v, folder in older if ".".join(map(str, v)) in live]
     names = ", ".join(".".join(map(str, v)) for v, folder in older if folder.parent.name != legacy.PLUGIN)
     old = ", ".join(".".join(map(str, v)) for v, folder in older if folder.parent.name == legacy.PLUGIN)
     lines = []
@@ -227,8 +229,15 @@ def _older_installs(root: Path, env: Mapping[str, str]) -> str | None:
         lines.append(f"the plugin's old name, {legacy.PLUGIN} ({old}), is still installed beside Locks {__version__}: "
                      "while it is enabled its hooks run too. Its data is Locks' now, nothing is lost by removing it: "
                      f"`claude plugin uninstall {legacy.PLUGIN}@rixmerz` (or `/plugin`).")
-    return ("locks: " + " ".join(lines) + " Tell the person once; removing them is theirs: "
-            + " ".join(f"rm -rf {shlex.quote(f)}" for f in key))
+    free = [f for f in key if Path(f) not in held]
+    if held:
+        lines.append("still loaded by a session started before the update ("
+                     + ", ".join(Path(f).name for f in sorted(map(str, held))) + "): its hooks run from that folder, "
+                     "so removing it now fails that session's next hook (after a compaction, the prompt it "
+                     "carries is lost); restart those sessions, or `/reload-plugins` in them, before removing it.")
+    removal = (" Tell the person once; removing them is theirs: " + " ".join(f"rm -rf {shlex.quote(f)}" for f in free)
+               if free else " Tell the person once.")
+    return "locks: " + " ".join(lines) + removal
 
 
 def _keep_old_command(root: Path) -> None:

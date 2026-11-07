@@ -1722,3 +1722,15 @@ def test_a_row_the_fix_s_check_finds_open_earns_the_fix_a_correction(git_repo, s
     checks = [e["data"] for e in store.events_of(fix["id"], "verified")]
     assert [c["passed"] for c in checks] == [False, True] and "F1 is not fixed" in checks[0]["blockers"][0]["what"]
     assert not [p for p in asked if "Ledger (recheck" in p]
+
+
+def test_the_bundled_drift_is_one_read_only_explore_step_and_its_dry_run_queues_nothing(git_repo, store: Store, kicks,
+                                                                                         capsys, monkeypatch):
+    monkeypatch.chdir(git_repo)
+    defn = workflows.load("drift", git_repo, "bundled")
+    assert defn["inputs"] == ["dir"] and [(s["id"], s["kind"]) for s in defn["steps"]] == [("drift", "explore")]
+    assert "{dir}" in defn["steps"][0]["prompt"] and "locks-report" in defn["steps"][0]["prompt"]
+    assert cli.main(["workflow", "run", "drift", "--input", "dir=docs/designs", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "nothing is queued" in out and "docs/designs" in out
+    assert store.list_runs() == []

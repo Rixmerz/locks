@@ -43,6 +43,11 @@
   says what the resume does.
 - `dispatch.named_surfaces` read a path in a clause that negates it ("do not edit CHANGELOG.md", "never
   touch X") as a file the task may change, and held queued work behind tasks that would not touch it.
+- A workflow step's criteria were read from the lines it quotes (`>`): a fix of ledger rows was held to the
+  original request's S1..S6 and climbed three times for not answering them, and a fan-out part to 35 criteria of
+  the whole request. `criteria` skips quoted lines: what is quoted is context, never a criterion. And a pass
+  that leaves a criterion or a ledger row unanswered is a form failure, asked again once of the same cell
+  (`WorkerResult.shape` `criteria-unanswered`, `verdicts-missing`), never a climb on its own.
 - `route.split_first` read a numbered list of instructions as independent pieces and queued a piece for
   "Standard library only"; a listed rule (a constraint, a test for the others, what not to do) is no piece
   and is carried to every piece as context, and items that all touch one module of `src/` are one task.

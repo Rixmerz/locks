@@ -350,7 +350,10 @@ yields the default kind, not a guess.
   other work (a workflow's review, refute or recheck, a reading kind:
   `LaunchSpec.judging`): a criterion it reports the work under judgment misses
   is its finding, carried forward, and the step passes when it answered what it
-  was asked. A step that builds or fixes keeps the rule. Prose has no criteria.
+  was asked. A step that builds or fixes keeps the rule. Prose has no criteria, and neither are the lines a
+  brief quotes (`>`: the request a workflow step carries, what the steps before said): `criteria._split` skips
+  them. A pass that leaves an `S#` or a ledger row unanswered is a form failure, asked again once of the same
+  cell with what it left out (`criteria-unanswered`, `verdicts-missing`), never a climb on its own.
   Items the request puts out of scope (under a line ending in `:` that says
   so, or marked so themselves) are no criteria, and the brief names them.
 - A finding blocks only when the change caused or worsened it (or it cannot be

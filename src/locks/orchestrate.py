@@ -567,6 +567,18 @@ def resume_context(store: Store, task: Mapping[str, Any], project: str | None) -
     return out
 
 
+#: What a resume after a `review` stop tells its worker before the blockers the independent check kept.
+REVIEW_FINDINGS = ("The independent check blocked your earlier work, kept on this branch, with these findings; "
+                   "fix them in the code, then answer in the result contract:")
+
+
+def review_context(known: Sequence[Mapping[str, str]]) -> list[str]:
+    """What a resume after a `review` stop briefs its worker with: the blockers the independent check
+    kept (`known_findings`, loaded by the resume from the task's stop), as data for the task. Its first
+    check gets them too; a worker without them only re-verified the work it had kept."""
+    return [f"{REVIEW_FINDINGS}\n{findings_mod.text(known)}"] if known else []
+
+
 def _bring_current(adapter: Adapter, status: Status, repo_dir: Path, options: Options,
                    say: Callable[[str], None] | None) -> tuple[Status, list[str]]:
     """An adopted neighbour's index made current before the worker starts: built or refreshed and
@@ -1623,8 +1635,12 @@ def run(
             # The notes this attempt's brief carried, the only ones its `notes_used` may name.
             briefed_notes = {int(n["id"]) for n in the_plan.notes} | {
                 int(m) for line in later for m in re.findall(r"^- #(\d+) ", line)}
+            # The blockers a `review` stop kept reach this run's first worker; a later one is told
+            # what its own attempts met (`failed_output`, a correction's blockers).
+            reviewed = review_context(known_findings) if not attempts else []
             prompt = brief(text, the_plan.kind, workdir, [*history, *attempts], dead, options.verify,
-                           writes and not declared_read_only, [*context, *aside, *later], options.surfaces)
+                           writes and not declared_read_only, [*context, *reviewed, *aside, *later],
+                           options.surfaces)
             role_text = briefing.system_prompt if briefing else ""
             hints = selection.system_prompt()
             if options.trunk_for and (role_text or hints):

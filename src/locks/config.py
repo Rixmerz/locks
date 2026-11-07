@@ -120,6 +120,11 @@ DEFAULTS: dict[str, Any] = {
     # pre-mortem for plans), tried in turns against its absence and kept where it did no worse
     # (`locks.methods`).
     "methods": True,
+    # A plan whose parts a workflow fans out over is read blind before they are built, by a read-only
+    # reader that names the design decisions a part leaves to its worker; the plan goes back once with
+    # what it found. Tried in turns against its absence per repository and kept where the first tries
+    # of the parts after it passed no less often (`locks.critique`).
+    "critique": True,
     # A habit newly found in a project is reviewed by a read-only worker (its tool here, a
     # command scoped to the edited file, timed): its ending lists the install line for the
     # orchestrator to put to the person. Installing stays theirs (`locks habits install`).

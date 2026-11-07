@@ -305,6 +305,10 @@ def test_a_risky_pass_is_checked_and_its_findings_earn_one_correction(git_repo, 
     assert "drops the last item" in recheck.prompt and "whether it is fixed" in recheck.prompt
     events = store.events_of(report.task_id, "verified")
     assert [e["data"]["blocking"] for e in events] == [1, 0] and events[0]["data"]["risk"]["tier"] == "high"
+    # The check (first and re-check alike) never loads the repository's settings files; the worker does.
+    assert verifier.setting_sources == recheck.setting_sources == ("user",)
+    assert script.specs[0].setting_sources is None and again.setting_sources is None
+    assert all(e["data"]["setting_sources"] == ["user"] for e in events)
     attempts = store.attempts(report.task_id)
     assert attempts[0]["cost_usd"] == pytest.approx(0.15)
     assert "risk high" in report.text()
@@ -1185,6 +1189,8 @@ def test_a_late_check_runs_after_the_ending_and_a_blocker_reopens_the_task(git_r
     assert card["late"] and "after this ending" in card["why"]
     verified = store.last_event(report.task_id, "verified")["data"]
     assert verified["late"] and verified["blocking"] == 1
+    # The late check, like the first, never loads the repository's settings files.
+    assert verified["setting_sources"] == ["user"] and script.specs[1].setting_sources == ("user",)
     # The blocker reopens it as a review, with an ending of its own, its work on its branch.
     assert kinds.count("finished") == 2 and kinds.index("finished", late_check) > late_check
     finished = store.last_event(report.task_id, "finished")["data"]

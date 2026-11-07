@@ -404,6 +404,10 @@ class LaunchSpec:
     #: Extra environment for the worker: which task and attempt it is, so its
     #: tool calls are recorded against them.
     env: Mapping[str, str] = field(default_factory=dict)
+    #: The settings files the CLI loads (`--setting-sources`); None leaves its default (user, project,
+    #: local). The independent check asks for `("user",)`: the repository it judges must not choose, by a
+    #: committed `.claude/settings*.json`, the hooks and rules the check runs under.
+    setting_sources: tuple[str, ...] | None = None
 
     @property
     def target_dir(self) -> Path:
@@ -527,6 +531,17 @@ def lean_flags(claude_bin: str, env: Mapping[str, str], *, help_text: Callable[[
     return tuple(flag for flag in LEAN_FLAGS if flag in said)
 
 
+SETTING_SOURCES_FLAG = "--setting-sources"
+
+
+def setting_sources_flag(claude_bin: str, env: Mapping[str, str], *,
+                         help_text: Callable[[str], str] | None = None) -> tuple[str, ...]:
+    """`--setting-sources` when the installed CLI lists it in its `--help`, else nothing: a flag an
+    older CLI does not know is never passed."""
+    said = (help_text or _cli_help)(claude_bin)
+    return (SETTING_SOURCES_FLAG,) if SETTING_SOURCES_FLAG in said else ()
+
+
 def build_argv(spec: LaunchSpec, *, claude_bin: str = "claude", mcp_config_path: Path | None = None,
                prompt_path: Path | None = None, lean: Sequence[str] = ()) -> list[str]:
     argv = [
@@ -545,6 +560,8 @@ def build_argv(spec: LaunchSpec, *, claude_bin: str = "claude", mcp_config_path:
     if denied:
         argv += ["--disallowedTools", ",".join(denied)]
     argv += list(lean)
+    if spec.setting_sources:
+        argv += [SETTING_SOURCES_FLAG, ",".join(spec.setting_sources)]
     if spec.allowed_tools:
         argv += ["--allowedTools", *spec.allowed_tools]
     if spec.workdir is not None and spec.workdir != spec.launch_dir:
@@ -619,6 +636,8 @@ def run(
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(spec.append_system_prompt)
         prompt_path = Path(name)
+    if spec.setting_sources and not setting_sources_flag(claude_bin, os.environ):
+        spec = dataclasses.replace(spec, setting_sources=None)  # an older CLI has no such flag
     argv = build_argv(spec, claude_bin=claude_bin, mcp_config_path=mcp_path, prompt_path=prompt_path,
                       lean=lean_flags(claude_bin, os.environ))
     before = tracked_state(spec.target_dir)

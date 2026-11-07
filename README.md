@@ -900,7 +900,10 @@ Definitions are JSON files:
   blind reviews, each through its own lens: correctness, security,
   performance, tests; then the same refute → fix → recheck), `tracer-slice`
   (one TRACER slice built test-first, verified blind against its flows'
-  CORRECT lines, floors and anti-patterns, then the same chain). The ledger steps
+  CORRECT lines, floors and anti-patterns, then the same chain) and
+  `design-review` (four blind readings of a design document, one lens each:
+  comprehension, design, readiness, codebase; then a refuter, and the rows
+  come to you: no fix, the document is yours to change). The ledger steps
   are skipped when the review found nothing, so a clean change costs two
   workers, and a join that merges cleanly costs none.
 

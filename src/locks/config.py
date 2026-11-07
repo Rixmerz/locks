@@ -32,6 +32,7 @@ DEFAULTS: dict[str, Any] = {
     # index itself (the code map, the size, what a change reaches) is never withheld. Off: every
     # worker is handed it.
     "livespec_trial": True,
+    "predict": True,
     # Haiku decides whether a queued task can start beside the ones running in
     # its repository. Off: one task at a time per repository.
     "parallel": True,

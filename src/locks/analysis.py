@@ -31,6 +31,7 @@ from locks import evidence as evidence_mod
 from locks import handing as handing_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
+from locks import predict as predict_mod
 from locks import route as route_mod
 from locks.store import Store
 
@@ -671,6 +672,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "livespec_handing": {n: handing_mod.trial(store, repo, n) for n in handing_mod.NATURES},
         "livespec_handing_now": {n: handing_mod.arm(store, repo, "chat" if n == "reading" else "implement", 0)[1]
                                  for n in handing_mod.NATURES} if repo else {},
+        # The first tries of starts raised on a shape's record (`locks.predict`), observed.
+        "predicted": predict_mod.report(store, repo),
         # Each climb of a ladder and whether the attempt it started passed (observed): a rung's record.
         "climbs": climbs_by_rung(store, {r["task"]: r["kind"] for r in found}, since=since),
         "expensive": expensive(found),
@@ -1004,6 +1007,14 @@ def text(report: Mapping[str, Any]) -> str:
                                  f"({_rate(row['rate'])})  pass p50 {took}")
                 if (report.get("livespec_handing_now") or {}).get(which):
                     lines.append(f"  now: {report['livespec_handing_now'][which]}")
+        if report.get("predicted"):
+            lines += ["", "starts raised on the record of the task's shape (`predict`; its first tries, observed):"]
+            for row in report["predicted"]:
+                s = row["shape"]
+                rate = _rate(_share(row["passed_first"], row["predicted"]))
+                lines.append(f"  {_name(row['repo']):<16} {row['kind']:<12} {s['points']} points, {s['tier']} risk, "
+                             f"{s['areas']} area(s)  from {row['start']:<13} predicted {row['predicted']:>3}  first "
+                             f"tries passed {row['passed_first']} ({rate})")
         if report.get("climbs"):
             lines += ["", "climbs by rung (observed: each climb of a ladder, and whether the attempt it started "
                       "passed):"]

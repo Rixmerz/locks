@@ -43,7 +43,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/` | the README's screenshots of `locks ui`, taken on demo data with generic project names |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `livespec_trial`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `livespec_trial`, `predict`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -67,6 +67,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/behavior.py` | how a worker worked, per attempt, from its own tool calls (never their arguments): before its first write, the checks it ran, fix loops, an unchecked end, rereads, repeats, silences, tool families; kept on `attempt_finished.behavior`, added up by kind, outcome and cell for `locks stats` and exported per attempt (`--attempts`); observed, no model |
 | `src/locks/arms.py` | two arms tried in turns until each has enough first tries, then the one that did no worse on pass-first and, over `TIME_SAMPLES` timed passes each, no slower than `SLOWER` times the other's median: the shape methods and the recall order share (`tally`, `pick`); which arm a task goes in is the hash of the trial, the repository and the task (`side`), the arm with fewer tasks only once they are `BALANCE` apart, so no two trials over the same tasks move in lockstep; while a repository's arms are short of the trial and every repository's are full, the pooled verdict decides there and says so (`pick`'s `pooled`, `verdict`, `pooled_why`; the primer, evidence and trunk trials the same way), its own arms deciding alone once full; no model |
 | `src/locks/methods.py` | how a kind's workers are briefed to work, tried against its absence: a diagnosis protocol for `debug-unclear`, a pre-mortem for `plan` whose `Risks:` reach the independent check of the steps after it; arms per repository (`method_arm`); no model |
+| `src/locks/predict.py` | where a writing task shaped like ones that failed their first try here starts: one rung up, only where the climbs from that start to the rung above rescued those failures (`shape`: kind, size, risk tier, areas; `start`, the backtest on the repository's record); never a lower, pinned or probation start; kept on `planned.predicted`, shown by `locks stats`; no model |
 | `src/locks/handing.py` | whether a worker is handed livespec's tools (its server, their descriptions, the orientation), tried against withholding them per repository and nature of work (`livespec_arm`, `<nature>:<arm>`): handed afterwards only where handed workers passed their first tries no less often and no slower; what locks reads from the index itself (the code map, the size, the check's impact) is never withheld; no model |
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
 | `src/locks/cells.py` | where a lesson belongs: the area a path or a change is in, the role that met it, or everyone (`scope`); the text a failure is kept and matched by (a workflow step's goal, never its template); the cell's primer (how its workers got oriented) and its trial; no model |
@@ -545,7 +546,23 @@ yields the default kind, not a guess.
   sonnet/medium caught 20 of 42 planted bugs, sonnet/high 27, 15 s apart; a reading kind's repeated
   answer converges, so no third reading by the same model). Every climb of a ladder is counted by rung
   (`analysis.climbs_by_rung`, from `moved` events with the attempt after each: `locks stats`, "climbs by
-  rung"), observed: the record a rung is kept or dropped by, never a rule's input.
+  rung"), observed: the record a rung is kept or dropped by, never a rule's input. An unclear bug starts
+  at sonnet/high with the diagnosis method and climbs to opus/high (`bench/speed/methods.py`, W: with the
+  method sonnet/high fixed the planted bug 3 of 3 at 38 s and $0.09 a run, opus/high 3 of 3 at 69 s and
+  $0.27; without it each missed once); the bench's judge lets a worker add a test for the bug and refuses
+  a test line taken away.
+- A first try that fails is the slowest thing locks does, so a writing task's start is predicted from the
+  repository's record of its shape (`locks.predict`, the `predict` setting): its kind, size, risk tier and
+  whether it reaches several areas (`predict.shape`, read from every task's `planned` event). Where tasks
+  of that shape passed their first tries at the start cell under `predict.BELOW` over `SAMPLES` or more,
+  and the climbs from that start to the rung above passed at least `RESCUED` of them over `RESCUE_SAMPLES`
+  or more, the task starts on the rung above and the plan says why (`predict.line`); the backtest is the
+  rule, and a rung that did not rescue the shape's failures predicts nothing however often the start
+  failed. Only a raise, after the standards and history, before the race; never a pinned start, a
+  probation start, a reading kind or a rung that needs an approval. The `planned` event keeps the
+  prediction with its evidence (`predicted`), a predicted task teaches the shape nothing of the start it
+  left, and `locks stats` shows the first tries of predicted starts per shape (`predict.report`),
+  observed. Tests run with `LOCKS_PREDICT=off`.
 - A high complexity raises a reading kind's start one rung, never a writing kind's: a build
   classified high passed as often at its ladder's first cell, in less than half the time
   (`bench/speed/versus.py`). livespec's code map raises a start one rung only for a symbol the
@@ -1119,7 +1136,9 @@ yields the default kind, not a guess.
   A rung that wins has its work carried into the task's worktree (`isolate.adopt`);
   when neither passes, the climb goes on from the rung. Both tries are attempts with
   their cost; one stopped because the other passed first (`RACED_OUT`) teaches its cell
-  nothing, and the rung's is a first try of its own (`standards.samples`). Never a
+  nothing, and the rung's is a first try of its own (`standards.samples`); a try so stopped
+  is no failure of the work (`escalate.Attempt.raced`): a pass beside it opens no problem
+  (`doctor`: `problem-opened-by-a-race`), where one that failed its own check first does. Never a
   pinned start, a reading kind, a ledger, integrate or plan-parts step, a resume, a run
   in the checkout, or a worktree that brought files in from it. Racing judges itself
   (`locks.racing`): once `racing.JUDGE_AFTER` races ran among the window of the kind

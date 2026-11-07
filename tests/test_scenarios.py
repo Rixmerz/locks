@@ -467,6 +467,9 @@ def test_thirty_tasks_in_one_repository_keep_their_reports_short_and_their_memor
                                       "      - run: npx playwright test\n")
     git(world.repo, "add", "-A")
     git(world.repo, "commit", "-qm", "ci")
+    # Every other task fails its first attempt whatever its cell: a start the record predicts (`locks.predict`)
+    # is wrong here by construction, and a raised start then races (`race_cell`), whose losers open no problem.
+    world.setenv("LOCKS_PREDICT", "off")
     fail = {"pass": True, "block": {"verdict": "fail", "failure": "code_bug", "summary": "the driver still drops it"}}
     world.script([{"match": f"radio driver {n} ", "do": [fail, {"pass": True, "write": {f"d{n}.py": "ok\n"}}]
                    if n % 2 else [{"pass": True, "write": {f"d{n}.py": "ok\n"}}]}

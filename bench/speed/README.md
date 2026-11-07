@@ -543,3 +543,22 @@ Sonnet named every trap at a sixth of the cost and half the time. A plan now sta
 (the margin over medium costs nothing here), and a plan classified high starts a rung up, on
 opus/high. A plan for parts (`feature-parallel`) keeps opus/high: that is where its own bench
 measured it, and sonnet was not measured there.
+
+## W: which cell takes an unclear bug (`methods.py`, 0.90.0)
+
+The same planted bug and judges as T, three runs per cell and arm on sonnet/high and opus/high. The
+judge changed first: a worker that fixed the rounding and *added* a regression test was judged wrong
+under "no test changed" (every opus/high run had), so a run is right when no test line was taken away
+(the planted bug breaks the suite, so a worker still cannot pass by editing a test out).
+
+| cell | arm | right | wall p50 | turns p50 | $ p50 |
+|---|---|---|---|---|---|
+| sonnet/high | with the diagnosis | 3/3 | 38 s | 9 | 0.086 |
+| sonnet/high | without | 2/3 | 30 s | 16 | 0.072 |
+| opus/high | with the diagnosis | 3/3 | 69 s | 13 | 0.274 |
+| opus/high | without | 2/3 | 44 s | 7 | 0.182 |
+
+With the method sonnet/high was as right as opus/high, in little over half the time and at a third of
+the cost; without it each missed once in three. From 0.90.0 `debug-unclear` starts at sonnet/high and
+climbs to opus/high; the method stays on trial per repository (`methods.arm`). Three runs a side is a
+small sample: the climbs by rung in `locks stats` are the record that judges the start.

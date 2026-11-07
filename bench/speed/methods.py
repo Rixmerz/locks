@@ -57,7 +57,12 @@ def one(cell: str, arm: str) -> dict:
     wall = time.monotonic() - began
     judged = kinds.judge_refactor(where)
     # Fixed in the source: the suite passes, the prices are the engine's, and no test was touched to get there.
-    tests_kept = kinds.subprocess.run(["git", "diff", "--quiet", "HEAD", "--", "tests"], cwd=where).returncode == 0
+    # No test line was taken away (the planted bug breaks the suite, so a worker cannot pass by editing a test
+    # out); a test the worker added for the bug is its work, never a miss: a run on opus/high that fixed the
+    # rounding and added a regression test was judged wrong under the earlier "no test changed".
+    stat = kinds.subprocess.run(["git", "diff", "--numstat", "HEAD", "--", "tests"], cwd=where,
+                                capture_output=True, text=True).stdout
+    tests_kept = all(line.split("\t")[1] in ("0", "-") for line in stat.splitlines() if line.strip())
     right = judged["checks"].get("prices kept", False) and kinds._tests_pass(where) and tests_kept
     row = {"cell": cell, "arm": arm, "wall_s": round(wall, 1), "turns": r.turns, "cost": round(r.cost_usd, 4),
            "claimed": r.passed, "right": bool(right)}

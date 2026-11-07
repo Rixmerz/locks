@@ -450,3 +450,25 @@ def test_an_attempt_that_says_nothing_was_logged_while_the_store_holds_its_calls
                     version="0.88.0")
     found = rules(store, now=LATER, alive=lambda pid: True)["tools-logged-off"]
     assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, t["id"]), (doctor.FIXED, v["id"])]
+
+
+def test_a_problem_a_pass_opened_beside_a_race_s_other_try_is_suspect(store: Store):
+    t = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
+    store.add_event(t["id"], "attempt_finished", seq=1, cell="sonnet/high", passed=False, raced=True, stopped=True)
+    store.add_event(t["id"], "attempt_finished", seq=2, cell="sonnet/xhigh", passed=True)
+    store.add_event(t["id"], "finished", status="done", version="0.90.0")
+    problem = store.open_problem("t", repo="r", symptom="t")
+    store.add_fix(problem, "sonnet/xhigh: done", "worked", repo="r", task_id=t["id"])
+    found = rules(store, now=LATER, alive=lambda pid: True)["problem-opened-by-a-race"]
+    assert [(f.severity, f.what) for f in found] == [
+        (doctor.SUSPECT, f"#{t['id']} passed beside a race's other try and opened problem #{problem} with no "
+                         "failure of its own")]
+    # A task whose race's other try failed its own check before the pass opened its problem honestly.
+    u = store.create_task("u", status="done", source="locks", repo="r", kind="implement")
+    store.add_event(u["id"], "attempt_finished", seq=1, cell="sonnet/high", passed=False, raced=True, stopped=False)
+    store.add_event(u["id"], "attempt_finished", seq=2, cell="sonnet/xhigh", passed=True)
+    store.add_event(u["id"], "finished", status="done", version="0.90.0")
+    p2 = store.open_problem("u", repo="r", symptom="u")
+    store.add_fix(p2, "sonnet/high: no", "failed", repo="r", task_id=u["id"])
+    store.add_fix(p2, "sonnet/xhigh: done", "worked", repo="r", task_id=u["id"])
+    assert [f.task_id for f in rules(store, now=LATER, alive=lambda pid: True)["problem-opened-by-a-race"]] == [t["id"]]

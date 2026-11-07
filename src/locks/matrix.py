@@ -134,7 +134,11 @@ LADDERS: dict[str, tuple[Cell, ...]] = {
     # which passed them no better. High complexity starts a rung up, and history raises the start.
     "feature": ladder("sonnet/high", "sonnet/xhigh", "opus/high", "opus/xhigh"),
     "debug-repro": ladder("sonnet/high", "sonnet/xhigh", "opus/high", "opus/xhigh"),
-    "debug-unclear": ladder("opus/high", "opus/xhigh", "opus/max"),
+    # An unclear bug starts at sonnet/high with the diagnosis method (`locks.methods`): on `bench/speed/methods.py`
+    # (W) sonnet/high with it fixed the planted rounding bug 3 times in 3 at 38 s and $0.09 a run, as opus/high
+    # did at 69 s and $0.27; without the method each missed once in 3. The method's trial judges the method
+    # per repository; the ladder's next rung is opus/high.
+    "debug-unclear": ladder("sonnet/high", "opus/high", "opus/xhigh", "opus/max"),
     # A routine review starts at sonnet/high: reading a change for its defects is the independent check's
     # work, and on `bench/review`'s change (42 planted bugs, `effort.py`) sonnet/medium caught 20 of them
     # where sonnet/high caught 27, 15 s apart. The rung after it is another model, as a reading kind's

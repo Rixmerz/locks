@@ -1,6 +1,6 @@
 {
   "name": "locks",
-  "version": "0.89.0",
+  "version": "0.90.0",
   "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
   "author": {
     "name": "Rixmerz"
@@ -26,6 +26,12 @@
       "title": "Seconds to wait for livespec's index",
       "description": "Before a worker starts, locks indexes or refreshes the repository's livespec index (incrementally) and waits this long for it, so the worker orients by specs and symbols instead of opening files. Past it the task starts without the index and says so; the index keeps building for the next one. 0 never waits.",
       "default": 120
+    },
+    "predict": {
+      "type": "boolean",
+      "title": "Predict a first try that would fail",
+      "description": "A writing task shaped like ones that failed their first try at its start cell here (its kind, size, risk tier and how many areas it reaches) starts one rung up, only where the climbs from that start to the rung above rescued those failures: the backtest on this repository's record is the rule. Never a lower start, never a pinned or probation start. Off: the start comes from the ladder, the standards and history alone.",
+      "default": true
     },
     "livespec_trial": {
       "type": "boolean",

@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-11-07
+
 ### Changed
 - **livespec raises a start only on a symbol the request names**: the code map's best full-text
   matches (the request's words against every symbol's text) could name a widely used or critical

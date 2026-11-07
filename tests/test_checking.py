@@ -1392,3 +1392,23 @@ def test_a_resume_with_no_review_blockers_says_nothing_of_them():
     assert orchestrate.review_context([]) == []
     line = orchestrate.review_context([BUG])[0]
     assert line.startswith(orchestrate.REVIEW_FINDINGS) and findings.text([BUG]) in line
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_an_unanswered_criterion_is_asked_again_of_the_same_cell_not_climbed(git_repo, store):
+    left = WorkerResult(False, Failure.INCONCLUSIVE, "claimed a pass without saying whether S2 is met",
+                        cost_usd=0.1, shape=f"{launch.UNANSWERED_SHAPE}: S2")
+    answered = WorkerResult(True, None, "done", evidence="1 passed", cost_usd=0.1,
+                            criteria=({"id": "S1", "met": True, "evidence": "x"},
+                                      {"id": "S2", "met": True, "evidence": "y"}))
+    script = Script(left, answered, write="f.py")
+    report = run("Fix the total:\n- rounds once\n- keeps the sign", git_repo, store, registry={},
+                 launcher=script, classifier=kind("implement"))
+    assert report.status == "done" and report.cells == ["sonnet/medium", "sonnet/medium"]
+    assert len(script.specs) == 2
+    moved = store.last_event(report.task_id, "moved")["data"]
+    assert moved["from_cell"] == moved["to_cell"] == "sonnet/medium" and moved["move"] == "retry"
+    assert "form" in moved["because"][1] and "criteria-unanswered" in moved["reason"]
+    assert "S2" in script.specs[1].prompt and "criteria" in script.specs[1].prompt
+    assert orchestrate._reshape_prompt([Attempt(Cell("sonnet", "medium"), 30, False, Failure.INCONCLUSIVE,
+                                                shape=f"{launch.VERDICTS_SHAPE}: F2")]).count("F2") == 1

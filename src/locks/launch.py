@@ -340,6 +340,10 @@ DEEPER_PROMPT = ("Your last answer to this task did not pass; what failed it is 
 RESHAPE_PROMPT = ("Your last answer to this task could not be read; why is below. Your work so far is in this "
                   "directory and stands: do not redo it. Answer again, in the result contract you were given, "
                   "with exactly one result block.")
+#: A pass that left criteria or ledger rows unanswered failed only its answer's form: the same cell
+#: is asked again once (`WorkerResult.shape`), the work standing.
+UNANSWERED_SHAPE = "criteria-unanswered"
+VERDICTS_SHAPE = "verdicts-missing"
 #: The CLI's words when a session it was asked to resume is not there to resume.
 _NO_SESSION = re.compile(r"no conversation found|session[^\n]{0,60}(?:not found|does not exist|could not be "
                          r"(?:found|loaded|resumed))|invalid session", re.IGNORECASE)
@@ -807,12 +811,14 @@ def parse(
         if left_out:
             return WorkerResult(False, _refused(Failure.INCONCLUSIVE, denied),
                                 f"claimed a pass without saying whether {', '.join(left_out)} is met: " + summary,
-                                evidence, raw=text, verdict=verdict, **common)
+                                evidence, raw=text, verdict=verdict,
+                                shape=f"{UNANSWERED_SHAPE}: {', '.join(left_out)}", **common)
         undecided = ledger_mod.missing(spec.verdicts, spec.verdict_words, common["verdicts"])
         if undecided:
             return WorkerResult(False, _refused(Failure.INCONCLUSIVE, denied),
                                 f"claimed a pass without a verdict on {', '.join(undecided)}: " + summary,
-                                evidence, raw=text, verdict=verdict, **common)
+                                evidence, raw=text, verdict=verdict,
+                                shape=f"{VERDICTS_SHAPE}: {', '.join(undecided)}", **common)
         if spec.parts:
             parts, contract, problem = read_parts(block)
             if problem:

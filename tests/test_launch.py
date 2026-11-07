@@ -682,3 +682,16 @@ def test_a_plan_is_told_to_leave_no_design_choice_to_a_part():
 
     assert "leaves no design choice to its worker" in PARTS_INSTRUCTIONS
     assert "a question in `summary`, never a part" in PARTS_INSTRUCTIONS
+
+
+def test_a_pass_that_leaves_criteria_or_rows_unanswered_failed_only_its_form(tmp_path):
+    ok = {"verdict": "pass", "summary": "s", "evidence": "1 passed"}
+    asked = spec(tmp_path, criteria=("S1", "S2"))
+    left = parse(proc(envelope(block(**ok, criteria=[{"id": "S1", "met": True}]))), asked)
+    assert left.failure is Failure.INCONCLUSIVE and left.shape == f"{launch.UNANSWERED_SHAPE}: S2"
+    # A criterion said not met is the work's failure, not the answer's form.
+    unmet = parse(proc(envelope(block(**ok, criteria=[{"id": "S1", "met": True}, {"id": "S2", "met": False}]))), asked)
+    assert unmet.failure is Failure.CODE_BUG and unmet.shape == ""
+    rows = spec(tmp_path, verdicts=("F1", "F2"), verdict_words=("fixed", "open"))
+    undecided = parse(proc(envelope(block(**ok, verdicts=[{"id": "F1", "verdict": "fixed"}]))), rows)
+    assert undecided.failure is Failure.INCONCLUSIVE and undecided.shape == f"{launch.VERDICTS_SHAPE}: F2"

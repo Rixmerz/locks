@@ -94,7 +94,7 @@ def test_a_premortem_is_judged_by_the_first_tries_of_the_steps_after_its_plan(st
     store.add_event(other["id"], "briefed", method_arm="diagnosis:with")
     found = methods.trial(store, "r", premortem)
     assert found["with"] == {"tasks": 1, "tries": 1, "passed": 0, "rate": 0.0, "pass_p50_s": None}
-    assert found["without"] == {"tasks": 1, "tries": 0, "passed": 0, "rate": None}
+    assert found["without"] == {"tasks": 1, "tries": 0, "passed": 0, "rate": None, "pass_p50_s": None}
 
 
 def test_no_naming_starts_while_one_runs_for_the_session(store: Store, git_repo, tmp_path, monkeypatch):

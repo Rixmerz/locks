@@ -651,3 +651,10 @@ def test_parse_reads_the_answer_a_background_notice_pushed_off_the_end(tmp_path,
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", env["CLAUDE_CONFIG_DIR"])
     out = parse(proc(envelope("The result stands.", session_id="s1")), spec(tmp_path))
     assert out.summary == "s" and not out.shape
+
+
+def test_a_plan_is_told_to_leave_no_design_choice_to_a_part():
+    from locks.launch import PARTS_INSTRUCTIONS
+
+    assert "leaves no design choice to its worker" in PARTS_INSTRUCTIONS
+    assert "a question in `summary`, never a part" in PARTS_INSTRUCTIONS

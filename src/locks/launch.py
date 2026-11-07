@@ -292,6 +292,11 @@ joined after. Beside the fields above, your result block carries:
   part listed before it: it starts once that part passes, from what that part
   built. Parts with no `after` build side by side. Order the work in phases
   this way rather than leaving a part to guess what another will write.
+- **A part leaves no design choice to its worker.** Every name, schema, endpoint,
+  error-handling strategy and file placement the part needs is written in its
+  prompt or in the contract, so a worker who reads only its part can start
+  coding without deciding anything the request did not leave open. A decision
+  you cannot make is a question in `summary`, never a part.
 - `contract`: what every part must keep the same (the names, types, interfaces,
   schemas or endpoints they share), as text; each part is given it verbatim.
 

@@ -468,3 +468,25 @@ def test_heavy_reads_said_at_a_prompt_are_counted_with_whether_locks_work_follow
     report = analysis.compute(store, days=0, repo="r")
     assert report["heavy_reads"] == {"advised": 1, "sent": 1, "sent_rate": 1.0}
     assert "heavy reads said 1 time(s)" in analysis.text(report)
+
+
+def _part_task(store, repo, *, plan=True, stop=None, failure=None, passed=False):
+    options = {"part": {"id": "p", "n": 1, "of": 2, **({"plan": 1} if plan else {"area": True})}}
+    task = store.create_task("part", status="done" if passed else "blocked", source="locks", repo=repo,
+                             kind="implement", options=json.dumps(options))
+    store.add_event(task["id"], "planned", kind="implement")
+    store.add_event(task["id"], "attempt_finished", passed=passed, failure=failure, cell="sonnet/high")
+    store.add_event(task["id"], "finished", status=task["status"], **({"stop": {"cause": stop}} if stop else {}))
+
+
+def test_parts_of_a_fan_out_that_stopped_on_a_point_are_counted_per_repository(store):
+    _part_task(store, "a", stop="decision")
+    _part_task(store, "a", failure="architecture_bug")
+    _part_task(store, "a", passed=True)
+    _part_task(store, "a", plan=False, stop="decision")  # a review area is no part of a fan-out
+    _part_task(store, "b", failure="code_bug")
+    report = analysis.compute(store, days=0)
+    assert report["parts_on_a_point"] == [{"repo": "a", "stopped": 2, "parts": 3},
+                                          {"repo": "b", "stopped": 0, "parts": 1}]
+    assert "parts stopped on a point: 2 of 3 (a)" in analysis.text(report)
+    assert "parts stopped on a point: 2 of 3 (observed)" in analysis.text(analysis.compute(store, days=0, repo="a"))

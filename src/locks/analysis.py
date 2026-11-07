@@ -145,7 +145,7 @@ def _start(task: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
         "task": task["id"], "repo": task.get("repo"), "title": task.get("title") or "",
         "kind": data.get("kind") or task.get("kind"), "source": task.get("source"),
         "workflow": task.get("workflow"), "step": task.get("workflow_step"),
-        "has_session": bool(task.get("session_id")),
+        "has_session": bool(task.get("session_id")), "fan_part": _fan_part(task), "last_failure": None,
         "start_cell": data.get("start"), "final_cell": None, "status": None, "stop": None,
         "started_at": event["ts"], "ended_at": None, "wall_s": None,
         "advance_s": None, "pickup_s": None, "spawn_s": None,
@@ -162,8 +162,36 @@ def _start(task: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fan_part(task: Mapping[str, Any]) -> bool:
+    """Whether the task was queued as a part of a plan's fan-out (`workflows.advance`: the `part` in its
+    options carries the `plan` it came from; one area of a blind review does not)."""
+    try:
+        part = json.loads(task.get("options") or "{}").get("part")
+    except ValueError:
+        return False
+    return isinstance(part, dict) and bool(part.get("plan"))
+
+
+#: How a part stops on a point: the stop causes and the attempt failures that name one.
+POINT_STOPS = ("decision", "spec")
+POINT_FAILURES = ("spec_bug", "architecture_bug")
+
+
+def parts_on_a_point(found: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Per repository, the parts of a fan-out that ended and how many stopped on a point (their stop cause
+    or the failure of their last attempt): a plan whose parts leave a design choice to the worker."""
+    count: dict[str | None, list[int]] = defaultdict(lambda: [0, 0])
+    for r in found:
+        if r.get("fan_part"):
+            row = count[r["repo"]]
+            row[1] += 1
+            row[0] += r["stop"] in POINT_STOPS or r.get("last_failure") in POINT_FAILURES
+    return [{"repo": repo, "stopped": n, "parts": total} for repo, (n, total) in sorted(count.items(), key=str)]
+
+
 def _attempt(run: dict[str, Any], data: Mapping[str, Any]) -> None:
     run["attempts"] += 1
+    run["last_failure"] = None if data.get("passed") else data.get("failure")
     if run["first_try"] is None:
         run["first_try"] = bool(data.get("passed"))
     run["cells"].append(data.get("cell"))
@@ -677,6 +705,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # Each climb of a ladder and whether the attempt it started passed (observed): a rung's record.
         "climbs": climbs_by_rung(store, {r["task"]: r["kind"] for r in found}, since=since),
         "expensive": expensive(found),
+        # The parts of a fan-out that stopped on a point, per repository (observed).
+        "parts_on_a_point": parts_on_a_point(found),
     }
     if keep_runs is None:
         report["runs"] = found
@@ -966,6 +996,9 @@ def text(report: Mapping[str, Any]) -> str:
             lines.append(f"heavy reads said {reads['advised']} time(s) (the session read "
                          f"{route_mod.READ_HEAVY_CHARS:,} characters or more of tool output in a turn), the session "
                          f"sent locks work after {reads['sent']} ({_rate(reads['sent_rate'])}) (observed)")
+        for row in report.get("parts_on_a_point") or ():
+            where = f" ({_name(row['repo'])})" if not report.get("repo") else ""
+            lines.append(f"parts stopped on a point: {row['stopped']} of {row['parts']}{where} (observed)")
         if relied := report.get("notes_used"):
             lines += ["", f"notes in briefs: {relied['tasks']} task(s) carried {relied['carried']}, workers said they "
                       f"relied on {relied['relied_on']} ({_rate(relied['relied_rate'])}); first tries passed "

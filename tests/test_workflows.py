@@ -1734,3 +1734,17 @@ def test_the_bundled_drift_is_one_read_only_explore_step_and_its_dry_run_queues_
     out = capsys.readouterr().out
     assert "nothing is queued" in out and "docs/designs" in out
     assert store.list_runs() == []
+
+
+def test_the_bundled_design_review_has_four_lenses_and_a_refuter(git_repo, store: Store, capsys):
+    defn = workflows.load("design-review", git_repo, "bundled")
+    steps = {s["id"]: s for s in defn["steps"]}
+    assert defn["inputs"] == ["doc", "goal"]
+    assert list(steps) == ["comprehension", "design", "readiness", "codebase", "refute"]
+    lenses = ["comprehension", "design", "readiness", "codebase"]
+    assert all(steps[i]["needs"] == [] and steps[i]["kind"] == "review-routine" for i in lenses)
+    assert steps["refute"]["needs"] == lenses and steps["refute"]["ledger"] == "refute"
+    assert cli.main(["workflow", "run", "design-review", "--input", "doc=docs/plan.md", "--input", "goal=ship it",
+                     "--dry-run"]) == 0
+    assert "nothing is queued" in capsys.readouterr().out
+    assert store.list_runs() == []

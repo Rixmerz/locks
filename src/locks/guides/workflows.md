@@ -6,7 +6,7 @@ builds a feature writes its tests. What earns its own step is what must not
 share that context: a review, which reads blind (the request and the diff),
 and fixing what a review confirmed. That chain is a workflow, not one you
 relay: run `locks workflow list` and pick the one that fits (`feature`,
-`bugfix`, `review-fix`, `dual-review`, `panel`, `drift`), or the one the person named. Then:
+`bugfix`, `review-fix`, `dual-review`, `panel`, `drift`, `design-review` for a design document), or the one the person named. Then:
 
 ```bash
 locks workflow run <name> "<the goal, written so a stranger could do it>"

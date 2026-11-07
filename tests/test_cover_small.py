@@ -13,8 +13,8 @@ from locks.store import Store
 def test_tally_ignores_a_row_of_an_arm_it_does_not_count():
     found = arms.tally([{"arm": "with", "tries": 2, "passed": 1}, {"arm": "elsewhere", "tries": 9, "passed": 9}],
                        ("with", "without"))
-    assert found["with"] == {"tasks": 1, "tries": 2, "passed": 1, "rate": 0.5}
-    assert found["without"] == {"tasks": 0, "tries": 0, "passed": 0, "rate": None}
+    assert found["with"] == {"tasks": 1, "tries": 2, "passed": 1, "rate": 0.5, "pass_p50_s": None}
+    assert found["without"] == {"tasks": 0, "tries": 0, "passed": 0, "rate": None, "pass_p50_s": None}
     assert "elsewhere" not in found
 
 
@@ -93,7 +93,7 @@ def test_a_premortem_is_judged_by_the_first_tries_of_the_steps_after_its_plan(st
     store.add_attempt(other["id"], cell="opus/high", max_turns=10, passed=1, input_tokens=5)
     store.add_event(other["id"], "briefed", method_arm="diagnosis:with")
     found = methods.trial(store, "r", premortem)
-    assert found["with"] == {"tasks": 1, "tries": 1, "passed": 0, "rate": 0.0}
+    assert found["with"] == {"tasks": 1, "tries": 1, "passed": 0, "rate": 0.0, "pass_p50_s": None}
     assert found["without"] == {"tasks": 1, "tries": 0, "passed": 0, "rate": None}
 
 

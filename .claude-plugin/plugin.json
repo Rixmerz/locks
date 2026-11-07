@@ -1,6 +1,6 @@
 {
   "name": "locks",
-  "version": "0.87.0",
+  "version": "0.88.0",
   "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
   "author": {
     "name": "Rixmerz"
@@ -26,6 +26,12 @@
       "title": "Seconds to wait for livespec's index",
       "description": "Before a worker starts, locks indexes or refreshes the repository's livespec index (incrementally) and waits this long for it, so the worker orients by specs and symbols instead of opening files. Past it the task starts without the index and says so; the index keeps building for the next one. 0 never waits.",
       "default": 120
+    },
+    "livespec_trial": {
+      "type": "boolean",
+      "title": "Try handing livespec to workers in turns",
+      "description": "Whether a worker is handed livespec's tools (its server, their descriptions in every turn, the orientation) is tried against withholding them, per repository and nature of work (reading, writing): tasks take turns until each arm has enough first tries, then workers are handed it only where the handed ones passed their first tries no less often and no slower. What locks does with the index itself (the code map in the brief, the size estimate, what a change reaches for the independent check) is never withheld. Off: every worker is handed it.",
+      "default": true
     },
     "parallel": {
       "type": "boolean",

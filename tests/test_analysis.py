@@ -363,10 +363,11 @@ def _indexed_run(git_repo, tmp_path, store, text, tools, tokens, *, kind_name="i
 
 
 def test_an_attempt_keeps_the_livespec_calls_its_worker_made_and_a_run_without_livespec_keeps_none(
-        git_repo, tmp_path, store):
+        git_repo, tmp_path, store, monkeypatch):
     from .livespec_fixture import build
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # every worker handed it: the record of calls is the point
     live = "mcp__livespec__"
     used = _indexed_run(git_repo, tmp_path, store, "fix the cart total",
                         [live + "quick_orient", live + "read_unit", live + "quick_orient", "Read"], 100_000)
@@ -389,10 +390,12 @@ def test_tool_counts_are_one_attempt_s_calls_by_name(store):
     assert store.tool_counts(task["id"], 3, "mcp__livespec__") == {}
 
 
-def test_stats_compare_the_tokens_of_runs_that_called_livespec_with_those_that_did_not(git_repo, tmp_path, store):
+def test_stats_compare_the_tokens_of_runs_that_called_livespec_with_those_that_did_not(git_repo, tmp_path, store,
+                                                                                        monkeypatch):
     from .livespec_fixture import build
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # every worker handed it: the comparison is of calls
     live = "mcp__livespec__"
     _indexed_run(git_repo, tmp_path, store, "fix the cart total", [live + "quick_orient"], 99_000)
     _indexed_run(git_repo, tmp_path, store, "fix the invoice total", [live + "read_unit"], 119_000)

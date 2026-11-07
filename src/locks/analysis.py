@@ -28,6 +28,7 @@ from typing import Any
 from locks import behavior, launch, racing, revisions, trunks, trust, usage, workflows
 from locks import cells as cells_mod
 from locks import evidence as evidence_mod
+from locks import handing as handing_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks.store import Store
@@ -653,6 +654,10 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "methods": {m.name: methods_mod.trial(store, repo, m) for m in methods_mod.METHODS.values()},
         "methods_now": {m.name: methods_mod.arm(store, repo, m, 0)[1] for m in methods_mod.METHODS.values()}
         if repo else {},
+        # Whether workers of each nature are handed livespec here, and its trial (`locks.handing`).
+        "livespec_handing": {n: handing_mod.trial(store, repo, n) for n in handing_mod.NATURES},
+        "livespec_handing_now": {n: handing_mod.arm(store, repo, "chat" if n == "reading" else "implement", 0)[1]
+                                 for n in handing_mod.NATURES} if repo else {},
         "expensive": expensive(found),
     }
     if keep_runs is None:
@@ -939,6 +944,16 @@ def text(report: Mapping[str, Any]) -> str:
                                  f"({_rate(row['rate'])})")
                 if (report.get("methods_now") or {}).get(name):
                     lines.append(f"  now: {report['methods_now'][name]}")
+        for which, arms in (report.get("livespec_handing") or {}).items():
+            if any(side.get("tasks") for side in arms.values()):
+                lines += ["", f"livespec handed to {which} workers (its trial; tasks, first tries passed, "
+                          "a pass's median time):"]
+                for side, row in arms.items():
+                    took = f"{row['pass_p50_s']:.0f}s" if row.get("pass_p50_s") is not None else "-"
+                    lines.append(f"  {side:<8} tasks {row['tasks']:>4}  first tries {row['passed']}/{row['tries']} "
+                                 f"({_rate(row['rate'])})  pass p50 {took}")
+                if (report.get("livespec_handing_now") or {}).get(which):
+                    lines.append(f"  now: {report['livespec_handing_now'][which]}")
         if report.get("trust"):
             lines += ["", "the independent check's record by cell (its sampling, repeated blockers, re-checks finding "
                       "something new, and the work that started there):"]

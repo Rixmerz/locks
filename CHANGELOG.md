@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.88.0] - 2026-11-07
+
+### Added
+- **livespec handed to a worker, on trial** (`locks.handing`, the `livespec_trial` setting, on by
+  default): six workers in a row were handed livespec and none called it, and what a handed worker
+  carries (a server started with it, nine tools' descriptions in every turn, the orientation lines)
+  costs every attempt. A repository's tasks of each nature (reading, writing) now alternate between
+  `hand` and `withhold` (`briefed.livespec_arm`, `<nature>:<arm>`; a resume keeps its first brief's
+  arm) until each arm has 6 first tries; then workers are handed it only where the handed ones passed
+  their first tries no less often and no slower than `arms.SLOWER` times the other arm's median. A
+  withheld worker gets no server, hint or orientation; the code map in its brief, the size estimate
+  and what the change reaches for the independent check are locks' own reads of the index and stay,
+  and the independent check keeps the index whatever the arm. `locks stats` shows both arms per
+  nature and where each stands.
+
 ## [0.87.0] - 2026-11-07
 
 ### Changed

@@ -337,3 +337,92 @@ def test_a_change_that_passes_as_often_but_slower_loses_its_trial():
     assert untimed["with"]["pass_p50_s"] is None and arms.pick(untimed, ("with", "without"), 1, 4, "d")[0] == "with"
     failed = arms.tally([{"arm": "with", "tries": 1, "passed": 0, "duration_s": 999.0}] * 4, ("with", "without"))
     assert failed["with"]["pass_p50_s"] is None
+
+
+# --- livespec handed to a worker, tried against withholding it --------------------------------------
+
+
+def test_livespec_alternates_hand_and_withhold_then_stays_where_it_did_no_worse_and_no_slower(store: Store):
+    from locks import handing
+
+    def task(which: str, side: str, passed: bool, took: float) -> int:
+        t = store.create_task("t", status="done", source="locks", repo="r",
+                              kind="implement" if which == "writing" else "explore")
+        store.add_attempt(t["id"], cell="sonnet/high", max_turns=30, passed=int(passed), input_tokens=10,
+                          duration_s=took)
+        store.add_event(t["id"], "briefed", livespec_arm=f"{which}:{side}")
+        return t["id"]
+
+    assert handing.nature("implement") == "writing" and handing.nature("review-routine") == "reading"
+    assert handing.arm(store, None, "implement", 1) == ("hand", "no repository to run a trial in")
+    ids = {handing.ARMS[arms.side("livespec-writing", "r", n, 0, 0)]: n for n in range(1, 40)}
+    assert handing.arm(store, "r", "implement", ids["hand"])[0] == "hand"
+    assert handing.arm(store, "r", "implement", ids["withhold"])[0] == "withhold"
+    task("writing", "hand", True, 100)
+    task("writing", "hand", True, 100)
+    assert handing.arm(store, "r", "implement", ids["hand"])[0] == "withhold"  # two apart: fewer goes next
+    for _ in range(handing.TRIAL):
+        task("writing", "hand", True, 300)
+        task("writing", "withhold", True, 100)
+    # as many passes, three times slower: handing lost, and the reading trial is apart
+    side, why = handing.arm(store, "r", "implement", 999)
+    assert side == "withhold" and "lost its trial here" in why and "300s" in why
+    assert handing.arm(store, "r", "explore", 999)[1].startswith("the livespec-reading trial here (0 hand")
+    # a resume keeps the arm its first brief drew, whatever the trial says now
+    kept = task("writing", "hand", True, 300)
+    assert handing.arm(store, "r", "implement", kept) == ("hand", "the arm this task's first brief drew")
+    assert handing.trial(store, "r", "writing")["withhold"] == {
+        "tasks": 6, "tries": 6, "passed": 6, "rate": 1.0, "pass_p50_s": 100.0}
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_a_withheld_worker_gets_no_livespec_server_nor_orientation_and_the_map_stays(
+        git_repo, store: Store, tmp_path, monkeypatch):
+    from locks import handing
+
+    from .livespec_fixture import build
+    from .test_orchestrate import _livespec
+
+    build(git_repo)
+    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "on")
+    monkeypatch.setattr(handing, "arm", lambda store, repo, kind, task_id: ("withhold", "on trial"))
+    script = Script(ok("fixed"))
+    report = run("charge_card charges twice on retry", git_repo, store, registry={}, launcher=script,
+                 classifier=kind("implement"), adapters=[_livespec(tmp_path)])
+    spec = script.specs[0]
+    assert "livespec" not in spec.mcp_servers and "mcp__livespec" not in spec.allowed_tools
+    assert "Orient by livespec" not in spec.prompt and "livespec" not in spec.append_system_prompt
+    assert "Code map from livespec" in spec.prompt  # what locks read from the index itself stays
+    briefed = store.events_of(report.task_id, "briefed")[0]["data"]
+    assert briefed["livespec_arm"] == "writing:withhold" and "livespec_tools" not in briefed
+    assert "livespec" not in store.events_of(report.task_id, "attempt_started")[0]["data"]["capabilities"]
+    assert "livespec_calls" not in store.events_of(report.task_id, "attempt_finished")[0]["data"]
+    # handed: the server, the orientation and the record of what was offered, as before
+    monkeypatch.setattr(handing, "arm", lambda store, repo, kind, task_id: ("hand", "on trial"))
+    script = Script(ok("fixed"))
+    report = run("charge_card charges twice on retry", git_repo, store, registry={}, launcher=script,
+                 classifier=kind("implement"), adapters=[_livespec(tmp_path)])
+    spec = script.specs[0]
+    assert "livespec" in spec.mcp_servers and "Orient by livespec" in spec.prompt
+    briefed = store.events_of(report.task_id, "briefed")[0]["data"]
+    assert briefed["livespec_arm"] == "writing:hand" and briefed["livespec_tools"]
+    # the setting off: handed, no arm drawn
+    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")
+    script = Script(ok("fixed"))
+    report = run("charge_card charges twice on retry", git_repo, store, registry={}, launcher=script,
+                 classifier=kind("implement"), adapters=[_livespec(tmp_path)])
+    assert "livespec" in script.specs[0].mcp_servers
+    assert "livespec_arm" not in store.events_of(report.task_id, "briefed")[0]["data"]
+
+
+def test_stats_show_the_livespec_handing_trial(store: Store):
+    from locks import analysis
+
+    done = finished(store, ("sonnet/high", 1), kind="implement")
+    store.add_event(done, "briefed", livespec_arm="writing:withhold")
+    report = analysis.compute(store, days=0, repo="r")
+    assert report["livespec_handing"]["writing"]["withhold"]["tasks"] == 1
+    assert report["livespec_handing"]["reading"]["withhold"]["tasks"] == 0
+    assert "the livespec-writing trial here" in report["livespec_handing_now"]["writing"]
+    text = analysis.text(report)
+    assert "livespec handed to writing workers (its trial" in text and "pass p50 -" in text

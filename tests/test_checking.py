@@ -1117,11 +1117,12 @@ def test_a_check_that_fails_drops_what_ran_beside_it_and_keeps_its_cost(git_repo
 
 
 def test_the_independent_check_is_handed_the_code_index_read_only_where_the_repository_has_one(
-        git_repo, store, tmp_path, verifier_on):
+        git_repo, store, tmp_path, verifier_on, monkeypatch):
     from .livespec_fixture import build
     from .test_orchestrate import _livespec
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # the worker handed it, whatever the trial draws
     script = Script(passing(), check("pass"), write="app.py")
     run("fix the cart total", git_repo, store, registry={}, launcher=script, classifier=kind("implement"),
         adapters=[_livespec(tmp_path)])

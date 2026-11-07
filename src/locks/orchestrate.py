@@ -72,6 +72,7 @@ from locks import capabilities as caps
 from locks import criteria as criteria_mod
 from locks import evidence as evidence_mod
 from locks import findings as findings_mod
+from locks import handing as handing_mod
 from locks import ledger as ledger_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
@@ -285,6 +286,10 @@ class Plan:
     recalled: dict | None = None
     #: Lines of the plan this repository already heard today (`said_today`): kept, not shown again.
     quiet: frozenset[str] = frozenset()
+    #: How a worker finds its way by each neighbour's index (the neighbour's name, the line): briefed
+    #: before the context when that neighbour's tools are handed, left out when they are withheld
+    #: (`handing.arm`).
+    oriented: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -390,6 +395,7 @@ class Report:
                          f"`locks show {self.task_id}` keeps them)")
         if self.task_id is None:
             # A dry run shows what the first worker would be handed.
+            lines += [line for _, line in self.plan.oriented]
             lines += self.plan.context
         if self.plan.capabilities:
             lines.append(f"capabilities {', '.join(self.plan.capabilities)}")
@@ -641,6 +647,7 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
     statuses: list[Status] = []
     active: list[tuple[Adapter, Status]] = []
     context: list[str] = []
+    oriented: list[tuple[str, str]] = []
     raise_rungs, critical = 0, False
     # The symbols the request reaches, when an index could say: None when none could.
     reached: int | None = None
@@ -651,7 +658,8 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
             continue
         active.append((adapter, status))
         # How to find its way by this neighbour's index comes before the map the index drew.
-        context += getattr(adapter, "orient", lambda _kind, _status: ())(kind, status)
+        orient = getattr(adapter, "orient", lambda _kind, _status: ())
+        oriented += [(adapter.name, line) for line in orient(kind, status)]
         briefing = adapter.brief(text, repo_dir, status)
         context += briefing.lines
         raise_rungs = max(raise_rungs, briefing.raise_rungs)
@@ -853,7 +861,8 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 tuple(context), tuple(statuses), tuple(active), tuple(known), role, team, why,
                 risk, turns, size, standard.data() if standard is not None else None, race,
                 probation={"arm": arm, "cell": PROBATION[kind].label} if arm else None,
-                withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None)
+                withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None,
+                oriented=tuple(oriented))
 
 
 #: A start whose first tries passed less often than this here, over at least `RACE_SAMPLES`
@@ -1431,6 +1440,17 @@ def run(
         if side == "with":
             context.append(method.lines)
     the_plan.seen_risks = tuple(methods_mod.lines_for(methods_mod.run_risks(store, task)))
+    # Whether this worker is handed livespec's tools (`locks.handing`): drawn by the trial of its
+    # nature here, kept either way so the arms can be compared; the orientation goes with the tools.
+    # What locks read from the index itself (the code map, the size, the check's impact) stays.
+    handed_arms: dict[str, Any] = {}
+    withheld_tools: frozenset[str] = frozenset()
+    if any(a.name == "livespec" for a, _ in the_plan.active) and handing_mod.enabled():
+        side, side_why = handing_mod.arm(store, key, the_plan.kind, task["id"])
+        handed_arms = {handing_mod.KEY: f"{handing_mod.nature(the_plan.kind)}:{side}", "livespec_why": side_why}
+        if side == "withhold":
+            withheld_tools = frozenset({"livespec"})
+    context[:0] = [line for name, line in the_plan.oriented if name not in withheld_tools]
     # The brief's fixed weight, per kind and release (`locks.footprint`): what a worker reads
     # before its task, so a brief that grows release after release is seen, not guessed.
     worn_brief = roles.brief(the_plan.role, held=held_files) if the_plan.role is not None else None
@@ -1442,14 +1462,15 @@ def run(
                     # livespec orientation says why (absent, stale, unreadable), never left to guess.
                     **({"livespec_tools": sorted(handed)} if (handed := next(
                         (a.worker_tools(the_plan.kind, st) for a, st in the_plan.active
-                         if hasattr(a, "worker_tools")), None)) is not None else {}),
+                         if hasattr(a, "worker_tools") and a.name not in withheld_tools), None)) is not None
+                       else {}),
                     # livespec's index describes the person's checkout; a worker in a worktree edits
                     # a copy of it, so what the index answers is the base, not its own work so far.
                     **({"livespec_index_of": "checkout" if workdir.resolve() != repo_dir.resolve() else "workdir"}
                        if handed is not None else {}),
                     **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                        for st in the_plan.neighbours}} if the_plan.neighbours else {}),
-                    **primed, **worn, **trunked, **evidenced,
+                    **primed, **worn, **trunked, **evidenced, **handed_arms,
                     **methodical, **(the_plan.recalled or {}),
                     **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
                     **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
@@ -1575,7 +1596,7 @@ def run(
                 registry, the_plan.kind, failed_before=bool(attempts), workdir=workdir,
                 paths=touched_paths(text, options, [*changed, *(isolate.changed(workspace) if workspace else ())]),
                 reading=not writes or declared_read_only), the_plan.role, registry, workdir), the_plan, repo_dir,
-                workdir)
+                workdir, withheld=withheld_tools)
             # A tool that acts answers to the loop the task is a round of, or to none.
             selection = caps.for_loop(selection, options.loop, home())
             # Numbered as the store numbers it: a resumed task's attempts go on from its last, and
@@ -3675,13 +3696,17 @@ def failed_output(last: Attempt) -> str:
     return "The output that failed the last attempt, last lines:\n" + last.evidence.strip()[-1500:]
 
 
-def _equip(selection: caps.Selection, the_plan: Plan, repo_dir: Path, workdir: Path) -> caps.Selection:
-    """The registry's selection plus every adopted neighbour, each with its hint.
-    A registry entry of the same name wins: a person who configured it chose it."""
+def _equip(selection: caps.Selection, the_plan: Plan, repo_dir: Path, workdir: Path,
+           withheld: frozenset[str] = frozenset()) -> caps.Selection:
+    """The registry's selection plus every adopted neighbour, each with its hint, less the ones a
+    trial withholds from this worker (`locks.handing`). A registry entry of the same name wins: a
+    person who configured it chose it."""
     servers = dict(selection.servers)
     hints = list(selection.hints)
     names = list(selection.names)
     for adapter, status in the_plan.active:
+        if adapter.name in withheld:
+            continue
         # A neighbour that can hold its worker to the tools its brief names hands only those.
         worker_server = getattr(adapter, "worker_server", None)
         server = worker_server(the_plan.kind, status) if worker_server else adapter.server()

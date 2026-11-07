@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from locks import after, config
+from locks import after, behavior, config
 from locks.adapters import ABSENT, UNREADABLE
 from locks.matrix import turns_for
 from locks.repo import key as repo_key
@@ -73,6 +73,7 @@ FIXED_IN = {
     "habit-review-unapplied": "0.85.0",
     "tools-logged-off": "0.89.0",
     "problem-opened-by-a-race": "0.90.0",
+    "clean-review-read-nothing": "0.91.0",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -886,6 +887,39 @@ def problems_opened_by_a_race(store: Store, *, since: str | None, **_) -> Iterab
         yield _history("problem-opened-by-a-race", sorted(before), None)
 
 
+def clean_reviews_read_nothing(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """A blind review that passed with no finding while its own calls show it read nothing
+    (`attempt_finished.behavior.read_calls` 0, its calls logged): a worker that never read the diff
+    cannot have found nothing, and `workflows` read its empty `findings` as a clean review. From
+    0.91.0 such an answer is held back once (a `review_unread` event at the attempt's `seq`); one
+    without that event passed unread. An attempt recorded before `read_calls` existed, or whose
+    calls never reached the log, is unknown and no finding."""
+    held = {(int(e["task_id"]), int(e["data"].get("seq") or 0)) for e in store.events_of_kinds(["review_unread"])}
+    before: list[int] = []
+    for event in store.events_of_kinds(["attempt_finished"], since=since):
+        data, task_id = event["data"], int(event["task_id"])
+        if not data.get("passed") or data.get("tools_logged") is not True:
+            continue
+        if (data.get("behavior") or {}).get("read_calls") != 0 or (task_id, int(data.get("seq") or 0)) in held:
+            continue
+        task = store.get_task(task_id)
+        if not task or task["kind"] not in behavior.REVIEW_KINDS:
+            continue
+        ended = store.last_event(task_id, "finished")
+        if not ended or ended["data"].get("status") != "done" or ended["data"].get("findings"):
+            continue
+        if _fixed("clean-review-read-nothing", data.get("version")):
+            before.append(task_id)
+            continue
+        yield Finding("clean-review-read-nothing", SUSPECT,
+                      f"#{task_id} attempt {data.get('seq')} passed a review with no finding and its calls show it "
+                      "read nothing, and nothing held it back",
+                      f"`locks show {task_id}`: the review is no evidence the change is clean; run it again",
+                      task_id, task["repo"])
+    if before:
+        yield _history("clean-review-read-nothing", sorted(before), None)
+
+
 RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     lanes_paused_on_ended, running_with_no_process, queued_with_no_dispatcher, held_behind_gone, wait_judged_on_gone,
     resumes_that_never_ran,
@@ -894,7 +928,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     trials_never_sampled, notes_proven_unbriefed, preexisting_that_was_not, problems_open_after_pass,
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
-    habit_reviews_unapplied, tools_logged_off, problems_opened_by_a_race,
+    habit_reviews_unapplied, tools_logged_off, problems_opened_by_a_race, clean_reviews_read_nothing,
 )
 
 

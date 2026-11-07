@@ -309,3 +309,52 @@ def test_the_sessions_a_task_notifies_are_the_ones_that_hear_its_copy(store, mon
     store.add_event(task["id"], "finished", status="done")
     assert [t["id"] for t in store.unreported_copies("supervisor")] == [task["id"]]
     assert store.unreported_copies("owner") == []
+
+
+def _review_task(store, calls):
+    """A passed blind review whose attempt kept the profile of `calls`, as `orchestrate` keeps it."""
+    from locks import behavior
+
+    task = store.create_task("review the change", status="done", source="locks", repo="r", kind="review-routine")
+    store.add_event(task["id"], "planned", kind="review-routine", start="sonnet/high")
+    store.add_event(task["id"], "attempt_finished", seq=1, cell="sonnet/high", passed=True, tools_logged=True,
+                    behavior=behavior.profile(calls), version="0.91.0")
+    store.add_event(task["id"], "finished", status="done", findings=[], wall_s=1.0)
+    return task["id"]
+
+
+def test_the_read_calls_an_attempt_keeps_are_what_the_doctor_reads_back(store):
+    """`behavior.profile` writes `read_calls` on `attempt_finished.behavior`; `doctor` holds against it a clean
+    review that read nothing, and the `review_unread` event at the attempt's `seq` is what excuses it."""
+    from locks import behavior, doctor
+
+    def call(sig):
+        return {"ts": "2026-11-07T10:00:00+00:00", "tool": sig.split(":")[0], "sig": sig, "arg_hash": sig, "ok": 1}
+
+    def unread(found):
+        return [f.task_id for f in found if f.rule == "clean-review-read-nothing" and f.severity == doctor.SUSPECT]
+
+    nothing = _review_task(store, [call("edit:py"), call("bash:pytest")])
+    _review_task(store, [call("bash:git-diff"), call("read:py")])
+    assert behavior.profile([call("edit:py")])["read_calls"] == 0
+    assert behavior.profile([call("bash:git-diff"), call("read:py")])["read_calls"] == 2
+    assert unread(doctor.check(store, days=0)) == [nothing]
+    # The hold the run writes for that attempt (`orchestrate`: `seq=nth`) is the key the rule looks for.
+    store.add_event(nothing, "review_unread", seq=1, **behavior.unread_record("worker", again=False, calls=2))
+    assert unread(doctor.check(store, days=0)) == []
+
+
+def test_the_review_a_run_held_back_as_unread_is_what_stats_reads_back(store):
+    """`behavior.unread_record` is the data of a `review_unread` event; `analysis` counts them by `who` and `again`."""
+    from locks import analysis, behavior
+
+    task = _review_task(store, [])
+    assert set(behavior.unread_record("worker", again=False, calls=3)) == {"who", "again", "calls"}
+    store.add_event(task, "review_unread", seq=1, **behavior.unread_record("worker", again=False, calls=3))
+    assert analysis.compute(store, days=0)["reviews_unread"] == {
+        "worker": 1, "worker_again": 0, "verifier": 0, "verifier_again": 0}
+    store.add_event(task, "review_unread", seq=2, **behavior.unread_record("worker", again=True, calls=0))
+    store.add_event(task, "review_unread", seq=2, **behavior.unread_record("verifier", again=False, calls=1))
+    report = analysis.compute(store, days=0)
+    assert report["reviews_unread"] == {"worker": 1, "worker_again": 1, "verifier": 1, "verifier_again": 0}
+    assert "workers held 1 (1 unread again), independent checks run again 1 (0 unread twice)" in analysis.text(report)

@@ -462,6 +462,28 @@ def capabilities_used(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -
     return out
 
 
+def reviews_unread(store: Store, task_ids: set[int], *, since: str | None = None) -> dict[str, int]:
+    """The reviews held back for reporting no finding while their calls show they read nothing
+    (`review_unread` events, which the run's events do not carry): a worker's answer asked again
+    (`worker`) and the second such answer (`worker_again`), an independent check run once more
+    (`verifier`) and the one that stayed unread (`verifier_again`). Observed, never a rule's input."""
+    found: Counter[tuple[str, bool]] = Counter()
+    for event in store.events_of_kinds(["review_unread"], since=since):
+        if int(event["task_id"]) in task_ids:
+            found[(str(event["data"].get("who") or ""), bool(event["data"].get("again")))] += 1
+    return {"worker": found[("worker", False)], "worker_again": found[("worker", True)],
+            "verifier": found[("verifier", False)], "verifier_again": found[("verifier", True)]}
+
+
+def unread_lines(held: Mapping[str, int]) -> list[str]:
+    """`locks stats`' line of the reviews held back as unread; none while none was."""
+    if not any(held.values()):
+        return []
+    return ["", "reviews held back for reporting no finding and reading nothing (their calls show no read): "
+            f"workers held {held['worker']} ({held['worker_again']} unread again), "
+            f"independent checks run again {held['verifier']} ({held['verifier_again']} unread twice)"]
+
+
 def cells(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> list[dict[str, Any]]:
     """Every attempt by the cell it ran at: how often it passed, its time, turns, its own
     cost (its independent check's apart) and how much of its input the cache served."""
@@ -654,6 +676,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "capabilities": capabilities_used(events, {r["task"] for r in found}),
         # How workers worked, from their own tool calls, by kind and outcome and by cell (`locks.behavior`).
         "behavior": behavior.table(events, {r["task"]: r["kind"] for r in found}),
+        # The reviews held back for reporting no finding and reading nothing (observed, never a verdict).
+        "reviews_unread": reviews_unread(store, {r["task"] for r in found}, since=since),
         # The notes briefs carried and the ones workers said they relied on (observed, never a verdict).
         "notes_used": notes_relied_on(events, {r["task"] for r in found}),
         # Each route's advice and whether the session sent locks work after it (observed, issue #124).
@@ -959,6 +983,7 @@ def text(report: Mapping[str, Any]) -> str:
                              + (f"  ({row['unlogged']} attempt(s) not recorded: their worker's hooks logged no call)"
                                 if row.get("unlogged") else ""))
         lines += behavior_lines(report.get("behavior") or {})
+        lines += unread_lines(report.get("reviews_unread") or {})
         for mode, row in (report.get("routing") or {}).items():
             lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "
                          f"{row['sent']} ({_rate(row['sent_rate'])}) (observed)")

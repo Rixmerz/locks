@@ -468,3 +468,34 @@ def test_heavy_reads_said_at_a_prompt_are_counted_with_whether_locks_work_follow
     report = analysis.compute(store, days=0, repo="r")
     assert report["heavy_reads"] == {"advised": 1, "sent": 1, "sent_rate": 1.0}
     assert "heavy reads said 1 time(s)" in analysis.text(report)
+
+
+def _ended_run(store, kind_="review-routine", source="locks"):
+    task = store.create_task("review the change", status="done", source=source, repo="r", kind=kind_)
+    store.add_event(task["id"], "planned", kind=kind_, start="sonnet/high")
+    store.add_event(task["id"], "finished", status="done", final_cell="sonnet/high", cost_usd=0.1, wall_s=5)
+    return task["id"]
+
+
+def test_the_reviews_held_back_as_unread_are_counted_by_who_held_them_and_whether_it_was_again(store):
+    from locks import behavior
+
+    zero = {"worker": 0, "worker_again": 0, "verifier": 0, "verifier_again": 0}
+    first, second = _ended_run(store), _ended_run(store, "review-critical")
+    assert analysis.compute(store, days=0)["reviews_unread"] == zero
+    for task, seq, who, again in ((first, 1, "worker", False), (first, 2, "worker", True),
+                                  (second, 1, "worker", False), (second, 1, "verifier", False),
+                                  (second, 2, "verifier", True), (second, 3, "verifier", False)):
+        store.add_event(task, "review_unread", seq=seq, **behavior.unread_record(who, again=again, calls=0))
+    # A task the window does not hold (a session's turn is no run of locks') is not counted.
+    store.add_event(_ended_run(store, source="hook"), "review_unread", seq=1,
+                    **behavior.unread_record("worker", again=False, calls=0))
+    report = analysis.compute(store, days=30)
+    assert report["reviews_unread"] == {"worker": 2, "worker_again": 1, "verifier": 2, "verifier_again": 1}
+    said = analysis.text(report)
+    assert ("reviews held back for reporting no finding and reading nothing (their calls show no read): "
+            "workers held 2 (1 unread again), independent checks run again 2 (1 unread twice)") in said
+    # An old event is outside the window, a run with none says nothing of it.
+    store._conn.execute("UPDATE events SET ts = '2020-01-01T00:00:00+00:00' WHERE kind = 'review_unread'")
+    assert analysis.compute(store, days=30)["reviews_unread"] == zero
+    assert "held back" not in analysis.text(analysis.compute(store, days=30))

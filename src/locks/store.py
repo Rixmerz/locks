@@ -1221,9 +1221,24 @@ class Store:
     def attempt_calls(self, task_id: int, attempt: int) -> list[dict]:
         """An attempt's worker's tool calls, oldest first: when, the tool, its signature, its
         argument's hash and whether it went through (`behavior.profile`)."""
+        return self._calls("WHERE task_id = ? AND attempt = ?", (task_id, attempt))
+
+    def session_calls(self, session_id: str) -> list[dict]:
+        """The tool calls of one Claude Code session, oldest first, shaped as `attempt_calls`: the
+        independent check's session is found by this, its calls being logged under no attempt."""
+        return self._calls("WHERE session_id = ?", (session_id,))
+
+    def unattributed_calls(self, task_id: int, since: str, until: str) -> list[dict]:
+        """A task's calls that belong to no attempt (the independent check's, `orchestrate._verifier_env`)
+        between `since` and `until`, oldest first, shaped as `attempt_calls`. The log keeps milliseconds
+        and the store's own clock seconds, so a bound counts as the second it names: a call in the
+        second `until` was taken at is inside."""
+        return self._calls("WHERE task_id = ? AND attempt IS NULL AND substr(ts, 1, 19) >= ? "
+                           "AND substr(ts, 1, 19) <= ?", (task_id, since[:19], until[:19]))
+
+    def _calls(self, where: str, params: tuple) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT ts, tool, sig, arg_hash, ok FROM tool_events WHERE task_id = ? AND attempt = ? ORDER BY id",
-            (task_id, attempt))
+            f"SELECT ts, tool, sig, arg_hash, ok FROM tool_events {where} ORDER BY id", params)  # noqa: S608
         return [{"ts": ts, "tool": tool, "sig": sig, "arg_hash": arg_hash, "ok": ok}
                 for ts, tool, sig, arg_hash, ok in rows]
 

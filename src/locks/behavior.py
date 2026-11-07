@@ -4,8 +4,9 @@ table of those profiles by kind, outcome and cell.
 The calls are the PostToolUse log's (`tool_events`, read into the store first): a tool, a
 signature and whether it went through, never an argument. An argument's hash is only compared
 with the attempt's other calls (a file read again, the same call repeated) and never kept here.
-The independent check's calls are not the attempt's (`orchestrate._verifier_env`). Observed, never
-a rule's input and never a trial; no model.
+The independent check's calls are not the attempt's (`orchestrate._verifier_env`): `check_calls`
+finds them by its session or, without one, by the task's calls that belong to no attempt in the
+window it ran in. Observed, never a rule's input and never a trial; no model.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from datetime import datetime
 from typing import Any
 
 from locks import phase
+from locks.mcp_guard import LIVESPEC_READ
 from locks.store import Store
 
 #: A tool's family, as the profile counts it; an MCP server's tools are its own family.
@@ -24,10 +26,66 @@ FAMILIES = {"read": "read", "grep": "search", "glob": "search", "ls": "search", 
             "webfetch": "web", "websearch": "web", "todowrite": "todo"}
 #: The fields `profile` gives, in the order an export lists them.
 FIELDS = ("calls", "failed", "explore", "implement", "calls_before_edit", "s_before_edit",
-          "check_runs", "fix_cycles", "unchecked_end", "rereads", "repeat_max", "gap_max_s", "active_s")
+          "check_runs", "fix_cycles", "unchecked_end", "rereads", "read_calls", "repeat_max", "gap_max_s",
+          "active_s")
 #: The fields the analysis's table gives as medians (the rest are shares).
 MEDIANS = ("calls", "calls_before_edit", "s_before_edit", "check_runs", "fix_cycles", "rereads",
            "gap_max_s", "active_s")
+
+#: The kinds of a blind review: a pass of one with no finding is read as a clean review.
+REVIEW_KINDS = frozenset({"review-routine", "review-critical"})
+#: The `WorkerResult.shape` of a review that reported no finding and read nothing.
+UNREAD_SHAPE = "unread-review"
+#: What a review held back for it is told, in its own session; `{base}` is the commit its diff is against.
+UNREAD_PROMPT = ("Your review reported no finding but your calls show you read nothing: read the diff "
+                 "(`git diff {base}`) and the files it changed, then answer again under the same result "
+                 "contract.")
+
+#: The shell programs whose call reads code, as `signature` names them (`git diff` is `git-diff`).
+_SHELL_READS = frozenset({"git-diff", "git-show", "git-log", "git-blame", "git-grep", "cat", "head", "tail",
+                          "sed", "nl", "less", "rg", "grep", "git-diff-tree", "git-cat-file", "git-ls-files",
+                          "git-show-ref", "diff", "awk", "find", "jq", "wc", "python", "python3", "perl",
+                          "ruby", "node"})
+#: A chained command (`cd x && git diff`) is signed by its first program, and one no program can be
+#: read from is `unknown`: either may have read, and unknown is not none.
+_SHELL_HIDDEN = frozenset({
+    "bash:cd", "bash:unknown",
+    # Programs that run another command (`bash -c 'git diff'`, `timeout 30 git diff`, `gh pr diff`): the
+    # signature stops at the first word, so what they ran is not known.
+    "bash:bash", "bash:sh", "bash:zsh", "bash:timeout", "bash:xargs", "bash:nohup", "bash:stdbuf",
+    "bash:ionice", "bash:gh-pr", "bash:gh-api"})
+#: The git verbs that read no code. A `git` call whose verb the signature lost (`git -C dir diff` is
+#: `git`, `git -C repo diff` is `git-repo`) or does not know may have been a read; these are not.
+_GIT_NOT_READS = frozenset({
+    "add", "am", "apply", "branch", "checkout", "cherry-pick", "clean", "clone", "commit", "config", "fetch",
+    "init", "merge", "mv", "pull", "push", "rebase", "remote", "reset", "restore", "revert", "rm", "stash",
+    "status", "submodule", "switch", "tag", "worktree", "rev-parse", "gc", "prune", "maintenance"})
+_LIVESPEC_PREFIX = "mcp:livespec."
+
+
+def _reads(sig: str) -> bool:
+    if sig.startswith("read:") or sig in ("grep", "glob") or sig in _SHELL_HIDDEN:
+        return True
+    if sig.startswith("bash:"):
+        program = sig[len("bash:"):]
+        if program == "git" or (program.startswith("git-") and program[4:] not in _GIT_NOT_READS):
+            return True
+        return program in _SHELL_READS
+    return sig.startswith(_LIVESPEC_PREFIX) and sig[len(_LIVESPEC_PREFIX):] in LIVESPEC_READ
+
+
+def read_calls(calls: Sequence[Mapping[str, Any]]) -> int:
+    """How many of an attempt's calls read code, by signature: a file read, `grep`, `glob`, a shell
+    read (`git diff`, `cat`, `sed`…), a livespec tool that reads the index, and the shell calls whose
+    program a signature cannot name. A call that failed is counted: a worker that tried to read is not
+    one that never did, and a count that is too high holds back fewer reviews, never more."""
+    return sum(_reads(str(c.get("sig") or "")) for c in calls)
+
+
+def unread_record(who: str, *, again: bool, calls: int) -> dict[str, Any]:
+    """The data of a `review_unread` event: `who` ("worker" or "verifier") reported no finding and
+    read nothing, `again` when it was the second such answer, with how many calls it made."""
+    return {"who": who, "again": again, "calls": calls}
 
 
 def family(tool: str) -> str:
@@ -53,7 +111,8 @@ def profile(calls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     it ran itself (the calls of the checking phase); `fix_cycles`: checks run again after a write
     that followed a check (a fix loop);
     `unchecked_end`: it wrote after its last check, or wrote and never checked. `rereads`: reads of
-    a file it had read already; `repeat_max`: the longest run of the same call in a row. `gap_max_s`:
+    a file it had read already; `read_calls`: the calls that read code at all (`read_calls`);
+    `repeat_max`: the longest run of the same call in a row. `gap_max_s`:
     the longest wait between two calls; `active_s`: from its first call to its last. `tools`: the
     calls by family."""
     if not calls:
@@ -86,6 +145,7 @@ def profile(calls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             rereads += int(key in seen)
             seen.add(key)
     out["rereads"] = rereads
+    out["read_calls"] = read_calls(calls)
     longest = streak = 1
     for before, now in itertools.pairwise(calls):
         same = (before.get("sig"), before.get("arg_hash")) == (now.get("sig"), now.get("arg_hash"))
@@ -110,6 +170,27 @@ def of_attempt(store: Store, task_id: int, nth: int) -> dict[str, Any]:
         return profile(store.attempt_calls(task_id, nth))
     except Exception:  # a measure never costs the run it measures
         return {}
+
+
+def check_calls(store: Store, task_id: int, session_id: str | None, since: str | None,
+                until: str | None) -> list[dict[str, Any]] | None:
+    """The independent check's tool calls, the hooks' log read into the store first. Its calls are
+    logged under no attempt (`orchestrate._verifier_env`) but keep their task and their session: found
+    by the session when one is given and logged calls, else the task's calls of no attempt between
+    `since` and `until` (`Store.unattributed_calls`). None when none is found or the log cannot be
+    read: unknown, never none, since a check whose calls were not logged read nothing no less than one
+    that read."""
+    from locks import habits
+
+    try:
+        habits.load_events(store)
+        if session_id and (found := store.session_calls(session_id)):
+            return found
+        if since and until:
+            return store.unattributed_calls(task_id, since, until) or None
+    except Exception:  # a measure never costs the run it measures
+        return None
+    return None
 
 
 def _median(values: Sequence[float]) -> float | None:

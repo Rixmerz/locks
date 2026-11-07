@@ -1693,7 +1693,8 @@ def run(
                 # the trunk's record. Its brief follows.
                 resume_prompt=(trunks.note(branch, role=role_text, capabilities=hints, workdir=workdir,
                                            base=workspace.base if workspace else None) if branch
-                               else launch.DEEPER_PROMPT if fork else _reshape_prompt([*history, *attempts])
+                               else launch.DEEPER_PROMPT if fork
+                               else _reshape_prompt([*history, *attempts], base_commit)
                                if decision is not None and decision.reshape else launch.CONTINUE_PROMPT),
                 resume_note=prompt if branch else continuation_note([*history, *attempts][-1]) if resume else "",
             )
@@ -1860,6 +1861,21 @@ def run(
                     stands = "locks" if options.verify else "worker"
                 store.add_event(task["id"], "evidence_owed", seq=nth, capabilities=[r.capability for r in unmet],
                                 again=again)
+            if result.passed and (the_plan.kind in behavior.REVIEW_KINDS or deciding is not None) \
+                    and _clean_answer(result) and (made := _read_nothing(store, task["id"], nth)):
+                # A review that reports no finding and whose calls read no code has found nothing because
+                # it looked at nothing (`behavior.read_calls`): it goes back to the same worker once, in its
+                # own session, to read the change; a second one keeps its shape and climbs as any
+                # inconclusive does. Its calls not being logged is no evidence it read nothing (`_read_nothing`).
+                again = any(a.shape.startswith(behavior.UNREAD_SHAPE) for a in attempts)
+                why = (f"{behavior.UNREAD_SHAPE}: your review reported no finding and none of your {made} calls "
+                       "read code")
+                result = dataclasses.replace(
+                    result, passed=False, verdict="", failure=Failure.INCONCLUSIVE, shape=why,
+                    summary=f"{why}{' (again)' if again else ''}; its answer was held back, not taken as a clean "
+                            f"review: {result.summary}")
+                store.add_event(task["id"], "review_unread", seq=nth,
+                                **behavior.unread_record("worker", again=again, calls=made))
             review_stop = None
             open_blockers: tuple[dict[str, str], ...] = ()
             mark = time.monotonic()
@@ -2233,7 +2249,9 @@ def verdict_card(store: Store, task_id: int, report: Report, options: Options, v
         data = verified["data"] or {}
         independent = {"ran": True, "passed": bool(data.get("passed")), "blocking": int(data.get("blocking") or 0),
                        # CORRECT lines of the request's flows it left unanswered: no one checked them.
-                       **({"unchecked": list(data["tracer_unanswered"])} if data.get("tracer_unanswered") else {})}
+                       **({"unchecked": list(data["tracer_unanswered"])} if data.get("tracer_unanswered") else {}),
+                       # It reported no finding twice and read no code either time (`_reread`): it decided nothing.
+                       **({"unread": True} if data.get("unread") else {})}
     elif (skipped := store.last_event(task_id, "verifier_sampled")) is not None:
         # Its cell's record earned skip-lot sampling (`locks.trust`), and this pass was not drawn.
         independent = {"ran": False, "sampled": True, "every": int((skipped["data"] or {}).get("every") or 1),
@@ -3144,7 +3162,9 @@ def _late_check(store: Store, task_id: int, *, text: str, kind: str, risk: risk_
                                        registry=registry, rules=deferred["rules"], rows=(),
                                        impact=deferred.get("impact") or (), index=deferred.get("index") or None)
             mark = time.monotonic()
+            since = _stamp()
             verdict = launcher(check)
+            verdict, unread = _reread(verdict, check, launcher, store, task_id, deferred["nth"], since, _stamp())
             wall_s = time.monotonic() - mark
     except BaseException as exc:  # a detached check that stops on a signal still says so
         store.add_event(task_id, "verified", seq=deferred["nth"], late=True, passed=None,
@@ -3161,7 +3181,7 @@ def _late_check(store: Store, task_id: int, *, text: str, kind: str, risk: risk_
         blockers = [{"where": "", "what": verdict.summary or "the check failed without a finding",
                      "evidence_class": "inferential", "cause": "unknown", "proof": ""}]
     store.add_event(task_id, "verified", seq=deferred["nth"], late=True, cell=vcell.label,
-                    **({"tracer_unanswered": unanswered} if unanswered else {}),
+                    **({"tracer_unanswered": unanswered} if unanswered else {}), **({"unread": True} if unread else {}),
                     worker=deferred["cell"].label, risk=risk.data(),
                     verdict=verdict.verdict, passed=not blockers and verdict.passed, findings=list(shown)[:20],
                     blocking=len(blockers), blockers=list(blockers)[:20], cost_usd=verdict.cost_usd,
@@ -3413,6 +3433,73 @@ def _correct_lines(verdict: launch.WorkerResult, correct: Mapping[str, str]) -> 
     return blockers, [cid for cid in correct if cid not in said]
 
 
+#: What a ledger row's verdict says when the change it judges is still wrong: any other word is no finding.
+_UNCLEAN = frozenset({"confirmed", "not_fixed", "regression"})
+
+
+def _clean_answer(result: launch.WorkerResult) -> bool:
+    """An answer that reports no finding: none in `findings`, no ledger row confirmed, not fixed or
+    regressed, and no criterion it says is not met."""
+    return not result.findings and not any(v.get("verdict") in _UNCLEAN for v in result.verdicts) \
+        and all(c.get("met") for c in result.criteria)
+
+
+def _read_nothing(store: Store, task_id: int, nth: int) -> int:
+    """How many calls an attempt's worker made when none of them read code (`behavior.read_calls`), the
+    hooks' log read into the store first; 0 when one did, and when none was logged, since a worker whose
+    calls never reached the log read nothing no less than one that read: unknown is not none. Never
+    fails a run."""
+    try:
+        habits.load_events(store)
+        calls = store.attempt_calls(task_id, nth)
+    except Exception:  # a measure never costs the run it measures
+        return 0
+    return len(calls) if calls and not behavior.read_calls(calls) else 0
+
+
+def _stamp() -> str:
+    """Now, as the tool-call log stamps a call (UTC, ISO), for the window a check's calls are found in."""
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _read_by(verdict: launch.WorkerResult, store: Store, task_id: int, since: str | None,
+             until: str | None) -> list[dict[str, Any]] | None:
+    """The calls an independent check's verdict was reached by (`behavior.check_calls`); None when they
+    cannot be told."""
+    return behavior.check_calls(store, task_id, verdict.session_id or None, since, until)
+
+
+def _reread(verdict: launch.WorkerResult, check: launch.LaunchSpec, launcher: Launcher, store: Store, task_id: int,
+            nth: int, since: str | None, until: str | None) -> tuple[launch.WorkerResult, bool]:
+    """An independent check that passed with no finding and whose calls read no code decided nothing
+    (`behavior.read_calls`): it is run once more, in a session of its own. Read nothing again, it is
+    undecided (`passed` false, `inconclusive`, both costs), and the second value says so; a second that
+    read, or failed, is the verdict, with both costs. `since` and `until` bound the first run's calls when
+    its session is not known (a check that ran beside locks' own is found by its session alone). A check
+    whose calls were not logged is taken as it answered: unknown is not none. Never fails a run on the
+    reading."""
+    if not (verdict.passed and _clean_answer(verdict)):
+        return verdict, False
+    made = _read_by(verdict, store, task_id, since, until)
+    if not made or behavior.read_calls(made):
+        return verdict, False
+    store.add_event(task_id, "review_unread", seq=nth, **behavior.unread_record("verifier", again=False,
+                                                                              calls=len(made)))
+    begun = _stamp()
+    again = _merged(verdict, launcher(check))
+    second = _read_by(again, store, task_id, begun, _stamp()) if again.passed and _clean_answer(again) else None
+    # The log keeps whole seconds in a window: the first run's calls may share the second it ended in.
+    gone = {(c["ts"], c["sig"], c["arg_hash"]) for c in made}
+    second = [c for c in second or () if (c["ts"], c["sig"], c["arg_hash"]) not in gone]
+    if not second or behavior.read_calls(second):
+        return again, False
+    store.add_event(task_id, "review_unread", seq=nth, **behavior.unread_record("verifier", again=True,
+                                                                              calls=len(second)))
+    return dataclasses.replace(
+        again, passed=False, verdict="inconclusive", failure=None,
+        summary=f"the independent check reported no finding twice and read no code either time: {again.summary}"), True
+
+
 def _independent_check(result: launch.WorkerResult, *, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec,
                        workdir: Path, base: str | None, changed: Sequence[str], risk: risk_mod.Risk,
                        ledger: dict[str, Mapping[str, str]], corrections: int, launcher: Launcher, store: Store,
@@ -3447,6 +3534,7 @@ def _independent_check(result: launch.WorkerResult, *, text: str, kind: str, cel
         + (" (it ran beside locks' check)" if ahead is not None else ""))
     mark = time.monotonic()
     beside = ahead is not None and set(changed) <= {*ahead.changed, *ahead.tolerated} and ahead.since == since
+    ran_from = ran_to = None  # the window its calls are found in, when its session is not known (not beside)
     if beside:
         assert ahead is not None
         verdict, overlapped_s = ahead.result(), ahead.beside_s
@@ -3455,20 +3543,25 @@ def _independent_check(result: launch.WorkerResult, *, text: str, kind: str, cel
         if ahead is not None:
             ahead.stop()  # the check changed what it read: read the change as it stands now
         read_at = (isolate.snapshot(workdir) or "") if snapshots else ""
+        ran_from = _stamp()
         verdict, overlapped_s = launcher(check), 0.0
+        ran_to = _stamp()
     correct = dict(tracer_mod.criteria(workdir, text)[0]) if config.enabled("tracer", os.environ) else {}
     reasked: list[str] = []
     if correct and (missing := _correct_lines(verdict, correct)[1]):
         # It left CORRECT lines unanswered: asked once more for those alone, in a session of its own.
         reasked = missing
         again = launcher(dataclasses.replace(check, prompt=check.prompt + "\n\n" + reask_lines(missing, correct)))
-        verdict = _merged(verdict, again)
+        # Its reading is the first run's: the session stays the first's, whatever the re-ask did.
+        verdict = dataclasses.replace(_merged(verdict, again), session_id=verdict.session_id)
+    # A clean answer that read no code decided nothing: it is run once more (`_reread`).
+    verdict, unread = _reread(verdict, check, launcher, store, task_id, nth, ran_from, ran_to)
     wall_s = time.monotonic() - mark
     fixing = tuple(rows)
     return _judged(result, verdict, vcell=vcell, wall_s=wall_s, overlapped_s=overlapped_s, beside=beside, risk=risk,
                    ledger=ledger, corrections=corrections, store=store, task_id=task_id, nth=nth, say=say,
                    outgrew=outgrew, rows=fixing, correct=correct,
-                   recorded={**({"tracer_reasked": reasked} if reasked else {}),
+                   recorded={**({"tracer_reasked": reasked} if reasked else {}), **({"unread": True} if unread else {}),
                        "worker": cell.label, **({"read_at": read_at} if read_at else {}),
                        **({"delta": {"since": since[0], "files": list(since[1])[:50], "n": len(since[1])}}
                           if since is not None else {}),
@@ -3696,9 +3789,12 @@ def brief(
     return "\n\n".join(parts)
 
 
-def _reshape_prompt(attempts: Sequence[Attempt]) -> str:
-    """What a worker asked again on its own cell is told: write the spec its build owes, or answer
-    in the form it was given."""
+def _reshape_prompt(attempts: Sequence[Attempt], base: str | None = None) -> str:
+    """What a worker asked again on its own cell is told: write the spec its build owes, measure what
+    it was held to, read the diff of the change it reviewed (`base`, the commit it is against), or
+    answer in the form it was given."""
+    if attempts and attempts[-1].shape.startswith(behavior.UNREAD_SHAPE):
+        return behavior.UNREAD_PROMPT.format(base=base or "HEAD")
     if attempts and attempts[-1].shape.startswith(evidence_mod.SHAPE):
         return evidence_mod.PROMPT
     return specs_mod.FIRST_PROMPT if attempts and attempts[-1].shape.startswith(specs_mod.FIRST_SHAPE) \
@@ -3709,7 +3805,7 @@ def continuation_note(last: Attempt) -> str:
     """What a continued session is told failed its attempt, which its context does not
     hold: the independent check's blockers in a correction round (its work passed its
     own check), else the output that failed it."""
-    if last.shape.startswith((specs_mod.FIRST_SHAPE, evidence_mod.SHAPE)):
+    if last.shape.startswith((specs_mod.FIRST_SHAPE, evidence_mod.SHAPE, behavior.UNREAD_SHAPE)):
         return f"Why your last answer was held back: {last.shape}."
     if last.shape:
         return f"Why your last answer could not be read: {last.shape}."

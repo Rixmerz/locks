@@ -13,7 +13,7 @@ from locks.store import Store
 
 def test_matrix_and_classify(capsys):
     assert cli.main(["matrix"]) == 0
-    assert "debug-unclear    opus/high → opus/xhigh → opus/max" in capsys.readouterr().out
+    assert "debug-unclear    sonnet/high → opus/high → opus/xhigh → opus/max" in capsys.readouterr().out
     assert cli.main(["classify", "haz commit y push", "--no-model"]) == 0
     assert json.loads(capsys.readouterr().out)["kind"] == "docs"
 

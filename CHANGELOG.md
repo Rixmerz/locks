@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [0.90.0] - 2026-11-07
+
+### Added
+- A writing task's start is predicted from the repository's record of its shape (`locks.predict`, the
+  `predict` setting, on by default): its kind, size, risk tier and whether it reaches several areas. Where
+  tasks of that shape passed their first tries at the start cell under half the time over four or more,
+  and the climbs from that start to the rung above rescued at least half of them over two or more, the
+  task starts on the rung above and the plan says why. The backtest on the record is the rule: a rung that
+  did not rescue the shape's failures predicts nothing. Only a raise, never a pinned or probation start.
+  The `planned` event keeps the prediction with its evidence, and `locks stats` shows how the first tries
+  of predicted starts went per shape.
+
+### Changed
+- An unclear bug (`debug-unclear`) starts at sonnet/high and climbs to opus/high: on `bench/speed/methods.py`
+  sonnet/high with the diagnosis method fixed the planted bug 3 times in 3 at 38 s and $0.09 a run, as
+  opus/high did at 69 s and $0.27 (W in `bench/speed/README.md`). The bench's judge now lets a worker add a
+  test for the bug: a run that fixed it and added a regression test was judged wrong before.
+
+### Fixed
+- A task whose try won a race opened a problem on its pass: the other try, stopped because the pass came
+  first, was read as a failure of the work (`_remember`'s "a pass after failures"). A try stopped so found
+  nothing and is no failure (`escalate.Attempt.raced`); one that failed its own check before the pass
+  still is. `locks doctor` says a problem a pass opened beside a stopped try (`problem-opened-by-a-race`).
+
 ## [0.89.0] - 2026-11-07
 
 ### Fixed

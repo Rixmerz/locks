@@ -72,6 +72,7 @@ FIXED_IN = {
     "advised-again-in-a-prompt": "0.82.0",
     "habit-review-unapplied": "0.85.0",
     "tools-logged-off": "0.89.0",
+    "problem-opened-by-a-race": "0.90.0",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -853,6 +854,38 @@ def tools_logged_off(store: Store, *, since: str | None, **_) -> Iterable[Findin
         yield _history("tools-logged-off", sorted(before), None)
 
 
+def problems_opened_by_a_race(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """A problem a task opened with a pass and no failure of its own: its only attempts beside the
+    pass were a race's other try stopped because the pass came first (`attempt_finished.raced` and
+    `stopped`), which found nothing. Before 0.90.0 a pass with any earlier attempt was read as a pass
+    after a failure."""
+    before: list[int] = []
+    for event in store.events_of_kinds(["finished"], since=since):
+        task_id = int(event["task_id"])
+        if event["data"].get("status") != "done":
+            continue
+        ends = [e["data"] for e in store.events(task_id=task_id, limit=500) if e["kind"] == "attempt_finished"]
+        stopped = [e for e in ends if e.get("raced") and e.get("stopped")]
+        if not stopped or any(not e.get("passed") and e not in stopped for e in ends):
+            continue
+        opened = [p for p in store.recent_problems(limit=200)
+                  if p.get("fixes") and all(f.get("outcome") == "worked" for f in p["fixes"])
+                  and p["fixes"][0].get("task_id") == task_id]
+        if not opened:
+            continue
+        if _fixed("problem-opened-by-a-race", event["data"].get("version")):
+            before.append(task_id)
+            continue
+        task = store.get_task(task_id)
+        yield Finding("problem-opened-by-a-race", SUSPECT,
+                      f"#{task_id} passed beside a race's other try and opened problem #{opened[0]['id']} with no "
+                      "failure of its own",
+                      "the problem is solved and harmless; a race's other try is no failure of the work",
+                      task_id, task["repo"] if task else None)
+    if before:
+        yield _history("problem-opened-by-a-race", sorted(before), None)
+
+
 RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     lanes_paused_on_ended, running_with_no_process, queued_with_no_dispatcher, held_behind_gone, wait_judged_on_gone,
     resumes_that_never_ran,
@@ -861,7 +894,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     trials_never_sampled, notes_proven_unbriefed, preexisting_that_was_not, problems_open_after_pass,
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
-    habit_reviews_unapplied, tools_logged_off,
+    habit_reviews_unapplied, tools_logged_off, problems_opened_by_a_race,
 )
 
 

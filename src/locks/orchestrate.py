@@ -77,6 +77,7 @@ from locks import ledger as ledger_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import points as points_mod
+from locks import predict as predict_mod
 from locks import risk as risk_mod
 from locks import services as services_mod
 from locks import specs as specs_mod
@@ -290,6 +291,9 @@ class Plan:
     #: before the context when that neighbour's tools are handed, left out when they are withheld
     #: (`handing.arm`).
     oriented: tuple[tuple[str, str], ...] = ()
+    #: The start raised one rung on this repository's record of the task's shape (`locks.predict`), with
+    #: its evidence; None when the start came from the rules alone.
+    predicted: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -854,6 +858,14 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
         reasons.append(arm_why)
     if start == PROBATION.get(kind):
         ladder = reach(kind)
+    # A start one rung up for a task shaped like ones that failed their first try here, where the
+    # rung above rescued them (`locks.predict`): a raise read from the record, never a lower start.
+    predicted = None
+    if options.start is None and arm != "probation" and key and config.enabled("predict", os.environ):
+        found = predict_mod.shape(kind, size.points, risk.tier, len(risk_mod.areas(risk)))
+        if (got := predict_mod.start(store, key, kind, found, start, ladder)) is not None:
+            start, predicted = got
+            reasons.append(predict_mod.line(predicted))
     race, race_why = race_cell(store, key, kind, ladder, start, options)
     if race_why:
         reasons.append(race_why)
@@ -862,7 +874,7 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 risk, turns, size, standard.data() if standard is not None else None, race,
                 probation={"arm": arm, "cell": PROBATION[kind].label} if arm else None,
                 withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None,
-                oriented=tuple(oriented))
+                oriented=tuple(oriented), predicted=predicted)
 
 
 #: A start whose first tries passed less often than this here, over at least `RACE_SAMPLES`
@@ -989,7 +1001,7 @@ def _raced_attempt(raced: Raced, turns: int) -> Attempt:
     return Attempt(raced.other_cell, turns, False, o.failure or Failure.INCONCLUSIVE, o.summary, o.denied,
                    allow=o.allow, changed=o.changed_paths, evidence=o.evidence[-1500:], transient=o.transient,
                    findings=o.findings, failing=o.failing, base_unknown=o.base_unknown,
-                   check_tail=o.check_tail)
+                   check_tail=o.check_tail, raced=o.summary.startswith("stopped:"))
 
 
 def _launch(launcher: Launcher, spec: launch.LaunchSpec, runner: launch.Stoppable) -> launch.WorkerResult:
@@ -1287,6 +1299,7 @@ def run(
                     neighbours=[st.line() for st in the_plan.neighbours], plan_s=round(plan_s, 2),
                     quiet=sorted(the_plan.quiet),
                     **({"probation": the_plan.probation} if the_plan.probation else {}),
+                    **({predict_mod.KEY: the_plan.predicted} if the_plan.predicted else {}),
                     queued_s=queued_s)
 
     workspace = None
@@ -1994,9 +2007,11 @@ def run(
                 # list is the worker's launch's and may hold less.
                 wrote = list(isolate.changed(workspace)) if workspace else sorted({*changed, *result.changed_paths})
                 report.impact += _links(the_plan, wrote, workdir, base_commit)
-                if len(attempts) > 1 or store.task_has_failed_fix(task["id"]):
+                if any(not a.passed and not a.raced for a in attempts) or store.task_has_failed_fix(task["id"]):
                     # A pass after failures, in this run or an earlier one (a resume that started
-                    # fresh passes on its first attempt here): the problem they opened is solved.
+                    # fresh passes on its first attempt here): the problem they opened is solved. A race's
+                    # other try is no failure of the work: a pass beside it opens no problem (`doctor`:
+                    # `problem-opened-by-a-race`).
                     _remember(store, task, key, attempt, "worked", result, kind=the_plan.kind,
                               role=role_name)
                 _solve_matched(store, task, key, cell, result)

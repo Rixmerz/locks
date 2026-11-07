@@ -128,6 +128,10 @@ class Attempt:
     load: str = ""
     #: The failing lines of locks' check that turned it down (see `WorkerResult.failing`).
     failing: frozenset[str] = frozenset()
+    #: A race's other try stopped because this task's passed first (`orchestrate._raced_attempt`,
+    #: `RACED_OUT`): it found nothing, so it is no failure of the work, and a pass beside it is no
+    #: pass after a failure. One that failed its own check before the other passed is a failure like any.
+    raced: bool = False
     #: Why that failure could not be told from the base's (see `WorkerResult.base_unknown`).
     base_unknown: str = ""
     #: The API turned its session away (`usage`: the account's own limit), and the seconds

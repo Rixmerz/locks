@@ -526,3 +526,10 @@ def test_a_clean_review_that_read_something_was_held_back_or_is_no_review_is_not
     found = rules(store, now=LATER, alive=lambda pid: True).get("clean-review-read-nothing", [])
     assert [f.task_id for f in found] == [elsewhere]
     assert "attempt 2" in found[0].what
+
+
+def test_a_verifier_hold_at_the_same_seq_does_not_excuse_a_worker_that_passed_unread(store: Store):
+    t = _clean_review(store)
+    store.add_event(t, "review_unread", seq=1, who="verifier", again=False, calls=2)
+    found = rules(store, now=LATER, alive=lambda pid: True)["clean-review-read-nothing"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, t)]

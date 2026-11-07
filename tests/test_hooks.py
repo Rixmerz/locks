@@ -700,3 +700,9 @@ def test_a_session_quiet_past_the_live_window_frees_its_version():
     link.record_loaded(root, "s", "0.1.0")
     assert link.live_versions(root) == {"0.1.0"}
     assert link.live_versions(root, now=time.time() + link.LIVE_S + 1) == set()
+
+
+def test_verdict_summary_says_an_unread_independent_check():
+    said = hooks.verdict_summary({"check": {"command": "pytest", "state": ""}, "criteria": [],
+                                  "independent": {"ran": True, "passed": False, "blocking": 0, "unread": True}})
+    assert "blocker" not in said and "read nothing" in said

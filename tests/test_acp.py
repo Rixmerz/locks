@@ -754,3 +754,11 @@ def test_the_subcommand_serves_the_protocol_on_stdout_alone(tmp_path):
     replies = [json.loads(line) for line in proc.stdout.splitlines()]
     assert [r["id"] for r in replies] == [1, 2]
     assert replies[0]["result"]["agentInfo"]["version"] == locks.__version__
+
+
+def test_an_unread_independent_check_is_not_told_as_zero_blockers():
+    from locks import acp
+
+    text = "\n".join(acp.verdict_text({"check": None, "independent": {"ran": True, "passed": False,
+                                                                       "blocking": 0, "unread": True}}))
+    assert "blocker" not in text and "read nothing twice" in text

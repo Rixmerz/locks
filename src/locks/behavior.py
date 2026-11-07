@@ -43,10 +43,23 @@ UNREAD_PROMPT = ("Your review reported no finding but your calls show you read n
 
 #: The shell programs whose call reads code, as `signature` names them (`git diff` is `git-diff`).
 _SHELL_READS = frozenset({"git-diff", "git-show", "git-log", "git-blame", "git-grep", "cat", "head", "tail",
-                          "sed", "nl", "less", "rg", "grep"})
+                          "sed", "nl", "less", "rg", "grep", "git-diff-tree", "git-cat-file", "git-ls-files",
+                          "git-show-ref", "diff", "awk", "find", "jq", "wc", "python", "python3", "perl",
+                          "ruby", "node"})
 #: A chained command (`cd x && git diff`) is signed by its first program, and one no program can be
 #: read from is `unknown`: either may have read, and unknown is not none.
-_SHELL_HIDDEN = frozenset({"bash:cd", "bash:unknown"})
+_SHELL_HIDDEN = frozenset({
+    "bash:cd", "bash:unknown",
+    # Programs that run another command (`bash -c 'git diff'`, `timeout 30 git diff`, `gh pr diff`): the
+    # signature stops at the first word, so what they ran is not known.
+    "bash:bash", "bash:sh", "bash:zsh", "bash:timeout", "bash:xargs", "bash:nohup", "bash:stdbuf",
+    "bash:ionice", "bash:gh-pr", "bash:gh-api"})
+#: The git verbs that read no code. A `git` call whose verb the signature lost (`git -C dir diff` is
+#: `git`, `git -C repo diff` is `git-repo`) or does not know may have been a read; these are not.
+_GIT_NOT_READS = frozenset({
+    "add", "am", "apply", "branch", "checkout", "cherry-pick", "clean", "clone", "commit", "config", "fetch",
+    "init", "merge", "mv", "pull", "push", "rebase", "remote", "reset", "restore", "revert", "rm", "stash",
+    "status", "submodule", "switch", "tag", "worktree", "rev-parse", "gc", "prune", "maintenance"})
 _LIVESPEC_PREFIX = "mcp:livespec."
 
 
@@ -54,7 +67,10 @@ def _reads(sig: str) -> bool:
     if sig.startswith("read:") or sig in ("grep", "glob") or sig in _SHELL_HIDDEN:
         return True
     if sig.startswith("bash:"):
-        return sig[len("bash:"):] in _SHELL_READS
+        program = sig[len("bash:"):]
+        if program == "git" or (program.startswith("git-") and program[4:] not in _GIT_NOT_READS):
+            return True
+        return program in _SHELL_READS
     return sig.startswith(_LIVESPEC_PREFIX) and sig[len(_LIVESPEC_PREFIX):] in LIVESPEC_READ
 
 

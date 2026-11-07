@@ -894,7 +894,8 @@ def clean_reviews_read_nothing(store: Store, *, since: str | None, **_) -> Itera
     0.91.0 such an answer is held back once (a `review_unread` event at the attempt's `seq`); one
     without that event passed unread. An attempt recorded before `read_calls` existed, or whose
     calls never reached the log, is unknown and no finding."""
-    held = {(int(e["task_id"]), int(e["data"].get("seq") or 0)) for e in store.events_of_kinds(["review_unread"])}
+    held = {(int(e["task_id"]), int(e["data"].get("seq") or 0)) for e in store.events_of_kinds(["review_unread"])
+            if e["data"].get("who") == "worker"}
     before: list[int] = []
     for event in store.events_of_kinds(["attempt_finished"], since=since):
         data, task_id = event["data"], int(event["task_id"])

@@ -281,3 +281,25 @@ def test_check_calls_is_none_when_nothing_is_logged_never_an_empty_list(store: S
     monkeypatch.setattr(habits, "load_events", broken)
     log_call("Read", "v1", file_path="a.py")
     assert behavior.check_calls(store, 7, "v1", *window) is None
+
+
+def test_read_calls_counts_shell_reads_whose_verb_the_signature_lost():
+    from locks import signature
+
+    for command in ("git -C /x diff HEAD~1", "git -c core.pager=cat diff", "git -C . diff", "awk 1 f",
+                    "find . -name x", "diff a b", "git diff-tree -p HEAD", "git cat-file -p HEAD", "jq . f"):
+        sig = signature.signature("Bash", {"command": command})
+        assert behavior.read_calls([{"sig": sig}]) == 1, (command, sig)
+    assert behavior.read_calls([{"sig": "bash:git-commit"}, {"sig": "bash:pytest"}]) == 0
+
+
+def test_read_calls_counts_a_git_call_whose_verb_is_a_directory_and_a_wrapped_command():
+    from locks import signature
+
+    for command in ("git -C repo diff main", "bash -c 'git diff'", "timeout 30 git diff", "gh pr diff 3",
+                    "git rev-list HEAD", "git ls-tree HEAD"):
+        sig = signature.signature("Bash", {"command": command})
+        assert behavior.read_calls([{"sig": sig}]) == 1, (command, sig)
+    for command in ("git status", "git commit -m x", "git rev-parse HEAD", "pytest -q", "ls"):
+        sig = signature.signature("Bash", {"command": command})
+        assert behavior.read_calls([{"sig": sig}]) == 0, (command, sig)

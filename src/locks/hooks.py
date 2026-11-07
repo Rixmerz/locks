@@ -1086,7 +1086,8 @@ def verdict_summary(verdict: Mapping | None) -> str:
     ind = verdict.get("independent") or {}
     if ind.get("ran"):
         said.append("independent check "
-                    + ("passed" if ind.get("passed") else f"left {ind.get('blocking')} blocker(s)"))
+                    + ("read nothing twice, the pass stands on locks' own check" if ind.get("unread") else
+                       "passed" if ind.get("passed") else f"left {ind.get('blocking')} blocker(s)"))
     elif ind.get("sampled"):
         said.append(f"independent check not drawn (1 pass in {ind.get('every')} here)")
     return ", ".join(said)

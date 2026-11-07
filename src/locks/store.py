@@ -1082,6 +1082,18 @@ class Store:
         row = self._conn.execute("SELECT * FROM attempts WHERE task_id = ? AND seq = ?", (task_id, seq)).fetchone()
         return dict(row) if row else None
 
+    def kind_record(self, kind: str, repo: str | None, *, limit: int = 30) -> dict[str, Any]:
+        """The last passes of a kind in a repository: how many, the median wall time of their runs
+        (`finished.wall_s`) and the mean cost per pass; what an advice says a worker costs here."""
+        scope, params = ("AND repo = ?", [repo]) if repo is not None else ("", [])
+        rows = self._conn.execute(
+            "SELECT id, cost_usd FROM tasks WHERE kind = ? AND status = 'done' AND source IN ('locks', 'queue') "  # noqa: S608
+            f"{scope} ORDER BY id DESC LIMIT ?", [kind, *params, limit]).fetchall()
+        walls = sorted(float(w) for tid, _ in rows
+                       if (w := (((self.final_event(int(tid)) or {}).get("data")) or {}).get("wall_s")))
+        return {"passes": len(rows), "p50_s": walls[(len(walls) - 1) // 2] if walls else None,
+                "cost_per_pass": round(sum(float(c or 0) for _, c in rows) / len(rows), 4) if rows else None}
+
     def routed_followed(self, *, since: str = "", repo: str | None = None,
                         within_s: int = 1800) -> list[dict]:
         """Each `routed` advice with whether the session sent locks work after it, within
@@ -1093,7 +1105,12 @@ class Store:
             "AND w.created_at <= strftime('%Y-%m-%dT%H:%M:%S+00:00', e.ts, ?)) "
             f"FROM events e JOIN tasks t ON t.id = e.task_id WHERE e.kind = 'routed' AND e.ts >= ? {scope}",
             [f"+{int(within_s)} seconds", since, *args]).fetchall()
-        return [{"ts": r[0], "mode": json.loads(r[1]).get("mode"), "sent": bool(r[3])} for r in rows]
+        out = []
+        for r in rows:
+            data = json.loads(r[1])
+            out.append({"ts": r[0], "mode": data.get("mode"), "sent": bool(r[3]),
+                        "read_said": bool(data.get("read_said"))})
+        return out
 
     def notes_relied(self, project: str) -> dict[int, int]:
         """How many attempts in a project named each note as relied on (`attempt_finished.notes_used`)."""

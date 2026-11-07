@@ -4,6 +4,32 @@
 
 ## [Unreleased]
 
+## [0.89.0] - 2026-11-07
+
+### Fixed
+- `attempt_finished.tools_logged` was read before the hooks' log was loaded into the store when the worker
+  was handed no capability (a withheld livespec, a reading kind with none): its calls read as none, `locks
+  stats` counted the attempt as not recorded, and the evidence gate would have held such a pass back. The
+  log is loaded once before anything of the attempt is read. `locks doctor` says one that still reads so
+  while the store holds its calls (`tools-logged-off`).
+
+### Changed
+- A routine review starts at sonnet/high and climbs to opus/high: on `bench/review`'s change sonnet/medium
+  caught 20 of 42 planted bugs where sonnet/high caught 27, 15 s apart (`effort.py`).
+- A trial short of its arms in a repository takes the verdict of every repository once those arms are full
+  (`arms.pick`'s `pooled`; the primer, the evidence gate, the trunk, livespec's handing, the methods and
+  the recall order): a repository with few tasks no longer pays for both arms for months. Its own arms
+  decide alone once full; an early loss is never pooled. The brief's `*_why` says when a verdict was pooled.
+
+### Added
+- `locks stats` shows every climb of a ladder by rung (`climbs by rung`: kind, from and to cell, the move,
+  how many, and how many of the attempts they started passed), observed: the record a rung is judged by.
+- A turn that read 40,000 characters or more of tool output with the session's own tools is said at the
+  next prompt, beside the route's advice, with what an explore worker here passes at in time and cost
+  (observed): what the session reads itself stays in the context every later turn re-reads. The scribe
+  counts each turn's reading (`state["read"]`); the `routed` event keeps it (`read_chars`, `read_said`),
+  and `locks stats` says how often locks work followed (`heavy reads said`).
+
 ## [0.88.0] - 2026-11-07
 
 ### Added

@@ -135,7 +135,11 @@ LADDERS: dict[str, tuple[Cell, ...]] = {
     "feature": ladder("sonnet/high", "sonnet/xhigh", "opus/high", "opus/xhigh"),
     "debug-repro": ladder("sonnet/high", "sonnet/xhigh", "opus/high", "opus/xhigh"),
     "debug-unclear": ladder("opus/high", "opus/xhigh", "opus/max"),
-    "review-routine": ladder("sonnet/medium", "sonnet/high", "opus/high"),
+    # A routine review starts at sonnet/high: reading a change for its defects is the independent check's
+    # work, and on `bench/review`'s change (42 planted bugs, `effort.py`) sonnet/medium caught 20 of them
+    # where sonnet/high caught 27, 15 s apart. The rung after it is another model, as a reading kind's
+    # repeated answer converges (`escalate.decide`), never a third reading by the same one.
+    "review-routine": ladder("sonnet/high", "opus/high"),
     "review-critical": ladder("opus/high", "opus/xhigh", "opus/max"),
     # A plan starts at sonnet/high: on bench/speed/plans.py's plan of a rule whose traps are found only
     # by reading the code, sonnet/high and sonnet/medium named all four in 3 plans of 3, at a sixth of

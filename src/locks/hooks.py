@@ -176,7 +176,7 @@ def user_prompt_submit(event: Mapping[str, Any], store: Store) -> dict | None:
             blocks.append("locks notes: what this project's notes say about this (kept from earlier work; check "
                           "them against the code, and `locks recall \"<question>\"` for more):\n"
                           + "\n".join(f"- {notes.line(n, text_chars=300)}" for n in known))
-    if routed := _route(store, task["id"], text, cwd, event.get("transcript_path")):
+    if routed := _route(store, task["id"], text, cwd, event.get("transcript_path"), str(session_id)):
         blocks.append(routed)
     if newer := _newer_plugin(store.path.parent, str(session_id), os.environ):
         blocks.append(newer)
@@ -294,25 +294,34 @@ def _newer_plugin(root: Path, session_id: str, env: Mapping[str, str]) -> str | 
             "picks up the new one.")
 
 
-def _route(store: Store, task_id: int, text: str, cwd: str | None, transcript: str | None) -> str | None:
+def _route(store: Store, task_id: int, text: str, cwd: str | None, transcript: str | None,
+           session_id: str = "") -> str | None:
     """Which way the request is best done (`locks.route`): said only when it is not the
-    session itself, the default, and kept on the turn either way, to be measured. Only in
+    session itself, the default, and kept on the turn either way, to be measured. With it,
+    what the last turn read with the session's own tools when that was heavy (the scribe's
+    count, `route.read_advice`), kept on the same event (`read_chars`, `read_said`). Only in
     an enrolled project, with the `route` setting on; it never costs the turn."""
     if not cwd or not config.enabled("route", os.environ) or project.find(cwd) is None:
         return None
     try:
-        from locks import compaction, route
+        from locks import compaction, route, scribe
 
         share, tokens = None, None
         if transcript:
             context = compaction.read_context(Path(transcript))
             tokens = context.tokens
             share = context.tokens / context.window if context.tokens else None
-        footprint = store.worker_footprint(repo.key(cwd))
+        key = repo.key(cwd)
+        footprint = store.worker_footprint(key)
         chosen = route.choose(text, context_tokens=tokens, context_share=share, footprint=footprint)
+        # The scribe absorbs the transcript at each Stop: at this prompt its count is the last turn's.
+        read = ((scribe.load(home(), session_id) if session_id else None) or {}).get("read") or {}
+        chars, calls = int(read.get("chars") or 0), int(read.get("calls") or 0)
+        heavy = route.read_advice(chars, calls, store.kind_record("explore", key) if chars else None)
         store.add_event(task_id, "routed", **chosen.data(), context_tokens=tokens,
-                        worker_tokens=footprint[0] if footprint else None)
-        return chosen.advice() or None
+                        worker_tokens=footprint[0] if footprint else None,
+                        read_chars=chars, read_calls=calls, read_said=bool(heavy))
+        return "\n".join(s for s in (chosen.advice(), heavy) if s) or None
     except Exception:  # the turn goes on
         note_error(home(), "route")
         return None

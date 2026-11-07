@@ -112,3 +112,25 @@ def test_no_naming_starts_while_one_runs_for_the_session(store: Store, git_repo,
 
 def test_a_separator_with_no_command_before_it_makes_no_empty_command():
     assert allow.commands("; ls -la && && git status") == ["ls", "git status"]
+
+
+def test_the_evidence_and_trunk_trials_short_here_take_every_repository_s_verdict(store: Store, monkeypatch):
+    from locks import trunks
+
+    full = {"tasks": evidence.TRIAL, "read": evidence.TRIAL, "blocked": 0, "passed_first": evidence.TRIAL,
+            "blocked_rate": 0.0}
+    empty = {"tasks": 0, "read": 0, "blocked": 0, "passed_first": 0, "blocked_rate": None}
+    monkeypatch.setattr(evidence, "trial", lambda store, repo: (
+        {"gate": dict(empty), "free": dict(empty)} if repo else
+        {"gate": dict(full), "free": {**full, "blocked": 2, "blocked_rate": 0.25}}))
+    side, why = evidence.arm(store, "r", 1)
+    assert side == "gate" and "won its trial everywhere" in why and "pooled from every repository" in why
+    fork = {"tasks": trunks.TRIAL, "passed_first": trunks.TRIAL, "calls_before_edit_p50": 3, "input_tokens_p50": 1,
+            "duration_p50_s": 10}
+    none = {"tasks": 0, "passed_first": 0, "calls_before_edit_p50": None, "input_tokens_p50": None,
+            "duration_p50_s": None}
+    monkeypatch.setattr(trunks, "trial", lambda store, repo: (
+        {"fork": dict(none), "fresh": dict(none)} if repo else
+        {"fork": dict(fork), "fresh": {**fork, "calls_before_edit_p50": 9, "duration_p50_s": 30}}))
+    side, why = trunks.arm(store, "r", 1)
+    assert side == "fork" and "won its trial everywhere" in why and "the trial here has 0 forked" in why

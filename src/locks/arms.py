@@ -61,19 +61,41 @@ def tally(rows: Iterable[Mapping[str, Any]], arms: Sequence[str]) -> dict[str, d
 
 
 def pick(found: Mapping[str, Mapping[str, Any]], arms: Sequence[str], task_id: int, trial: int,
-         name: str, repo: str | None = None) -> tuple[str, str]:
-    """The arm this task goes in, and why: `arms[0]` is the change, `arms[1]` its absence."""
+         name: str, repo: str | None = None, pooled: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[str, str]:
+    """The arm this task goes in, and why: `arms[0]` is the change, `arms[1]` its absence.
+
+    `pooled` is the same tally over every repository: while the repository's own arms are short of
+    `trial` and the pooled ones are not, the pooled verdict decides (and says so), so a repository
+    with few tasks does not pay for both arms for months; its own arms, once full, decide alone."""
     on, off = arms
     w, wo = found[on], found[off]
     if min(w["tries"], wo["tries"]) < trial:
+        here = f"the trial here has {w['tries']} {on}, {wo['tries']} {off}, {trial} each"
+        if pooled is not None and min(pooled[on]["tries"], pooled[off]["tries"]) >= trial:
+            chosen, why = verdict(pooled, arms, name, where="everywhere")
+            return chosen, pooled_why(why, here)
         chosen = arms[side(name, repo, task_id, w["tasks"], wo["tasks"])]
         return chosen, f"the {name} trial here ({w['tries']} {on}, {wo['tries']} {off}, {trial} each)"
+    return verdict(found, arms, name)
+
+
+def verdict(found: Mapping[str, Mapping[str, Any]], arms: Sequence[str], name: str, *,
+            where: str = "here") -> tuple[str, str]:
+    """A full trial's verdict: the change stays where its arm passed first tries no less often and,
+    both timed, no slower than `SLOWER` times the other's median."""
+    on, off = arms
+    w, wo = found[on], found[off]
     said = f"first tries passed {w['rate']:.0%} {on} and {wo['rate']:.0%} {off}"
     if w["rate"] < wo["rate"]:
-        return off, f"the {name} lost its trial here: {said}"
+        return off, f"the {name} lost its trial {where}: {said}"
     slow, fast = w.get("pass_p50_s"), wo.get("pass_p50_s")
     if slow is not None and fast is not None and slow > fast * SLOWER:
-        return off, (f"the {name} lost its trial here: {said}, and the passes took {slow:.0f}s at the median "
+        return off, (f"the {name} lost its trial {where}: {said}, and the passes took {slow:.0f}s at the median "
                      f"{on} against {fast:.0f}s {off}")
     timed = f", passes took {slow:.0f}s {on} and {fast:.0f}s {off}" if slow is not None and fast is not None else ""
-    return on, f"the {name} won its trial here: {said}{timed}"
+    return on, f"the {name} won its trial {where}: {said}{timed}"
+
+
+def pooled_why(why: str, here: str) -> str:
+    """Why a verdict read from every repository decides for this one: said beside it."""
+    return f"{why}; pooled from every repository while {here}"

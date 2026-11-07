@@ -432,3 +432,39 @@ def test_the_token_comparison_holds_one_arm_and_leaves_out_runs_that_spent_none(
     assert ui["change"] is None
     assert "ui" in analysis._tokens_line(ui) and "without 0 run(s) avg - p50 -" in analysis._tokens_line(ui)
     assert analysis._tokens(950) == "950" and analysis._tokens(None) == "-"
+
+
+def test_each_climb_of_a_ladder_is_counted_by_rung_with_whether_the_next_attempt_passed(store):
+    from .test_standards import finished
+
+    for passed in (True, True, False):
+        t = finished(store, ("sonnet/high", False, "code_bug", "more_effort"), ("sonnet/xhigh", passed),
+                     kind="implement")
+        store.add_event(t, "moved", seq=1, move="more_effort", from_cell="sonnet/high", to_cell="sonnet/xhigh")
+    t = finished(store, ("sonnet/xhigh", False, "approach", "next_model"), ("opus/high", True), kind="implement")
+    store.add_event(t, "moved", seq=1, move="next_model", from_cell="sonnet/xhigh", to_cell="opus/high")
+    # A climb whose next attempt never started, and a move that is no climb, count nothing.
+    t = finished(store, ("sonnet/high", False, "code_bug"), kind="implement", status="cancelled")
+    store.add_event(t, "moved", seq=1, move="more_effort", from_cell="sonnet/high", to_cell="sonnet/xhigh")
+    t = finished(store, ("sonnet/high", False, "turns_exhausted", "more_turns"), ("sonnet/high", True))
+    store.add_event(t, "moved", seq=1, move="more_turns", from_cell="sonnet/high", to_cell="sonnet/high")
+    report = analysis.compute(store, days=0, repo="r")
+    rows = [(r["from"], r["to"], r["move"], r["climbs"], r["passed_next"]) for r in report["climbs"]]
+    assert rows == [("sonnet/high", "sonnet/xhigh", "more_effort", 3, 2),
+                    ("sonnet/xhigh", "opus/high", "next_model", 1, 1)]
+    text = analysis.text(report)
+    assert "climbs by rung (observed" in text
+    assert "implement          sonnet/high → sonnet/xhigh  more effort  climbs   3  passed next 2 (67%)" in text
+
+
+def test_heavy_reads_said_at_a_prompt_are_counted_with_whether_locks_work_followed(store):
+    turn = store.create_task("x", status="done", source="prompt", repo="r", session_id="s")
+    store.add_event(turn["id"], "routed", mode="main", read_chars=50_000, read_calls=4, read_said=True)
+    store.add_event(turn["id"], "routed", mode="main", read_chars=100, read_calls=1, read_said=False)
+    from .test_standards import finished
+
+    store.create_task("explore it", status="done", source="locks", repo="r", session_id="s")
+    finished(store, ("haiku/medium", True), kind="explore")  # a run, so the text says more than "no run yet"
+    report = analysis.compute(store, days=0, repo="r")
+    assert report["heavy_reads"] == {"advised": 1, "sent": 1, "sent_rate": 1.0}
+    assert "heavy reads said 1 time(s)" in analysis.text(report)

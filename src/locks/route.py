@@ -17,8 +17,10 @@ Standard library only, no model: the prompt hook runs it.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
+from typing import Any
 
 from locks import criteria as criteria_mod
 from locks import points as points_mod
@@ -38,6 +40,9 @@ PARALLEL_PIECES = 3
 CONTEXT_FULL = 0.6
 #: The turns work of each size takes, at most the worker's measured median: a typo is not a feature.
 TURNS_BY_POINTS = {1: 5, 2: 8, 3: 13, 5: 20, 8: 30, 13: 40}
+#: A turn that read this much tool output into the session's own context (about 10k tokens, re-read by
+#: every turn after it) is said at the next prompt, with what an explore worker here costs instead.
+READ_HEAVY_CHARS = 40_000
 #: A request this short is a turn of the conversation, never routed.
 MIN_WORDS = 6
 #: Words that point back into the conversation: the session holds what they mean, a worker does not.
@@ -209,6 +214,26 @@ def listed_pieces(text: str) -> int:
 
 def _tokens(n: float) -> str:
     return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k"
+
+
+def read_advice(chars: int, calls: int, explore: Mapping[str, Any] | None = None) -> str | None:
+    """What the last turn's own reading cost, when it was heavy: the output it read with its tools
+    stays in this context and every later turn re-reads it, where an explore worker reads in its own.
+    `explore` is the kind's record here (`Store.kind_record`: passes, their median time and cost), said
+    as observed; advice, never a rule."""
+    if chars < READ_HEAVY_CHARS:
+        return None
+    said = (f"locks route: last turn this session read about {_tokens(chars // 4)} tokens of tool output into its "
+            f"own context over {calls} call(s), and every turn after re-reads them.")
+    if explore and explore.get("passes"):
+        took = f" at {explore['p50_s']:.0f}s" if explore.get("p50_s") is not None else ""
+        cost = f" and ${explore['cost_per_pass']:.2f} a pass" if explore.get("cost_per_pass") is not None else ""
+        said += (f" An explore worker here passed {explore['passes']} task(s){took}{cost} (observed) and leaves "
+                 "none of what it read in this context.")
+    else:
+        said += " An explore worker reads in its own context and leaves none of it here."
+    return said + (" Reading that long is a worker's: `locks run --kind explore \"<question>\"` (or the `queue` tool), "
+                   "and this session reads its report.")
 
 
 def choose(text: str, *, context_tokens: int | None = None, context_share: float | None = None,

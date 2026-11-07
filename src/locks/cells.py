@@ -268,16 +268,28 @@ def primer_arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
         return "primer", "no repository to run a trial in"
     found = trial(store, repo)
     p, c = found["primer"], found["control"]
+    if (got := _verdict(found)) is not None:
+        return got
+    here = f"the trial here has {p['tasks']} primed, {c['tasks']} without, {PRIMER_TRIAL} each"
+    if (everywhere := _verdict(trial(store, None), where="everywhere")) is not None:
+        # The repository's arms are short and every repository's are full: that verdict decides here.
+        return everywhere[0], arms_mod.pooled_why(everywhere[1], here)
+    # The arm with fewer tasks once they drift apart, so both fill at the same pace; else the
+    # task's hash, salted with this trial, so no other trial lands its arms on the same tasks.
+    arm = ARMS[arms_mod.side("primer", repo, task_id, p["tasks"], c["tasks"])]
+    return arm, f"the primer's trial here ({p['tasks']} primed, {c['tasks']} without, {PRIMER_TRIAL} each)"
+
+
+def _verdict(found: Mapping[str, Mapping[str, Any]], *, where: str = "here") -> tuple[str, str] | None:
+    """A trial's verdict, or None while its arms are short of `PRIMER_TRIAL` and it is not lost early."""
+    p, c = found["primer"], found["control"]
     early = min(p["tasks"], c["tasks"]) >= PRIMER_EARLY and \
         p["passed_first"] / p["tasks"] < c["passed_first"] / c["tasks"] - PRIMER_EARLY_MARGIN
     if min(p["tasks"], c["tasks"]) < PRIMER_TRIAL and not early:
-        # The arm with fewer tasks once they drift apart, so both fill at the same pace; else the
-        # task's hash, salted with this trial, so no other trial lands its arms on the same tasks.
-        arm = ARMS[arms_mod.side("primer", repo, task_id, p["tasks"], c["tasks"])]
-        return arm, f"the primer's trial here ({p['tasks']} primed, {c['tasks']} without, {PRIMER_TRIAL} each)"
+        return None
     rate_p, rate_c = p["passed_first"] / p["tasks"], c["passed_first"] / c["tasks"]
     if early:
-        return "control", (f"the primer lost its trial here early: primed first tries passed {rate_p:.0%}, "
+        return "control", (f"the primer lost its trial {where} early: primed first tries passed {rate_p:.0%}, "
                            f"without {rate_c:.0%}, worse by more than {PRIMER_EARLY_MARGIN:.0%} over "
                            f"{PRIMER_EARLY} or more each")
     faster = (p["calls_before_edit_p50"] is not None and c["calls_before_edit_p50"] is not None
@@ -285,5 +297,5 @@ def primer_arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
     said = (f"primed first tries passed {rate_p:.0%}, without {rate_c:.0%}; calls before the first change p50 "
             f"{p['calls_before_edit_p50']} against {c['calls_before_edit_p50']}")
     if faster and rate_p >= rate_c - PRIMER_MARGIN:
-        return "primer", f"the primer won its trial here: {said}"
-    return "control", f"the primer lost its trial here: {said}"
+        return "primer", f"the primer won its trial {where}: {said}"
+    return "control", f"the primer lost its trial {where}: {said}"

@@ -74,7 +74,14 @@ def fresh(session_id: str, transcript: Path) -> dict[str, Any]:
     return {"version": VERSION, "session": session_id, "transcript": str(transcript), "offset": 0,
             "cwd": None, "branch": None, "started": None, "updated": None, "turns": 0, "corrections": 0,
             "requests": [], "written": [], "failures": [], "recovered": [], "open": {}, "calls": {},
-            "notes": {"turns": 0, "chars": 0}, "relayed_from": None}
+            "notes": {"turns": 0, "chars": 0}, "relayed_from": None,
+            # What the session read with its own tools this turn (the output of reading calls, in
+            # characters, and the calls), and the turn before: the route's advice reads them.
+            "read": {"chars": 0, "calls": 0, "last_chars": 0, "last_calls": 0}}
+
+
+#: The tools whose output a session reads into its own context (a write's result is a line).
+READ_TOOLS = frozenset({"Read", "Grep", "Glob", "Bash", "LS", "WebFetch", "WebSearch"})
 
 
 def load(root: Path, session_id: str) -> dict[str, Any] | None:
@@ -164,6 +171,8 @@ def _absorb(state: dict[str, Any], entry: Mapping[str, Any]) -> None:
             state["corrections"] += correction
             state["notes"]["turns"] += 1
             state["notes"]["chars"] += len(typed)
+            read = state.setdefault("read", {"chars": 0, "calls": 0, "last_chars": 0, "last_calls": 0})
+            read.update(last_chars=read.get("chars", 0), last_calls=read.get("calls", 0), chars=0, calls=0)
     if not isinstance(content, list):
         return
     for block in content:
@@ -184,6 +193,10 @@ def _absorb(state: dict[str, Any], entry: Mapping[str, Any]) -> None:
         elif kind == "user" and block.get("type") == "tool_result":
             name, what = state["calls"].pop(str(block.get("tool_use_id")), ["?", ""])
             result = compact._result_text(block)
+            if name in READ_TOOLS:
+                read = state.setdefault("read", {"chars": 0, "calls": 0, "last_chars": 0, "last_calls": 0})
+                read["chars"] = read.get("chars", 0) + len(result)
+                read["calls"] = read.get("calls", 0) + 1
             if block.get("is_error"):
                 if "user doesn't want to proceed" in result or "rejected" in result[:80]:
                     continue  # a person's no is not a failure of the work

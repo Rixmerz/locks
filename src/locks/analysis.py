@@ -31,6 +31,7 @@ from locks import evidence as evidence_mod
 from locks import handing as handing_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
+from locks import route as route_mod
 from locks.store import Store
 
 #: The phases of a run, in the order they happen. The first four come before its own wall
@@ -382,6 +383,16 @@ def routing(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     return dict(sorted(out.items()))
 
 
+def heavy_reads(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """The prompts told that the turn before read heavily with the session's own tools
+    (`routed.read_said`), and how often the session sent locks work after one."""
+    said = [r for r in rows if r.get("read_said")]
+    if not said:
+        return None
+    sent = sum(bool(r.get("sent")) for r in said)
+    return {"advised": len(said), "sent": sent, "sent_rate": _share(sent, len(said))}
+
+
 def notes_relied_on(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> dict[str, Any] | None:
     """What the notes in briefs were worth to the workers, in their words (`attempt_finished.notes_used`)
     against what each first brief carried (`notes.BRIEFED`): the tasks briefed with notes, the
@@ -646,6 +657,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "notes_used": notes_relied_on(events, {r["task"] for r in found}),
         # Each route's advice and whether the session sent locks work after it (observed, issue #124).
         "routing": routing(store.routed_followed(since=since, repo=repo)),
+        # The turns told their own reading was heavy, and whether locks work followed (observed).
+        "heavy_reads": heavy_reads(store.routed_followed(since=since, repo=repo)),
         "recall": notes_mod.recall_trial(store, repo),
         "recall_now": notes_mod.recall_arm(store, repo, 0)[1] if repo else None,
         "evidence": evidence_mod.trial(store, repo),
@@ -658,6 +671,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "livespec_handing": {n: handing_mod.trial(store, repo, n) for n in handing_mod.NATURES},
         "livespec_handing_now": {n: handing_mod.arm(store, repo, "chat" if n == "reading" else "implement", 0)[1]
                                  for n in handing_mod.NATURES} if repo else {},
+        # Each climb of a ladder and whether the attempt it started passed (observed): a rung's record.
+        "climbs": climbs_by_rung(store, {r["task"]: r["kind"] for r in found}, since=since),
         "expensive": expensive(found),
     }
     if keep_runs is None:
@@ -666,6 +681,37 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         report["slowest"] = sorted((r for r in found if r["wall_s"]), key=lambda r: -r["wall_s"])[:keep_runs]
         report["costliest"] = sorted(found, key=lambda r: -r["cost_usd"])[:keep_runs]
     return report
+
+
+#: The moves that climb a ladder: the ones a rung is judged by.
+CLIMBS = ("more_effort", "next_model")
+
+
+def climbs_by_rung(store: Store, kinds: Mapping[int, str], *, since: str | None = None) -> list[dict[str, Any]]:
+    """Each climb of the ladder over these tasks (`moved` events with a next cell), by kind and the
+    cells it went between: how many, and how many of the attempts they started passed. Observed: the
+    record a ladder's rung is judged by, never a rule's input. A climb whose next attempt never
+    started (a cancel, a death) is left out."""
+    out: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    attempts: dict[int, list[dict]] = {}
+    for event in store.events_of_kinds(["moved"], since=since):
+        data, task_id = event["data"], int(event["task_id"])
+        if task_id not in kinds or data.get("move") not in CLIMBS or not data.get("to_cell"):
+            continue
+        seq = int(data.get("seq") or 0)
+        if task_id not in attempts:
+            attempts[task_id] = store.attempts(task_id)
+        after = [a for a in attempts[task_id] if int(a["seq"]) > seq]
+        if not after:
+            continue
+        key = (kinds[task_id], str(data.get("from_cell")), str(data["to_cell"]), str(data["move"]))
+        row = out.setdefault(key, {"kind": key[0], "from": key[1], "to": key[2], "move": key[3],
+                                   "climbs": 0, "passed_next": 0})
+        row["climbs"] += 1
+        row["passed_next"] += int(bool(after[0]["passed"]))
+    for row in out.values():
+        row["passed_next_rate"] = _share(row["passed_next"], row["climbs"])
+    return sorted(out.values(), key=lambda r: (r["kind"], -r["climbs"], r["from"], r["to"]))
 
 
 #: A run costs much for its kind over this percentile of the kind's runs.
@@ -913,6 +959,10 @@ def text(report: Mapping[str, Any]) -> str:
         for mode, row in (report.get("routing") or {}).items():
             lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "
                          f"{row['sent']} ({_rate(row['sent_rate'])}) (observed)")
+        if reads := report.get("heavy_reads"):
+            lines.append(f"heavy reads said {reads['advised']} time(s) (the session read "
+                         f"{route_mod.READ_HEAVY_CHARS:,} characters or more of tool output in a turn), the session "
+                         f"sent locks work after {reads['sent']} ({_rate(reads['sent_rate'])}) (observed)")
         if relied := report.get("notes_used"):
             lines += ["", f"notes in briefs: {relied['tasks']} task(s) carried {relied['carried']}, workers said they "
                       f"relied on {relied['relied_on']} ({_rate(relied['relied_rate'])}); first tries passed "
@@ -954,6 +1004,14 @@ def text(report: Mapping[str, Any]) -> str:
                                  f"({_rate(row['rate'])})  pass p50 {took}")
                 if (report.get("livespec_handing_now") or {}).get(which):
                     lines.append(f"  now: {report['livespec_handing_now'][which]}")
+        if report.get("climbs"):
+            lines += ["", "climbs by rung (observed: each climb of a ladder, and whether the attempt it started "
+                      "passed):"]
+            for row in report["climbs"]:
+                move = row["move"].replace("_", " ")
+                lines.append(f"  {row['kind']:<16} {row['from']:>13} → {row['to']:<13} {move:<12} "
+                             f"climbs {row['climbs']:>3}  passed next {row['passed_next']} "
+                             f"({_rate(row['passed_next_rate'])})")
         if report.get("trust"):
             lines += ["", "the independent check's record by cell (its sampling, repeated blockers, re-checks finding "
                       "something new, and the work that started there):"]

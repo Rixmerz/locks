@@ -325,3 +325,18 @@ def test_old_states_and_relays_nobody_took_are_forgotten(git_repo, tmp_path, sto
     os.utime(scribe.path(home(), "recent"), (week_ago, week_ago))
     hooks.session_start({"session_id": "n", "cwd": str(git_repo), "source": "startup"}, store, home(), {})
     assert scribe.load(home(), "recent") is None
+
+
+def test_the_scribe_counts_what_each_turn_read_with_the_session_s_own_tools(git_repo, tmp_path):
+    entries = [
+        user("mira cómo se calcula el total", git_repo),
+        assistant([tool("r1", "Read", file_path=f"{git_repo}/cart.py"), tool("r2", "Bash", command="grep -rn total")]),
+        result("r1", "x" * 3000), result("r2", "y" * 500),
+        assistant([tool("w1", "Edit", file_path=f"{git_repo}/cart.py", old_string="a", new_string="b")]),
+        result("w1", "edited"),
+        user("ahora el envío", git_repo),
+        assistant([tool("r3", "Grep", pattern="shipping")]), result("r3", "z" * 700),
+    ]
+    state = scribe.update(home(), "s9", transcript_of(tmp_path, git_repo, sid="s9", entries=entries))
+    # The write's result is not reading; the turn before is kept as the last.
+    assert state["read"] == {"chars": 700, "calls": 1, "last_chars": 3500, "last_calls": 2}

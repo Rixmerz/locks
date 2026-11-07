@@ -43,7 +43,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/` | the README's screenshots of `locks ui`, taken on demo data with generic project names |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `livespec_trial`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -67,6 +67,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/behavior.py` | how a worker worked, per attempt, from its own tool calls (never their arguments): before its first write, the checks it ran, fix loops, an unchecked end, rereads, repeats, silences, tool families; kept on `attempt_finished.behavior`, added up by kind, outcome and cell for `locks stats` and exported per attempt (`--attempts`); observed, no model |
 | `src/locks/arms.py` | two arms tried in turns until each has enough first tries, then the one that did no worse on pass-first and, over `TIME_SAMPLES` timed passes each, no slower than `SLOWER` times the other's median: the shape methods and the recall order share (`tally`, `pick`); which arm a task goes in is the hash of the trial, the repository and the task (`side`), the arm with fewer tasks only once they are `BALANCE` apart, so no two trials over the same tasks move in lockstep; no model |
 | `src/locks/methods.py` | how a kind's workers are briefed to work, tried against its absence: a diagnosis protocol for `debug-unclear`, a pre-mortem for `plan` whose `Risks:` reach the independent check of the steps after it; arms per repository (`method_arm`); no model |
+| `src/locks/handing.py` | whether a worker is handed livespec's tools (its server, their descriptions, the orientation), tried against withholding them per repository and nature of work (`livespec_arm`, `<nature>:<arm>`): handed afterwards only where handed workers passed their first tries no less often and no slower; what locks reads from the index itself (the code map, the size, the check's impact) is never withheld; no model |
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
 | `src/locks/cells.py` | where a lesson belongs: the area a path or a change is in, the role that met it, or everyone (`scope`); the text a failure is kept and matched by (a workflow step's goal, never its template); the cell's primer (how its workers got oriented) and its trial; no model |
 | `src/locks/cells_by_kind.py` | `locks cells`: per kind, the cell locks starts it on here and each cell's first tries, the cheapest proven one named; for the delegating session's own choices, never a rule; read only, no model |
@@ -829,6 +830,16 @@ yields the default kind, not a guess.
   stats` compares tokens per kind with livespec called against not called, and each tool offered
   (`briefed.livespec_tools`) against called (`analysis.livespec_offer`): observed, never a trial.
   Tests run with `LOCKS_LIVESPEC_WAIT=0`.
+- Whether a worker is handed livespec's tools at all is a trial (`locks.handing`, the `livespec_trial`
+  setting): 6 workers in a row were handed it and none called it, and a server started with the worker,
+  nine tools' descriptions in every turn and the orientation lines are a cost on every attempt. A
+  repository's tasks of each nature (reading, writing) alternate `hand` and `withhold` (`briefed.livespec_arm`,
+  `<nature>:<arm>`; a resume keeps the arm its first brief drew) until each arm has `handing.TRIAL` first
+  tries; then livespec is handed only where the handed arm passed its first tries no less often and no
+  slower (`arms.pick`, `locks stats`). A withheld worker gets no server, no hint, no orientation and no
+  `livespec_tools` on its brief; the code map, the size estimate and what the change reaches for the
+  independent check are locks' own reads of the index and stay, and the independent check keeps the index
+  (`_index_servers`) whatever the arm. Tests run with `LOCKS_LIVESPEC_TRIAL=off`.
 - An adopted neighbour is read, never written: the livespec index is opened
   `mode=ro`, and the index is built only through livespec's own CLI. Absent
   and unreadable are different states and neither stops a run. The one

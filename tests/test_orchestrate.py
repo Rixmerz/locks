@@ -347,10 +347,11 @@ def _livespec(tmp_path, *, runner=None, popen=None):
 
 
 @pytest.mark.usefixtures("no_verifier")
-def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path):
+def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path, monkeypatch):
     from .livespec_fixture import build
 
     build(git_repo)  # dated in the future, so never older than the last commit
+    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # handed, whatever the trial would draw
     script = Script(ok("fixed"))
 
     def launcher(spec):
@@ -515,10 +516,12 @@ def test_a_task_in_a_folder_of_repositories_indexes_each_one_and_never_the_folde
                for r in the_plan.reasons) == 2
 
 
-def test_a_worker_is_told_to_orient_by_specs_before_the_map_and_before_opening_files(git_repo, store, tmp_path):
+def test_a_worker_is_told_to_orient_by_specs_before_the_map_and_before_opening_files(git_repo, store, tmp_path,
+                                                                                     monkeypatch):
     from .livespec_fixture import build
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # handed, whatever the trial would draw
     script = Script(ok())
     run("parse_amount rounds wrong", git_repo, store, registry={}, launcher=script, classifier=kind("implement"),
         adapters=[_livespec(tmp_path)])

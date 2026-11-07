@@ -157,12 +157,23 @@ def arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
         return "gate", "no repository to run a trial in: held to evidence"
     found = trial(store, repo)
     g, f = found["gate"], found["free"]
+    if (got := _verdict(found)) is not None:
+        return got
+    here = f"the trial here has {g['read']} held and {f['read']} free read by the independent check, {TRIAL} each"
+    if (everywhere := _verdict(trial(store, None), where="everywhere")) is not None:
+        return everywhere[0], arms_mod.pooled_why(everywhere[1], here)
+    pick = ARMS[arms_mod.side("evidence", repo, task_id, g["tasks"], f["tasks"])]
+    return pick, (f"the evidence trial here ({g['read']} held and {f['read']} free read by the independent "
+                  f"check, {TRIAL} each)")
+
+
+def _verdict(found: Mapping[str, Mapping[str, Any]], *, where: str = "here") -> tuple[str, str] | None:
+    """A trial's verdict, or None while the independent check read fewer than `TRIAL` of either arm."""
+    g, f = found["gate"], found["free"]
     if min(g["read"], f["read"]) < TRIAL:
-        pick = ARMS[arms_mod.side("evidence", repo, task_id, g["tasks"], f["tasks"])]
-        return pick, (f"the evidence trial here ({g['read']} held and {f['read']} free read by the independent "
-                      f"check, {TRIAL} each)")
+        return None
     said = (f"the independent check blocked {g['blocked']} of {g['read']} passes held to evidence and "
             f"{f['blocked']} of {f['read']} free")
     if g["blocked_rate"] < f["blocked_rate"]:
-        return "gate", f"holding work to evidence won its trial here: {said}"
-    return "free", f"holding work to evidence lost its trial here: {said}"
+        return "gate", f"holding work to evidence won its trial {where}: {said}"
+    return "free", f"holding work to evidence lost its trial {where}: {said}"

@@ -429,3 +429,24 @@ def test_a_habits_review_that_passed_and_nothing_applied_is_suspect(store: Store
     assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, unapplied), (doctor.FIXED, old)]
     assert "never applied it" in found[0].what and str(unapplied) in found[0].fix
     assert {applied, refused} & {f.task_id for f in found} == set()
+
+
+def test_an_attempt_that_says_nothing_was_logged_while_the_store_holds_its_calls_is_suspect(store: Store):
+    t = store.create_task("t", status="done", source="locks", repo="r", kind="explore")
+    store.add_attempt(t["id"], cell="haiku/medium", max_turns=30, passed=1)
+    store.add_tool_event(task_id=t["id"], attempt=1, tool="read", sig="read", arg_hash="x", ok=1)
+    store.add_event(t["id"], "attempt_finished", seq=1, cell="haiku/medium", passed=True, tools_logged=False,
+                    version="0.89.0")
+    found = rules(store, now=LATER, alive=lambda pid: True)["tools-logged-off"]
+    assert [(f.severity, f.what) for f in found] == [
+        (doctor.SUSPECT, f"#{t['id']} attempt 1 says no tool call was logged, and the store holds 1 of its worker's")]
+    # One honestly unlogged (no call in the store) is no finding; one from before 0.89.0 is history.
+    u = store.create_task("u", status="done", source="locks", repo="r", kind="explore")
+    store.add_event(u["id"], "attempt_finished", seq=1, cell="haiku/medium", passed=True, tools_logged=False,
+                    version="0.89.0")
+    v = store.create_task("v", status="done", source="locks", repo="r", kind="explore")
+    store.add_tool_event(task_id=v["id"], attempt=1, tool="read", sig="read", arg_hash="x", ok=1)
+    store.add_event(v["id"], "attempt_finished", seq=1, cell="haiku/medium", passed=True, tools_logged=False,
+                    version="0.88.0")
+    found = rules(store, now=LATER, alive=lambda pid: True)["tools-logged-off"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, t["id"]), (doctor.FIXED, v["id"])]

@@ -65,7 +65,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/store.py` | SQLite memory: tasks, messages, attempts, problems and fixes, notes |
 | `src/locks/revisions.py` | a role's lessons per repository, improved by measured trial: proposed by Haiku from the role's dead ends and verifier blockers there, tried in alternating arms, adopted, dropped or reverted, every record appended to `role_revisions`; `locks roles revisions` reads it |
 | `src/locks/behavior.py` | how a worker worked, per attempt, from its own tool calls (never their arguments): before its first write, the checks it ran, fix loops, an unchecked end, rereads, repeats, silences, tool families; kept on `attempt_finished.behavior`, added up by kind, outcome and cell for `locks stats` and exported per attempt (`--attempts`); observed, no model |
-| `src/locks/arms.py` | two arms tried in turns until each has enough first tries, then the one that did no worse on pass-first and, over `TIME_SAMPLES` timed passes each, no slower than `SLOWER` times the other's median: the shape methods and the recall order share (`tally`, `pick`); which arm a task goes in is the hash of the trial, the repository and the task (`side`), the arm with fewer tasks only once they are `BALANCE` apart, so no two trials over the same tasks move in lockstep; no model |
+| `src/locks/arms.py` | two arms tried in turns until each has enough first tries, then the one that did no worse on pass-first and, over `TIME_SAMPLES` timed passes each, no slower than `SLOWER` times the other's median: the shape methods and the recall order share (`tally`, `pick`); which arm a task goes in is the hash of the trial, the repository and the task (`side`), the arm with fewer tasks only once they are `BALANCE` apart, so no two trials over the same tasks move in lockstep; while a repository's arms are short of the trial and every repository's are full, the pooled verdict decides there and says so (`pick`'s `pooled`, `verdict`, `pooled_why`; the primer, evidence and trunk trials the same way), its own arms deciding alone once full; no model |
 | `src/locks/methods.py` | how a kind's workers are briefed to work, tried against its absence: a diagnosis protocol for `debug-unclear`, a pre-mortem for `plan` whose `Risks:` reach the independent check of the steps after it; arms per repository (`method_arm`); no model |
 | `src/locks/handing.py` | whether a worker is handed livespec's tools (its server, their descriptions, the orientation), tried against withholding them per repository and nature of work (`livespec_arm`, `<nature>:<arm>`): handed afterwards only where handed workers passed their first tries no less often and no slower; what locks reads from the index itself (the code map, the size, the check's impact) is never withheld; no model |
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
@@ -540,7 +540,12 @@ yields the default kind, not a guess.
   attempt ended with, the rule, where it goes) and `skipped` the rungs passed
   over. A new branch in `decide` gives both; the `moved` event keeps them.
 - A plan starts at sonnet/high (`bench/speed/plans.py`: every trap named at a sixth of opus/high's
-  cost), and a plan for parts at opus/high (`feature-parallel`'s step, where it was measured).
+  cost), and a plan for parts at opus/high (`feature-parallel`'s step, where it was measured). A routine
+  review starts at sonnet/high and climbs to opus/high (`bench/review`'s `effort.py`: on the same change
+  sonnet/medium caught 20 of 42 planted bugs, sonnet/high 27, 15 s apart; a reading kind's repeated
+  answer converges, so no third reading by the same model). Every climb of a ladder is counted by rung
+  (`analysis.climbs_by_rung`, from `moved` events with the attempt after each: `locks stats`, "climbs by
+  rung"), observed: the record a rung is kept or dropped by, never a rule's input.
 - A high complexity raises a reading kind's start one rung, never a writing kind's: a build
   classified high passed as often at its ladder's first cell, in less than half the time
   (`bench/speed/versus.py`). livespec's code map raises a start one rung only for a symbol the
@@ -840,6 +845,14 @@ yields the default kind, not a guess.
   `livespec_tools` on its brief; the code map, the size estimate and what the change reaches for the
   independent check are locks' own reads of the index and stay, and the independent check keeps the index
   (`_index_servers`) whatever the arm. Tests run with `LOCKS_LIVESPEC_TRIAL=off`.
+- A trial is per repository, and a repository with few tasks would pay for both arms for months (the
+  primer needs 24 tasks, a role's lessons 20, the trunk 20 workflow steps, the evidence gate 16 the
+  check read, livespec 12 per nature, a method 12 of its kind): while its own arms are short of the trial
+  and every repository's are full, the verdict of every repository decides there (`arms.pick`'s `pooled`,
+  `arms.pooled_why`; the primer, the evidence gate and the trunk through their `_verdict`), said in the
+  brief's `*_why` as "pooled from every repository while the trial here has …"; once the repository's own
+  arms are full they decide alone. An early loss is never pooled: only a full trial is. A role's lessons
+  are the repository's own and pool nothing.
 - An adopted neighbour is read, never written: the livespec index is opened
   `mode=ro`, and the index is built only through livespec's own CLI. Absent
   and unreadable are different states and neither stops a run. The one
@@ -1170,7 +1183,13 @@ yields the default kind, not a guess.
   a full context decide. The prompt hook says it only when it is not the session, keeps
   every decision as a `routed` event to be measured (`locks stats` says how often the session sent
   locks work after each advice, `Store.routed_followed`), and never costs the turn. It is
-  advice: the session decides. A question about the work (an opening of doubt,
+  advice: the session decides. A turn that read `route.READ_HEAVY_CHARS` or more of tool output
+  with the session's own tools (the scribe's count per turn, `scribe.READ_TOOLS`, `state["read"]`)
+  is said at the next prompt beside the route's advice (`route.read_advice`): what it read stays in
+  the context every later turn re-reads, and what an explore worker here passes at, in time and
+  cost (`Store.kind_record`, observed); kept on the `routed` event (`read_chars`, `read_said`) and
+  measured the same way (`locks stats`, `heavy reads said`). The session's own reading is where
+  its money goes (this session: locks' injections 0.2% of its text, its own tool output 57%). A question about the work (an opening of doubt,
   `route.asks`: could, should, what if, vale la pena… with a question mark,
   wherever it falls) stays with the session, and so does a question mark that
   ends a request; neither when the request opens with a verb of change
@@ -1320,7 +1339,10 @@ yields the default kind, not a guess.
   (`attempt_finished.capability_calls`), and `locks stats` shows each one handed, called and never
   called, observed. An attempt none of whose calls reached the log (`attempt_finished.tools_logged`
   false: its worker's hooks did not run) is not recorded, never silent, and `locks stats` counts it
-  apart. Tests run with `LOCKS_EVIDENCE=off`.
+  apart; the hooks' log is loaded into the store once before anything of the attempt is read from it
+  (`habits.load_events` before `attempt_finished`), whatever the worker was handed: read before that
+  load, a withheld worker's calls read as none (`doctor`: `tools-logged-off`). Tests run with
+  `LOCKS_EVIDENCE=off`.
 - Each CORRECT line of the TRACER flows a request names is a criterion of the independent check,
   `C1..Cn` (`tracer.criteria`; the lines that fit in half of `tracer.BRIEF_CHARS`, the rest said by
   count), added to its `criteria`: one it says is not met is a blocker (`orchestrate._correct_lines`),

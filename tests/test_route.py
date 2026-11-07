@@ -198,3 +198,29 @@ def test_a_build_that_lists_many_items_is_asked_split_before_a_worker_starts():
     assert route.split_first(big, "review-routine") is None
     pieces = ("Add the screens:\n- api/users.py\n- web/users.tsx\n- docs/users.md")
     assert route.split_first(pieces, "feature") == "3 pieces in folders of their own"
+
+
+def test_a_heavy_read_is_said_at_the_next_prompt_with_what_an_explore_worker_costs_here(store: Store, git_repo,
+                                                                                         monkeypatch):
+    from locks import project, scribe
+    from locks.store import home
+
+    assert route.read_advice(route.READ_HEAVY_CHARS - 1, 9) is None
+    said = route.read_advice(80_000, 12, {"passes": 4, "p50_s": 31.0, "cost_per_pass": 0.06})
+    assert said.startswith("locks route: last turn this session read about 20k tokens of tool output into its own "
+                           "context over 12 call(s)")
+    assert "An explore worker here passed 4 task(s) at 31s and $0.06 a pass (observed)" in said
+    assert "reads in its own context" in route.read_advice(80_000, 1, None)
+    # The hook reads the scribe's count of the last turn, keeps it on the routed event, and says it.
+    project.enroll(git_repo)
+    monkeypatch.setenv("LOCKS_ROUTE", "on")
+    state = scribe.fresh("s", git_repo / "t.jsonl")
+    state["read"] = {"chars": 90_000, "calls": 7, "last_chars": 0, "last_calls": 0}
+    scribe.save(home(), state)
+    event = {"session_id": "s", "prompt": SMALL, "prompt_id": "p", "cwd": str(git_repo), "transcript_path": None}
+    out = hooks.user_prompt_submit(event, store)
+    said = out["hookSpecificOutput"]["additionalContext"]
+    assert said.startswith("locks route: last turn this session read about 22k tokens")
+    routed = store.session_events("s", ("routed",))[-1]["data"]
+    assert routed["mode"] == "main" and routed["read_chars"] == 90_000 and routed["read_said"] is True
+    assert store.kind_record("explore", "r") == {"passes": 0, "p50_s": None, "cost_per_pass": None}

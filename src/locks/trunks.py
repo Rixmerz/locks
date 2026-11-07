@@ -165,14 +165,25 @@ def arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
         return "fork", "no repository to run a trial in"
     found = trial(store, repo)
     f, c = found["fork"], found["fresh"]
+    if (got := _verdict(found)) is not None:
+        return got
+    here = f"the trial here has {f['tasks']} forked, {c['tasks']} fresh, {TRIAL} each"
+    if (everywhere := _verdict(trial(store, None), where="everywhere")) is not None:
+        return everywhere[0], arms_mod.pooled_why(everywhere[1], here)
+    pick = ARMS[arms_mod.side("trunk", repo, task_id, f["tasks"], c["tasks"])]
+    return pick, f"the trunk's trial here ({f['tasks']} forked, {c['tasks']} fresh, {TRIAL} each)"
+
+
+def _verdict(found: Mapping[str, Mapping[str, Any]], *, where: str = "here") -> tuple[str, str] | None:
+    """A trial's verdict, or None while its arms are short of `TRIAL` and it is not lost early."""
+    f, c = found["fork"], found["fresh"]
     early = min(f["tasks"], c["tasks"]) >= EARLY and \
         f["passed_first"] / f["tasks"] < c["passed_first"] / c["tasks"] - EARLY_MARGIN
     if min(f["tasks"], c["tasks"]) < TRIAL and not early:
-        pick = ARMS[arms_mod.side("trunk", repo, task_id, f["tasks"], c["tasks"])]
-        return pick, f"the trunk's trial here ({f['tasks']} forked, {c['tasks']} fresh, {TRIAL} each)"
+        return None
     rate_f, rate_c = f["passed_first"] / f["tasks"], c["passed_first"] / c["tasks"]
     if early:
-        return "fresh", (f"forking lost its trial here early: forked first tries passed {rate_f:.0%}, fresh "
+        return "fresh", (f"forking lost its trial {where} early: forked first tries passed {rate_f:.0%}, fresh "
                          f"{rate_c:.0%}, worse by more than {EARLY_MARGIN:.0%} over {EARLY} or more each")
     sooner = any(f[k] is not None and c[k] is not None and f[k] < c[k]
                  for k in ("calls_before_edit_p50", "duration_p50_s"))
@@ -180,8 +191,8 @@ def arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
             f"{f['calls_before_edit_p50']} against {c['calls_before_edit_p50']}, time p50 "
             f"{f['duration_p50_s']}s against {c['duration_p50_s']}s")
     if sooner and rate_f >= rate_c - MARGIN:
-        return "fork", f"forking won its trial here: {said}"
-    return "fresh", f"forking lost its trial here: {said}"
+        return "fork", f"forking won its trial {where}: {said}"
+    return "fresh", f"forking lost its trial {where}: {said}"
 
 
 def note(trunk: Mapping[str, Any], *, role: str, capabilities: str, workdir: Path, base: str | None) -> str:

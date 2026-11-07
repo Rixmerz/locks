@@ -71,6 +71,7 @@ FIXED_IN = {
     "swept-before-its-pid": "0.66.0",
     "advised-again-in-a-prompt": "0.82.0",
     "habit-review-unapplied": "0.85.0",
+    "tools-logged-off": "0.89.0",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -824,6 +825,34 @@ def habit_reviews_unapplied(store: Store, *, since: str | None, **_) -> Iterable
         yield _history("habit-review-unapplied", sorted(before), None)
 
 
+def tools_logged_off(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """An attempt whose record says none of its worker's tool calls reached the log
+    (`attempt_finished.tools_logged` false) while the store holds them: the record was read
+    before the hooks' log was loaded into the store, which happened only when the worker was
+    handed a capability (from 0.89.0 the log is loaded once before anything of the attempt is
+    read). `locks stats` counted such attempts as not recorded, and the evidence gate read
+    their calls as none."""
+    before: list[int] = []
+    for event in store.events_of_kinds(["attempt_finished"], since=since):
+        data = event["data"]
+        if data.get("tools_logged") is not False:
+            continue
+        held = sum(store.tool_counts(event["task_id"], int(data.get("seq") or 0), "").values())
+        if not held:
+            continue
+        if _fixed("tools-logged-off", data.get("version")):
+            before.append(event["task_id"])
+            continue
+        task = store.get_task(event["task_id"])
+        yield Finding("tools-logged-off", SUSPECT,
+                      f"#{event['task_id']} attempt {data.get('seq')} says no tool call was logged, and the store "
+                      f"holds {held} of its worker's",
+                      "the record was read before the hooks' log was loaded; `locks stats` counts the attempt as "
+                      "not recorded", event["task_id"], task["repo"] if task else None)
+    if before:
+        yield _history("tools-logged-off", sorted(before), None)
+
+
 RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     lanes_paused_on_ended, running_with_no_process, queued_with_no_dispatcher, held_behind_gone, wait_judged_on_gone,
     resumes_that_never_ran,
@@ -832,7 +861,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     trials_never_sampled, notes_proven_unbriefed, preexisting_that_was_not, problems_open_after_pass,
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
-    habit_reviews_unapplied,
+    habit_reviews_unapplied, tools_logged_off,
 )
 
 

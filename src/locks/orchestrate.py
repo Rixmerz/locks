@@ -1894,6 +1894,12 @@ def run(
             report.cells.append(cell.label)
             report.served.append(result.served_model)
             report.cost_usd += result.cost_usd
+            # The worker's tool calls reach the store only once the hooks' log is read into it: once
+            # here, before anything of this attempt is read from it (its livespec calls, each
+            # capability's, whether any call was logged, how it worked). A load that fails leaves the
+            # record as it was; it never fails the run.
+            with contextlib.suppress(Exception):
+                habits.load_events(store)
             seq = store.add_attempt(
                 task["id"], cell=cell.label, max_turns=turns, passed=int(result.passed),
                 failure=result.failure.value if result.failure else None, summary=result.summary,

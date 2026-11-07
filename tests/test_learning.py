@@ -426,3 +426,55 @@ def test_stats_show_the_livespec_handing_trial(store: Store):
     assert "the livespec-writing trial here" in report["livespec_handing_now"]["writing"]
     text = analysis.text(report)
     assert "livespec handed to writing workers (its trial" in text and "pass p50 -" in text
+
+
+def test_a_trial_short_here_takes_the_verdict_of_every_repository_once_those_arms_are_full(store: Store):
+    """A repository with few tasks would pay for both arms for months: while its own arms are short and
+    every repository's are full, the pooled verdict decides, says so, and its own arms decide alone
+    once they fill."""
+    from locks import handing
+
+    def task(repo: str, side: str, passed: bool, took: float = 100.0) -> int:
+        t = store.create_task("t", status="done", source="locks", repo=repo, kind="implement")
+        store.add_attempt(t["id"], cell="sonnet/high", max_turns=30, passed=int(passed), input_tokens=10,
+                          duration_s=took)
+        store.add_event(t["id"], "briefed", livespec_arm=f"writing:{side}")
+        return t["id"]
+
+    # Elsewhere, handing lost (as many passes, three times slower); here the trial has one task.
+    for _ in range(handing.TRIAL):
+        task("other", "hand", True, 300)
+        task("other", "withhold", True, 100)
+    task("r", "hand", True)
+    side, why = handing.arm(store, "r", "implement", 999)
+    assert side == "withhold"
+    assert "lost its trial everywhere" in why and "pooled from every repository while the trial here has 1 hand" in why
+    # Pure: `arms.pick` with no pooled tally alternates as before; with one short of the trial, too.
+    here = handing.trial(store, "r", "writing")
+    assert "the x trial here (1 hand, 0 withhold" in arms.pick(here, handing.ARMS, 999, handing.TRIAL, "x", "r")[1]
+    short = handing.trial(store, "nowhere", "writing")
+    assert "trial here" in arms.pick(here, handing.ARMS, 999, handing.TRIAL, "x", "r", pooled=short)[1]
+    # Once the repository's own arms are full, they decide alone, whatever the pool says.
+    for _ in range(handing.TRIAL):
+        task("r", "hand", True, 100)
+        task("r", "withhold", True, 100)
+    side, why = handing.arm(store, "r", "implement", 999)
+    assert side == "hand" and "won its trial here" in why and "pooled" not in why
+
+
+def test_a_worker_handed_nothing_still_has_its_logged_calls_read_at_the_attempt_s_end(git_repo, store, monkeypatch):
+    """The hooks' log is loaded once before the attempt's record is read, whatever the worker was handed:
+    read before it, a withheld worker's calls read as none (`doctor`: `tools-logged-off`)."""
+    from locks import habits
+
+    def load(store_, env=None):
+        running = store_.list_tasks(status=["running"], limit=1)
+        if running:
+            store_.add_tool_event(task_id=running[0]["id"], attempt=1, tool="read", sig="read", arg_hash="x", ok=1)
+        return 1
+
+    monkeypatch.setattr(habits, "load_events", load)
+    run("explain how the cart total is rounded", git_repo, store, registry={}, classifier=kind("explore"),
+        launcher=Script(ok()))
+    done = store.last_event(store.list_tasks(status=["done"], limit=1)[0]["id"], "attempt_finished")["data"]
+    assert done["tools_logged"] is True and "capability_calls" not in done

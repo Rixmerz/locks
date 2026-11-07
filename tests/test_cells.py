@@ -257,7 +257,11 @@ def test_the_primer_s_arms_fill_evenly_and_a_primer_far_worse_loses_early(store:
     for _ in range(cells.PRIMER_EARLY):
         _trial_task(store, "primer", passed=True, calls=8, repo="close")
         _trial_task(store, "control", passed=True, calls=8, repo="close")
-    assert "trial here (" in cells.primer_arm(store, "close", 8)[1]  # no gap: the full trial runs
+    # No gap here, so no early loss; every repository's arms are full by now, and their verdict decides
+    # for this one while its own trial runs short (`arms.pooled_why`).
+    arm, why = cells.primer_arm(store, "close", 8)
+    assert "early" not in why.split(";")[0] or "everywhere" in why
+    assert why.endswith("pooled from every repository while the trial here has 6 primed, 6 without, 12 each")
 
 
 def test_a_shared_dead_end_from_other_cells_stays_out_of_a_worker_s_brief(store: Store):
@@ -274,3 +278,13 @@ def test_a_shared_dead_end_from_other_cells_stays_out_of_a_worker_s_brief(store:
     _met(store, written, role=None, areas=(), task=None)
     kept = cells.dead_ends(store, text, repo="r", role="implementer", areas=("data",))
     assert [d["problem_id"] for d in kept] == [written]
+
+
+def test_the_primer_s_trial_short_here_takes_every_repository_s_verdict(store: Store):
+    for _ in range(cells.PRIMER_TRIAL):
+        _trial_task(store, "primer", passed=False, calls=5, repo="other")
+        _trial_task(store, "control", passed=True, calls=20, repo="other")
+    arm, why = cells.primer_arm(store, "r", 8)
+    assert arm == "control" and "lost its trial everywhere" in why
+    assert why.endswith("pooled from every repository while the trial here has 0 primed, 0 without, "
+                        f"{cells.PRIMER_TRIAL} each")

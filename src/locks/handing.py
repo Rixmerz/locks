@@ -65,4 +65,5 @@ def arm(store: Store, repo: str | None, kind: str, task_id: int) -> tuple[str, s
     if (kept := drawn(store, task_id)) in ARMS:
         return kept, "the arm this task's first brief drew"
     which = nature(kind)
-    return arms_mod.pick(trial(store, repo, which), ARMS, task_id, TRIAL, f"livespec-{which}", repo)
+    return arms_mod.pick(trial(store, repo, which), ARMS, task_id, TRIAL, f"livespec-{which}", repo,
+                         pooled=trial(store, None, which))

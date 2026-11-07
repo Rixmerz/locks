@@ -1218,6 +1218,35 @@ take tools away (`disallowed_tools`), carry skills (`skills`) or point at them
 tried and left out: it replaces Claude Code's system prompt, its tool list
 overrides locks', and it does not preload skills on the main thread.
 
+**Role polymorphism: one worker, the phases that complement its role.** A
+task is cut where its context changes hands, never by role. The worker that
+holds the context takes on the phases that complete its own work, so no second
+worker re-reads the same code. Each phase is the same worker, in the same
+worktree, and usually in the same session:
+
+| The worker starts as | It also takes on | How |
+|---|---|---|
+| `implementer`, `feature-builder` | tester: the tests of its change | in its brief: the one that builds writes its tests, and runs the tests near its change as it goes (`ci.related`) |
+| `debugger` | implementer: the fix | the one that reproduces fixes, and leaves the reproduction as a regression test |
+| any writing role, in a spec-first repository | spec writer | a pass whose change holds no spec goes back once to the same cell, in its own session, told to write it (`spec_owed`) |
+| any writing role | measurer | a pass that owes a neighbour's evidence (layout-inspector, rastro) goes back once, in its own session, told what to measure (`evidence_owed`) |
+| any writing role | its own continuation | more turns resume its session; more effort forks it (`--fork-session`), so the deeper look keeps what it already found |
+| a reading step (`explore`, `plan`) | the step after it | the next step's first try may fork the reading step's session (`trunk`) and is told the role it takes from there |
+
+Some phases are never polymorphic. They always go to another worker with a
+clean context:
+
+- **Judging the work.** The independent verifier and every review step read
+  the request and the diff blind. They never run in the worker's session and
+  never see what it said of its own work: a worker's word is never a verdict.
+- **Changing models.** A new model starts fresh and never inherits the old
+  one's approach. The one exception is work that only locks' own check failed
+  on: the next model finishes it in the same worktree (`carries_work`).
+
+Whether a hand-on pays is measured, not assumed. Forking a trunk is tried
+against a fresh start (`trunk_arm`), and evidence gates are tried against
+going without them (`evidence_arm`). `locks stats` shows both.
+
 **Your own roles.** Copy one and edit it; the copy lives in your locks home
 (`roles/<name>.md`), never in a repository:
 

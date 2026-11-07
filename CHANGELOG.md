@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### Fixed
+- **An older install a live session still runs from is no longer offered for removal**: SessionStart
+  named every older install with an `rm -rf` line, and removing one a session started before the
+  update still ran its hooks from made that session's next hook fail to start (after a compaction,
+  the prompt it carried was lost). Each session's last hook time is kept (`link.LOADED_AT`); a
+  version one ran from within `link.LIVE_S` is named as still loaded, with "restart or
+  `/reload-plugins` first", and left out of the removal line.
+
+### Docs
+- **Role polymorphism** in the README: the phases a worker takes on beside its role (its tests, the
+  fix after its reproduction, a spec, a neighbour's measure, its own continuation, a trunk's fork),
+  and the ones that always go to another worker (judging the work, a new model).
+
 ## [0.84.0] - 2026-11-06
 
 ### Added

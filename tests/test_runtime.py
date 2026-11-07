@@ -161,3 +161,36 @@ def test_the_node_on_the_path_is_asked_for_its_version(tmp_path):
     node.write_text("#!/bin/sh\nexit 1\n")
     assert runtime.on_path({"PATH": str(bindir)}) is None
     assert runtime.on_path({"PATH": str(tmp_path / "none")}) is None
+
+
+def test_the_project_s_own_package_goes_first_on_pythonpath_when_the_venv_imports_it_from_elsewhere(tmp_path):
+    import sys
+
+    project, elsewhere = tmp_path / "wt", tmp_path / "checkout"
+    (elsewhere / "src" / "my_pkg").mkdir(parents=True)
+    (elsewhere / "src" / "my_pkg" / "__init__.py").write_text("")
+    (project / "src" / "my_pkg").mkdir(parents=True)
+    (project / "pyproject.toml").write_text('[project]\nname = "my-pkg"\n')
+    assert runtime.package_elsewhere(project) is None  # no .venv here
+    venv = project / ".venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python").write_text(f"#!/bin/sh\nPYTHONPATH={elsewhere / 'src'} exec {sys.executable} \"$@\"\n")
+    (venv / "python").chmod(0o755)
+    package, root, origin = runtime.package_elsewhere(project)
+    assert package == "my_pkg" and root == project / "src" and origin.startswith(str(elsewhere))
+    env = {"PATH": "/bin", "PYTHONPATH": "/extra"}
+    assert runtime.env_for(project, env) == {"PYTHONPATH": f"{project / 'src'}:/extra"}
+    assert runtime.env_for(project, {"PATH": "/bin"}) == {"PYTHONPATH": str(project / "src")}
+    # The venv that imports the package from here needs nothing.
+    (venv / "python").write_text(f"#!/bin/sh\nPYTHONPATH={project / 'src'} exec {sys.executable} \"$@\"\n")
+    assert runtime.package_elsewhere(project) is None and runtime.env_for(project, env) == {}
+    # No name, or a python that cannot answer: nothing, never a failure.
+    (project / "pyproject.toml").write_text("[tool.x]\n")
+    assert runtime.package_elsewhere(project) is None
+    (project / "pyproject.toml").write_text('[project]\nname = "my-pkg"\n')
+    (venv / "python").write_text("#!/bin/sh\nexit 3\n")
+    assert runtime.package_elsewhere(project) is None
+    (venv / "python").write_text("not a program\n")  # cannot start: said, and env_for goes without
+    with pytest.raises(runtime.ProbeBroke):
+        runtime.package_elsewhere(project)
+    assert runtime.env_for(project, env) == {}

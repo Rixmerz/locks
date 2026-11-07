@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import subprocess
+import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,13 +198,63 @@ def on_path(env: Mapping[str, str]) -> tuple[int, ...] | None:
     return _version(proc.stdout.strip()) if proc.returncode == 0 else None
 
 
+#: How long the project's own Python may take to say where it imports the project's package from.
+PROBE_TIMEOUT_S = 10
+
+
+class ProbeBroke(Exception):
+    """The project's own Python could not be asked where it imports the package from."""
+
+
+def package_elsewhere(workdir: Path) -> tuple[str, Path, str] | None:
+    """A Python project whose `.venv` imports the project's own package from outside `workdir`: an
+    editable install that points at the checkout while a worker edits a worktree (the worktree links
+    the checkout's `.venv`). (the package, the directory here that holds it, where `.venv` imports it
+    from); None for a project without `.venv`, a name, the package here, or one imported from here."""
+    python = workdir / ".venv" / "bin" / "python"
+    if not python.exists():
+        return None
+    try:
+        name = tomllib.loads((workdir / "pyproject.toml").read_text())["project"]["name"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    package = re.sub(r"[-.]+", "_", str(name)).lower()
+    root = next((r for r in (workdir / "src", workdir) if (r / package).is_dir()), None)
+    if root is None:
+        return None
+    probe = f"import importlib.util as u; s = u.find_spec({package!r}); print(s.origin if s and s.origin else '')"
+    try:
+        proc = subprocess.run([str(python), "-c", probe], cwd=str(workdir), capture_output=True, text=True,
+                              timeout=PROBE_TIMEOUT_S, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProbeBroke(str(exc)) from exc
+    origin = proc.stdout.strip()
+    if proc.returncode != 0 or not origin:
+        return None
+    try:
+        Path(origin).resolve().relative_to(workdir.resolve())
+    except ValueError:
+        return package, root, origin
+    return None
+
+
 def env_for(workdir: Path, env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """`{"PATH": ...}` with the project's Node first, or `{}`."""
+    """What a worker and the check run with here: `PATH` with the project's Node first, and
+    `PYTHONPATH` with the project's own package here first when its `.venv` imports it from elsewhere
+    (`package_elsewhere`), so a check tests the work and not the checkout it was cut from; `{}` when
+    neither applies."""
     env = os.environ if env is None else env
+    out: dict[str, str] = {}
     node = node_bin(workdir, env)
-    if node is None:
-        return {}
-    return {"PATH": os.pathsep.join([str(node.bin), env.get("PATH", "")])}
+    if node is not None:
+        out["PATH"] = os.pathsep.join([str(node.bin), env.get("PATH", "")])
+    try:
+        found = package_elsewhere(workdir)
+    except ProbeBroke:
+        found = None
+    if found is not None:
+        out["PYTHONPATH"] = os.pathsep.join([str(found[1]), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
+    return out
 
 
 def satisfies(version: tuple[int, ...], spec: str) -> bool:

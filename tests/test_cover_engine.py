@@ -153,7 +153,7 @@ def test_preflight_python_package_a_probe_that_fails_or_breaks(proj, penv, monke
 
     monkeypatch.setattr(preflight.subprocess, "run", broken)
     result = preflight.check("pytest", proj, env=penv)
-    assert result.ok and "where `.venv` imports `pkg` from" in result.unknown
+    assert result.ok and "where `.venv` imports the project's package from" in result.unknown
 
 
 def test_preflight_that_breaks_fails_open(proj, penv, monkeypatch):
@@ -1629,3 +1629,18 @@ def test_orchestrate_a_step_whose_trunk_arm_is_fresh_starts_its_own_session(git_
     assert report.status == "done" and not script.specs[0].resume_session
     assert any(s.endswith("the fresh arm's turn") and "forks" not in s for s in said)
     assert store.last_event(report.task_id, "briefed")["data"][trunks.KEY] == "fresh"
+
+
+def test_progress_changes_leave_the_checkout_s_linked_dependencies_out(git_repo, store):
+    from locks import progress
+
+    (git_repo / ".gitignore").write_text(".venv/\n")
+    git(git_repo, "add", "-A")
+    git(git_repo, "commit", "-q", "-m", "ignore")
+    base = _head(git_repo)
+    path = _worktree_for(git_repo, 9)
+    (git_repo / ".venv").mkdir(exist_ok=True)
+    (path / ".venv").symlink_to(git_repo / ".venv", target_is_directory=True)  # untracked: `.venv/` is no link
+    (path / "new.py").write_text("print('hi')\n")
+    assert progress.changes(9, base)["paths"] == [".venv", "new.py"]
+    assert progress.changes(9, base, links=(".venv",)) == {"files": 1, "added": 1, "removed": 0, "paths": ["new.py"]}

@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.85.1] - 2026-11-07
+
+### Fixed
+- **A check in a worktree tests the work, not the checkout**: a Python project installed editable
+  (`uv pip install -e .`) has its `.venv` import the project's own package from the checkout, and a
+  worker's worktree links that `.venv`, so the worker's tests and locks' check imported the
+  checkout's code and never the worker's change (preflight only warned). `runtime.env_for` now puts
+  the directory that holds the package here first on `PYTHONPATH` for the worker, the check and the
+  base's run (`runtime.package_elsewhere`), and the preflight line says so.
+- **A linked dependency is not a written file**: the board, `locks tasks`, `locks peek --stat` and the
+  ACP diff listed `.venv` as written by every worker (a `.venv/` ignore rule matches a directory, not
+  the link the worktree holds). The links the attempt recorded are left out (`progress.changes`).
+- **A workflow that runs on no change is no job of CI**: the plan's "CI also runs" warning named the
+  jobs of scheduled, manual and chained workflows (a weekly pin, a release) as checks the task's
+  check leaves out. Only a workflow triggered by a push, a pull request or a merge group is read
+  (`ci.checks_changes`, `CHANGE_TRIGGERS`).
+
 ## [0.85.0] - 2026-11-07
 
 ### Changed

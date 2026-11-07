@@ -79,7 +79,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/notes.py` | what a project knows, by topic: notes, typed links between them, anchors to code that send them to review; filed by Haiku, recalled by topic, file and one link away; constraints, the rules a change must meet, briefed apart as requirements |
 | `src/locks/models.py` | what `--model` gets for an alias (the alias, or a person's pin), the model that served an attempt, and workers lagging the person's sessions |
 | `src/locks/grants.py` | what workers may do: the permission mode per model (auto; Haiku bypasses) and the rules a person keeps per repository with `locks allow` |
-| `src/locks/runtime.py` | the Node a project declares (`.nvmrc`, `.node-version`, `engines.node`), or its installed dependencies need when it declares none, found among nvm's and put first on a worker's PATH |
+| `src/locks/runtime.py` | what a worker and the check run with: the Node a project declares (`.nvmrc`, `.node-version`, `engines.node`), or its installed dependencies need when it declares none, found among nvm's and put first on PATH; and the project's own Python package here first on PYTHONPATH when its `.venv` imports it from elsewhere (an editable install read from a worktree, `package_elsewhere`) |
 | `src/locks/preflight.py` | whether a task's check can start here, read before its first attempt: the programs it (and the scripts it names) starts on the PATH it runs with, the scripts and deno tasks it names, the Node the project declares, and a `.venv` importing the package from elsewhere (a warning); no model, fails open |
 | `src/locks/allow.py` | a refused call → the `--allow` rules that let it through, one per program; suggestions only, nothing is granted |
 | `src/locks/stops.py` | why a task stopped, who made the call, and the command that continues it; one account on its `finished` event; light, the hooks and the UI read it |
@@ -283,7 +283,8 @@ yields the default kind, not a guess.
   (blocked, the environment's) with the fix line, no attempt counted, nothing ran. It fails open:
   what it cannot tell (a substitution, a `cd`, a workspace flag, a path or script the request may
   add, dependencies the worker installs, a dependency's tool in a script) is said, never a stop,
-  and a `.venv` importing the package from elsewhere is a warning. Ports stay `locks.services`'.
+  and a `.venv` importing the package from elsewhere is a warning that says the package here goes first
+  on PYTHONPATH (`runtime.env_for`). Ports stay `locks.services`'.
 - A request that opens with a verb of change is never read as a read-only
   kind unless a tag says so, and is read as `test` only when its
   first change is about tests: a fix that asks for its own tests is the fix.
@@ -302,7 +303,8 @@ yields the default kind, not a guess.
   and never a blocker: the plan reads each job of `.github/workflows/*.yml`
   (its `run:` commands, the services and the env the code reads) and names in
   one warning the jobs `--verify` leaves out, on the report too. A workflow
-  file the line reader cannot read is skipped and said once. A job the person
+  file the line reader cannot read is skipped and said once; one that runs on no push, pull request
+  or merge group (a schedule, by hand, after another workflow) is no job of CI (`ci.checks_changes`). A job the person
   quieted for a repository (`locks ci quiet`, kept in their locks home) is named
   no more there.
 - Work that stopped for a person (blocked, needs approval) is kept on its
@@ -658,7 +660,7 @@ yields the default kind, not a guess.
   median and the 90th percentile of its kind's passes here (of its size when `progress.ESTIMATE_SAMPLES` of
   them are, never a guess with fewer), its stage from the `stage` events the run writes as its worker hands
   over to locks' check and the independent check, what its worktree holds against its base (files, lines
-  added and removed, a tool's artifacts left out), and a worker with no tool call for `progress.IDLE_S`
+  added and removed, a tool's artifacts and the checkout's linked dependencies left out), and a worker with no tool call for `progress.IDLE_S`
   said quiet ("a long command, or stuck"), never stopped. The status line tells each of up to
   `SHOWN_RUNNING` tasks so, and the board, the task page, `locks tasks` and the mod's `tasks` tool too,
   with the files it wrote by name; queueing says how long tasks like it took here. Its phase is

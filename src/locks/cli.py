@@ -1185,8 +1185,9 @@ def cmd_peek(args: argparse.Namespace) -> int:
         started = store.last_event(args.id, "attempt_started")
         base = ((started or {}).get("data") or {}).get("base")
         places = ((started or {}).get("data") or {}).get("places")
+        links = tuple(((started or {}).get("data") or {}).get("links") or ())
         if args.stat:
-            written = progress.changes(args.id, base, places=places)
+            written = progress.changes(args.id, base, places=places, links=links)
             if written is None:
                 print(f"#{args.id} works in no worktree of its own, or git cannot say", file=sys.stderr)
                 return 1

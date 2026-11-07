@@ -192,3 +192,17 @@ def test_a_plan_with_nothing_to_write_stays_a_plan():
     assert classify("Design the system for the firmware update: what are the trade-offs?", use_model=False).kind \
         == "plan"
     assert classify("roadmap for the MCP server #plan, save it in PLAN.md", use_model=False).kind == "plan"
+
+
+def test_a_change_that_opens_with_where_it_goes_is_the_change_not_its_tests():
+    """"In src/x.py add a function … Add a test for it": the first change is the function, so the
+    tests are how it proves itself (`_tests_lead`), never the kind; the same in Spanish."""
+    for text in ("In src/locks/arms.py add a function `describe(found, arms)` that returns one line. "
+                 "Add a test for it at the end of tests/test_arms.py.",
+                 "En el modulo de pagos agrega un campo nuevo. Agrega tests para el campo."):
+        found = by_rules(text)
+        assert found is None or found.kind != "test", (text, found)
+    assert by_rules("Write tests for the parser in src/parse.py").kind == "test"
+    from locks.classify import opens_with_change
+
+    assert opens_with_change("In src/locks/arms.py add a function describe")

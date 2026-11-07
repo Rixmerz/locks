@@ -838,3 +838,16 @@ def test_a_worker_is_handed_only_the_tools_its_brief_names_and_never_the_ones_th
         assert not tools & livespec_mod.WORKER_WITHHELD
     assert "search_similar" in ls.worker_tools("implement", status)
     assert "search_similar" not in ls.worker_tools("explore", status)
+
+
+def test_a_symbol_matched_only_by_the_request_s_words_raises_no_rung(tmp_path, git_repo):
+    """The map draws the best full-text matches, but only a symbol the request names says what the
+    work touches: a widely used one that shares a word with the request starts nothing higher."""
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    by_words = a.brief("the amount is rounded wrong when it has cents", git_repo, status)
+    assert "caller(s)" in "\n".join(by_words.lines)  # the map still shows what the words found
+    assert by_words.raise_rungs == 0 and not by_words.critical and not any("callers" in r for r in by_words.reasons)
+    named = a.brief("parse_amount rounds wrong", git_repo, status)
+    assert named.raise_rungs == 1

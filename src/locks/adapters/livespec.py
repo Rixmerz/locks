@@ -802,7 +802,7 @@ class Livespec:
             return Briefing()
         try:
             with _connect(Path(status.data["db"])) as conn:
-                symbols = _matching_symbols(conn, int(status.data["project"]), text)
+                symbols, named = _matching_symbols(conn, int(status.data["project"]), text)
                 entries = [_describe(conn, sid) for sid in symbols]
         except sqlite3.Error as exc:
             return Briefing(reasons=(f"livespec index unreadable while briefing: {exc}",))
@@ -812,7 +812,7 @@ class Livespec:
             return Briefing(reasons=release, reached=reached)
         lines = [f"Code map from livespec ({status.detail}). Read it before searching:"]
         raise_rungs, critical, reasons = 0, False, []
-        for e in entries:
+        for sid, e in zip(symbols, entries, strict=True):
             line = f"- `{e['qname']}` ({e['kind']}) {e['path']}:{e['line']} — {e['callers']} caller(s)"
             if e["specs"]:
                 line += "; specs: " + ", ".join(f"{s['spec_id']} {s['title']} [{s['priority']}]"
@@ -820,6 +820,11 @@ class Livespec:
             if e["tests"]:
                 line += "; tests: " + ", ".join(e["tests"][:3])
             lines.append(line)
+            if sid not in named:
+                # A full-text match is the map's, not the work's: a word the request shares with a
+                # widely used symbol it never names raises no rung (a 27-caller symbol matched on
+                # "state" started a test task a rung up).
+                continue
             if any(s["priority"] in _CRITICAL_PRIORITIES for s in e["specs"]):
                 critical = True
                 reasons.append(f"livespec: {e['qname']} implements a critical spec")
@@ -1100,9 +1105,10 @@ def _older_than_head(indexed_at: str | None, root: Path) -> bool:
         return False
 
 
-def _matching_symbols(conn: sqlite3.Connection, project: int, text: str) -> list[int]:
+def _matching_symbols(conn: sqlite3.Connection, project: int, text: str) -> tuple[list[int], list[int]]:
     """Symbols the request names outright, then the best full-text matches —
-    production code first; tests reach the map through the symbols they call."""
+    production code first; tests reach the map through the symbols they call. (every symbol
+    picked, the ones the request named): only a named one says what the work touches."""
     picked: list[int] = []
     named = {t for t in _IDENT.findall(text) if len(t) >= 4 and _looks_like_code(t)}
     for token in sorted(named):
@@ -1112,6 +1118,7 @@ def _matching_symbols(conn: sqlite3.Connection, project: int, text: str) -> list
             (project, token.rsplit(".", 1)[-1], token, f"%.{token}"),
         ).fetchall()
         picked += [r["id"] for r in rows if not is_test_path(r["path"]) and r["id"] not in picked]
+    named_ids = list(picked)
     terms = [w.replace('"', "") for w in words(text)][:12]
     if terms and len(picked) < MAP_SYMBOLS:
         rows = conn.execute(
@@ -1123,7 +1130,7 @@ def _matching_symbols(conn: sqlite3.Connection, project: int, text: str) -> list
         for r in rows:
             if r["id"] is not None and not is_test_path(r["path"] or "") and r["id"] not in picked:
                 picked.append(int(r["id"]))
-    return picked[:MAP_SYMBOLS]
+    return picked[:MAP_SYMBOLS], named_ids
 
 
 def _describe(conn: sqlite3.Connection, symbol_id: int) -> dict[str, Any]:

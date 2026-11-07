@@ -58,7 +58,9 @@ def spend(conn: sqlite3.Connection, days: int) -> dict[str, Any]:
 
 
 def cache(conn: sqlite3.Connection, days: int) -> list[dict[str, Any]]:
-    """Per model: input served from the cache against written to it and paid in full."""
+    """Per model: input served from the cache against written to it and paid in full. From the
+    sessions' usage (read from their transcripts); without any, from the workers' attempts, which
+    keep the same counts on `attempt_finished` (`source: attempts`, one row per attempt)."""
     out = []
     for model, inp, read, write, n in conn.execute(
             "SELECT model, SUM(input_tokens), SUM(cache_read), SUM(cache_write), COUNT(*) FROM usage "
@@ -66,6 +68,19 @@ def cache(conn: sqlite3.Connection, days: int) -> list[dict[str, Any]]:
         whole = (inp or 0) + (read or 0) + (write or 0)
         out.append({"model": model or "?", "messages": n, "input": inp or 0, "cache_read": read or 0,
                     "cache_write": write or 0, "read_share": round((read or 0) / whole, 3) if whole else None})
+    if out:
+        return out
+    for model, inp, read, write, n in conn.execute(
+            "SELECT json_extract(data, '$.served_model'), SUM(json_extract(data, '$.input_tokens')), "
+            "SUM(json_extract(data, '$.cache_read_tokens')), SUM(json_extract(data, '$.cache_write_tokens')), "
+            "COUNT(*) FROM events WHERE kind = 'attempt_finished' AND ts >= datetime('now', ?) "
+            "GROUP BY 1 ORDER BY 3 DESC", (_since(days),)):
+        # An attempt's input counts every token; its cache reads and writes are the part served or stored.
+        paid = max(0, (inp or 0) - (read or 0) - (write or 0))
+        whole = inp or 0
+        out.append({"model": model or "?", "messages": n, "input": paid, "cache_read": read or 0,
+                    "cache_write": write or 0, "read_share": round((read or 0) / whole, 3) if whole else None,
+                    "source": "attempts"})
     return out
 
 

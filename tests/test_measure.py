@@ -116,3 +116,24 @@ def test_ab_traps_build_and_compare(tmp_path: Path) -> None:
     got = traps.compare(rows)
     assert got["t"]["head"]["right"] == 1 and got["t"]["base"]["attempts"] == 2
     assert traps.measure(tmp_path / "none")["status"] is None
+
+
+def test_forensics_reads_the_cache_share_from_the_workers_attempts_without_session_usage() -> None:
+    store = _store()
+    tid = _task(store)
+    store.add_event(tid, "attempt_finished", seq=1, cell="sonnet/high", passed=True, served_model="claude-sonnet-5-5",
+                    input_tokens=1000, cache_read_tokens=800, cache_write_tokens=100, cost_usd=0.5)
+    store.add_event(tid, "attempt_finished", seq=2, cell="sonnet/high", passed=True, served_model="claude-sonnet-5-5",
+                    input_tokens=1000, cache_read_tokens=600, cache_write_tokens=0, cost_usd=0.5)
+    store.close()
+    got = forensics.report(forensics.open_copy(forensics.snapshot(home() / "locks.db")), {"LOCKS_HOME": str(home())})
+    assert got["cache"] == [{"model": "claude-sonnet-5-5", "messages": 2, "input": 500, "cache_read": 1400,
+                             "cache_write": 100, "read_share": 0.7, "source": "attempts"}]
+    # A session's own usage, once recorded, is what is shown.
+    conn = sqlite3.connect(home() / "locks.db")
+    conn.execute("INSERT INTO usage (session_id, model, input_tokens, cache_read, cache_write, output_tokens, ts) "
+                 "VALUES ('s', 'claude-opus-5-5', 10, 90, 0, 5, datetime('now'))")
+    conn.commit()
+    conn.close()
+    got = forensics.report(forensics.open_copy(forensics.snapshot(home() / "locks.db")), {"LOCKS_HOME": str(home())})
+    assert [m["model"] for m in got["cache"]] == ["claude-opus-5-5"] and "source" not in got["cache"][0]

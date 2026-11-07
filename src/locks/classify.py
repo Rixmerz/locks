@@ -58,7 +58,11 @@ _CRITICAL = re.compile(
 )
 
 #: Where a clause opens: the text's start, a punctuation mark, or a joining word.
-_OPENS = r"(?:^|[.;:\n!?(]\s*|,\s*|\b(?:y|e|and|then|luego|despues|tambien|also|please|por favor)\s+)"
+#: A clause may open with where the change goes before its verb: "In src/app.py, add …", "En el
+#: módulo de pagos agrega …" (a path or a name, with a few words of its own).
+_WHERE = r"(?:(?:in|en|inside|dentro de|under|bajo)\s+(?:\S+\s+){1,4}?)?"
+_OPENS = (r"(?:^|[.;:\n!?(]\s*|,\s*|\b(?:y|e|and|then|luego|despues|tambien|also|please|por favor)\s+)"
+          + _WHERE)
 #: Verbs that join work kept apart: a merge, a cherry-pick, a rebase, conflicts resolved.
 _INTEGRATE = (r"merge|mergea|mergear|mergealo|mergeala|mergealas|mergealos|haz (?:el |un )?merge|fusiona|fusionar"
               r"|integra|integrar|integrate|cherry-pick\w*|rebase|rebasea|rebasear"

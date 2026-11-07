@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.88.0] - 2026-11-07
+
 ### Added
 - **livespec handed to a worker, on trial** (`locks.handing`, the `livespec_trial` setting, on by
   default): six workers in a row were handed livespec and none called it, and what a handed worker

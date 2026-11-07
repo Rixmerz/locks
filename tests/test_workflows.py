@@ -13,6 +13,13 @@ from locks.store import Store
 from .test_orchestrate import bad, kind, ok
 
 
+@pytest.fixture(autouse=True)
+def _no_critique(monkeypatch):
+    # These tests script the launcher's results one per worker; a plan's reader would take the next.
+    monkeypatch.setenv("LOCKS_CRITIQUE", "off")
+
+
+
 def _worker(results, seen):
     """A launcher that writes one file per writing attempt and records what each attempt saw."""
     results = list(results)

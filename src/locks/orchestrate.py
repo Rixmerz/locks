@@ -70,6 +70,7 @@ from locks import (
 from locks import allow as allow_rules
 from locks import capabilities as caps
 from locks import criteria as criteria_mod
+from locks import critique as critique_mod
 from locks import evidence as evidence_mod
 from locks import findings as findings_mod
 from locks import handing as handing_mod
@@ -1465,6 +1466,13 @@ def run(
         if side == "with":
             context.append(method.lines)
     the_plan.seen_risks = tuple(methods_mod.lines_for(methods_mod.run_risks(store, task)))
+    # A plan's parts read blind before they are built (`locks.critique`): read or not by the trial,
+    # kept either way so the arms can be compared; a resume keeps the arm its first brief drew.
+    critiqued: dict[str, Any] = {}
+    critic_arm = ""
+    if options.parts and critique_mod.enabled() and options.start is None:
+        critic_arm, critic_why = critique_mod.arm_for(store, key, task["id"])
+        critiqued = {critique_mod.KEY: critic_arm, critique_mod.WHY_KEY: critic_why}
     # Whether this worker is handed livespec's tools (`locks.handing`): drawn by the trial of its
     # nature here, kept either way so the arms can be compared; the orientation goes with the tools.
     # What locks read from the index itself (the code map, the size, the check's impact) stays.
@@ -1496,7 +1504,7 @@ def run(
                     **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                        for st in the_plan.neighbours}} if the_plan.neighbours else {}),
                     **primed, **worn, **trunked, **evidenced, **handed_arms,
-                    **methodical, **(the_plan.recalled or {}),
+                    **methodical, **critiqued, **(the_plan.recalled or {}),
                     **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
                     **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
     # The runtime the project declares goes first on the worker's PATH, and on its
@@ -1876,6 +1884,21 @@ def run(
                             f"review: {result.summary}")
                 store.add_event(task["id"], "review_unread", seq=nth,
                                 **behavior.unread_record("worker", again=again, calls=made))
+            critic_cost: float | None = None
+            if result.passed and critic_arm == "with" and critique_mod.due(
+                    result.parts, pinned=options.start is not None):
+                # A plan whose parts a fresh reader could not carry out (`locks.critique`) goes back
+                # to the same cell once, in its own session, with what the reader found; its second
+                # answer stands whatever the reader says. Never a climb, never a failure.
+                again = any(a.shape.startswith(critique_mod.SHAPE) for a in attempts)
+                seen = critique_mod.read(launcher, spec, text, result.parts, result.contract, store=store,
+                                         task_id=task["id"], nth=nth, nth_round=2 if again else 1)
+                critic_cost = seen.cost_usd
+                result = dataclasses.replace(result, cost_usd=result.cost_usd + critic_cost)
+                if seen.findings and not again:
+                    why = critique_mod.shape(seen.findings)
+                    result = dataclasses.replace(result, passed=False, verdict="", failure=Failure.INCONCLUSIVE,
+                                                 shape=why, summary=f"{why}: {result.summary}")
             review_stop = None
             open_blockers: tuple[dict[str, str], ...] = ()
             mark = time.monotonic()
@@ -1989,9 +2012,11 @@ def run(
                             check_s=round(check_s, 2), verifier_s=round(verifier_s, 2),
                             input_tokens=result.input_tokens, output_tokens=result.output_tokens,
                             cache_read_tokens=result.cache_read_tokens, cache_write_tokens=result.cache_write_tokens,
-                            # The attempt's cost holds its independent check's; each is kept apart here.
-                            worker_cost_usd=round(worker_cost, 4),
+                            # The attempt's cost holds its independent check's and its plan's blind
+                            # reader's (`locks.critique`); each is kept apart here.
+                            worker_cost_usd=round(worker_cost - (critic_cost or 0.0), 4),
                             verifier_cost_usd=round(result.cost_usd - worker_cost, 4),
+                            **({"critique_cost_usd": round(critic_cost, 4)} if critic_cost is not None else {}),
                             # What the dispatcher's level reads (`locks.capacity`): the API, or the machine, said no.
                             **({"limited": result.limited, "retry_after_s": result.retry_after_s}
                                if result.limited else {}),
@@ -3791,12 +3816,14 @@ def brief(
 
 def _reshape_prompt(attempts: Sequence[Attempt], base: str | None = None) -> str:
     """What a worker asked again on its own cell is told: write the spec its build owes, measure what
-    it was held to, read the diff of the change it reviewed (`base`, the commit it is against), or
-    answer in the form it was given."""
+    it was held to, read the diff of the change it reviewed (`base`, the commit it is against), rewrite
+    the parts a fresh reader could not carry out, or answer in the form it was given."""
     if attempts and attempts[-1].shape.startswith(behavior.UNREAD_SHAPE):
         return behavior.UNREAD_PROMPT.format(base=base or "HEAD")
     if attempts and attempts[-1].shape.startswith(evidence_mod.SHAPE):
         return evidence_mod.PROMPT
+    if attempts and attempts[-1].shape.startswith(critique_mod.SHAPE):
+        return critique_mod.PROMPT
     return specs_mod.FIRST_PROMPT if attempts and attempts[-1].shape.startswith(specs_mod.FIRST_SHAPE) \
         else launch.RESHAPE_PROMPT
 
@@ -3805,7 +3832,8 @@ def continuation_note(last: Attempt) -> str:
     """What a continued session is told failed its attempt, which its context does not
     hold: the independent check's blockers in a correction round (its work passed its
     own check), else the output that failed it."""
-    if last.shape.startswith((specs_mod.FIRST_SHAPE, evidence_mod.SHAPE, behavior.UNREAD_SHAPE)):
+    if last.shape.startswith((specs_mod.FIRST_SHAPE, evidence_mod.SHAPE, behavior.UNREAD_SHAPE,
+                              critique_mod.SHAPE)):
         return f"Why your last answer was held back: {last.shape}."
     if last.shape:
         return f"Why your last answer could not be read: {last.shape}."

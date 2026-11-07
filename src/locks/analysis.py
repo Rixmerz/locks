@@ -27,6 +27,7 @@ from typing import Any
 
 from locks import behavior, launch, racing, revisions, trunks, trust, usage, workflows
 from locks import cells as cells_mod
+from locks import critique as critique_mod
 from locks import evidence as evidence_mod
 from locks import handing as handing_mod
 from locks import methods as methods_mod
@@ -720,6 +721,9 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "methods": {m.name: methods_mod.trial(store, repo, m) for m in methods_mod.METHODS.values()},
         "methods_now": {m.name: methods_mod.arm(store, repo, m, 0)[1] for m in methods_mod.METHODS.values()}
         if repo else {},
+        # Whether a plan's parts are read before they are built, and its trial (`locks.critique`).
+        "critique": critique_mod.trial(store, repo),
+        "critique_now": critique_mod.arm(store, repo, 0)[1] if repo else None,
         # Whether workers of each nature are handed livespec here, and its trial (`locks.handing`).
         "livespec_handing": {n: handing_mod.trial(store, repo, n) for n in handing_mod.NATURES},
         "livespec_handing_now": {n: handing_mod.arm(store, repo, "chat" if n == "reading" else "implement", 0)[1]
@@ -1055,6 +1059,16 @@ def text(report: Mapping[str, Any]) -> str:
                                  f"({_rate(row['rate'])})")
                 if (report.get("methods_now") or {}).get(name):
                     lines.append(f"  now: {report['methods_now'][name]}")
+        read = report.get("critique") or {}
+        if any(side.get("tasks") for side in read.values()):
+            lines += ["", "the critique of a plan's parts (its trial; plans, first tries of the parts after them "
+                      "passed):"]
+            for side, row in read.items():
+                if row.get("tasks"):
+                    lines.append(f"  {side:<8} plans {row['tasks']:>4}  first tries {row['passed']}/{row['tries']} "
+                                 f"({_rate(row['rate'])})")
+            if report.get("critique_now"):
+                lines.append(f"  now: {report['critique_now']}")
         for which, arms in (report.get("livespec_handing") or {}).items():
             if any(side.get("tasks") for side in arms.values()):
                 lines += ["", f"livespec handed to {which} workers (its trial; tasks, first tries passed, "

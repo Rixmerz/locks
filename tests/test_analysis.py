@@ -521,3 +521,43 @@ def test_the_reviews_held_back_as_unread_are_counted_by_who_held_them_and_whethe
     store._conn.execute("UPDATE events SET ts = '2020-01-01T00:00:00+00:00' WHERE kind = 'review_unread'")
     assert analysis.compute(store, days=30)["reviews_unread"] == zero
     assert "held back" not in analysis.text(analysis.compute(store, days=30))
+
+
+def test_the_critique_trial_is_counted_from_the_parts_after_each_plan_and_shown_by_arm(store):
+    from .test_standards import finished
+
+    definition = json.dumps({"name": "export", "steps": [{"id": "plan", "kind": "plan", "prompt": "plan the export"}]})
+
+    def planned(side, *firsts):
+        """A plan of two parts briefed in an arm, in a run whose later steps made the given first tries."""
+        run = store.create_run(name="export", scope="project", source="x", definition=definition)
+        plan = store.create_task("plan the export", status="done", source="locks", repo="r", kind="plan",
+                                 workflow_run=run["id"])
+        store.add_attempt(plan["id"], cell="sonnet/high", max_turns=10, passed=1, input_tokens=5)
+        store.add_event(plan["id"], "briefed", critique_arm=side)
+        store.add_event(plan["id"], "finished", status="done", parts=[
+            {"id": "writer", "prompt": "write the rows", "surfaces": ["src/export/**"]},
+            {"id": "cli", "prompt": "wire the command", "surfaces": ["src/cli.py"]}])
+        for passed in firsts:
+            step = store.create_task("build a part", status="done", source="locks", repo="r", kind="implement",
+                                     workflow_run=run["id"])
+            store.add_attempt(step["id"], cell="sonnet/high", max_turns=10, passed=int(passed), input_tokens=5)
+
+    finished(store, ("haiku/medium", True), kind="explore")  # a run, so the text says more than "no run yet"
+    planned("with", True, True)
+    planned("without", True, False)
+    report = analysis.compute(store, days=0, repo="r")
+    assert report["critique"]["with"] == {"tasks": 1, "tries": 2, "passed": 2, "rate": 1.0, "pass_p50_s": None}
+    assert report["critique"]["without"] == {"tasks": 1, "tries": 2, "passed": 1, "rate": 0.5, "pass_p50_s": None}
+    # The trial counts the first tries of the parts after the plans (here two each), as a method's does.
+    assert report["critique_now"] == "the critique trial here (2 with, 2 without, 6 each)"
+    lines = analysis.text(report).splitlines()
+    assert ("the critique of a plan's parts (its trial; plans, first tries of the parts after them passed):"
+            in lines)
+    assert "  with     plans    1  first tries 2/2 (100%)" in lines
+    assert "  without  plans    1  first tries 1/2 (50%)" in lines
+    assert f"  now: {report['critique_now']}" in lines
+    # Across every repository there is no "now": the trial's verdict is a repository's.
+    everywhere = analysis.compute(store, days=0)
+    assert everywhere["critique_now"] is None and everywhere["critique"]["with"]["tasks"] == 1
+    assert not any(line.startswith("  now: the critique") for line in analysis.text(everywhere).splitlines())

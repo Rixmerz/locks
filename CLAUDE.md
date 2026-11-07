@@ -1012,7 +1012,8 @@ yields the default kind, not a guess.
   session from then on, its active workflow runs too; the old session is left
   as it was.
 - Habits are per project: mined from one repository's events and gated on
-  them alone; a habit of other repositories is offered apart, never counted as
+  them alone, and the ones its own tool files declare (`habits.DECLARED`, one per program and
+  tracked file type) offered before any session repeats them, reviewed and vetted as the mined ones; a habit of other repositories is offered apart, never counted as
   this one's, and only to a checkout that has its tool (`habits.has_tool`). An
   event's repository is read from its task or session, never written by the
   PostToolUse fast path. A write is an edit (one hook matcher takes both), a
@@ -1035,8 +1036,10 @@ yields the default kind, not a guess.
   `habits.REVIEW_SECONDS`, writing nothing. Each install and refusal is an event on the
   review (`habit_installed`, `habit_refused`) and its ending says it with the line that
   removes it; with `habit_auto` off the ending gives the install lines for the person. A
-  worker never runs `locks habits install` or `review`. An installed habit that fails
-  three times in a row, or runs past `habits.SLOW_SECONDS`, turns itself off. Tests run
+  worker never runs `locks habits install` or `review`. An installed habit whose command breaks
+  three times in a row (cannot start, hangs, or runs past `habits.SLOW_SECONDS`) turns itself off; a
+  check that exits non-zero with output found something (`habits.caught`, shown to the session), which
+  is its job and never a break. Tests run
   with `LOCKS_HABIT_REVIEW=off` and `LOCKS_HABIT_AUTO=off`.
 - A check whose failures are mostly the test runners' own timeout lines
   (`launch.check_timed_out`) after a claimed pass, or that ran past its own

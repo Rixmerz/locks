@@ -18,6 +18,12 @@
   it was checked and the calibration chose it sooner. `Ended.unread` marks it, `standards.rates(read=True)`
   leaves it out, and `start_cell` moves to a cheaper rung only on first tries that were read (the
   change's evidence keeps `read` and `held`); a move up reads every try as before.
+- **A linter's findings no longer turn its habit off**: an installed habit counted every non-zero
+  exit as a failure of the hook, so three edits in a row with something to fix (the very runs it
+  is for) disabled it. A command that exits non-zero with output has *found* something: the session
+  hears it as before, the run is counted as `caught` (`locks habits status` shows it beside the
+  runs), and the streak resets. Only a command that cannot start (exit 126 or 127), hangs, or runs
+  past `habits.SLOW_SECONDS` breaks the hook, and three breaks in a row turn it off.
 
 ### Added
 - **A reading worker's answer is kept whole**: a worker of a reading kind (explore, a review, a plan,
@@ -31,6 +37,13 @@
   whose hooks did not run (no locks plugin installed where it ran) logs none, and its
   `capability_calls` zeros, its missing `behavior` and `livespec_calls: {}` were read as "never
   called". `locks stats` counts such attempts apart ("not recorded") instead of as silent.
+- **Habits a repository's tool files declare**: a linter, formatter or type checker a repository
+  declares (`[tool.ruff]` or `[tool.mypy]` in pyproject.toml, eslint, prettier, typescript or biome
+  in package.json, deno.json, Cargo.toml, go.mod: `habits.DECLARED`) is offered as a habit for each
+  file type the repository tracks, before any session repeats the sequence (a mined habit needed
+  three runs in two sessions). It is listed by `locks habits list` as "declared by <file>", reviewed
+  by the same read-only worker (which finds the command and times it) and vetted by locks before it
+  is installed, as a mined one is; a habit a session already showed is the mined one.
 
 ### Fixed
 - **An older install a live session still runs from is no longer offered for removal**: SessionStart

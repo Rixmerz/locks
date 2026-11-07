@@ -2435,9 +2435,9 @@ def cmd_habits(args: argparse.Namespace) -> int:
                 print(json.dumps(installed, ensure_ascii=False))
                 return 0
             for h in installed:
-                state = f"off since {h['disabled_at']} after {h['failures']} failures" if h["disabled_at"] else "on"
-                print(f"#{h['id']} {' → '.join(h['steps'])}: `{h['command']}` ({h['runs']} runs) {state}"
-                      f"  in {h['repo']}")
+                state = f"off since {h['disabled_at']} after {h['failures']} breaks" if h["disabled_at"] else "on"
+                print(f"#{h['id']} {' → '.join(h['steps'])}: `{h['command']}` ({h['runs']} runs, "
+                      f"{h.get('caught') or 0} found something) {state}  in {h['repo']}")
             return 0
         key = None if args.all else _habit_repo(args.repo)
         if key is None:

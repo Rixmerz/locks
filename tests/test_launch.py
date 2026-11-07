@@ -575,6 +575,30 @@ def test_a_lean_worker_gets_no_subagent_tool_nor_skill_listing_and_only_flags_it
     assert launch.lean_flags("claude", os.environ, help_text=lambda b: knows_all) == ()
 
 
+def test_setting_sources_reach_the_argv_only_when_asked_and_only_for_a_cli_that_lists_the_flag(tmp_path):
+    assert "--setting-sources" not in build_argv(spec(tmp_path))
+    argv = build_argv(spec(tmp_path, setting_sources=("user",)))
+    assert argv[argv.index("--setting-sources") + 1] == "user"
+    listed = "  --setting-sources <sources>  Comma-separated list of setting sources\n"
+    assert launch.setting_sources_flag("claude", os.environ, help_text=lambda b: listed) == ("--setting-sources",)
+    assert launch.setting_sources_flag("claude", os.environ, help_text=lambda b: "  --model <model>\n") == ()
+    assert launch.setting_sources_flag("claude", os.environ, help_text=lambda b: "") == ()
+
+
+def test_run_passes_setting_sources_only_to_a_cli_whose_help_lists_it(tmp_path, monkeypatch):
+    seen = []
+
+    def runner(argv, **kw):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    for said, expected in (("--setting-sources <s>", True), ("--model", False)):
+        seen.clear()
+        monkeypatch.setattr(launch, "_cli_help", lambda b, said=said: said)
+        launch.run(spec(tmp_path, setting_sources=("user",)), runner=runner)
+        assert ("--setting-sources" in seen[0]) is expected
+
+
 def test_the_account_s_usage_limit_is_read_with_when_it_resets():
     from datetime import UTC, datetime
 

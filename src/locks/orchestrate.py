@@ -2955,6 +2955,8 @@ def verify_cell(cell: Cell) -> Cell:
 #: The turns of one independent check: it reads a diff and runs probes, and a
 #: worker that climbed to many turns does not hand it the same room.
 VERIFIER_TURNS = 40
+#: The settings the independent check loads: the person's own, never the repository's.
+VERIFIER_SETTING_SOURCES = ("user",)
 #: Kinds whose change must make a failure go away: the check shows it at the base, and gone.
 _REPRODUCES = frozenset({"debug-repro", "debug-unclear"})
 
@@ -3149,7 +3151,8 @@ def _late_check(store: Store, task_id: int, *, text: str, kind: str, risk: risk_
                     worker=deferred["cell"].label, risk=risk.data(),
                     verdict=verdict.verdict, passed=not blockers and verdict.passed, findings=list(shown)[:20],
                     blocking=len(blockers), blockers=list(blockers)[:20], cost_usd=verdict.cost_usd,
-                    summary=verdict.summary[:500], round=0, wall_s=round(wall_s, 2),
+                    summary=verdict.summary[:500], setting_sources=list(VERIFIER_SETTING_SOURCES), round=0,
+                    wall_s=round(wall_s, 2),
                     duration_s=round(verdict.duration_s, 2), turns=verdict.turns)
     task = store.get_task(task_id) or {}
     store.update_task(task_id, cost_usd=(task.get("cost_usd") or 0) + verdict.cost_usd)
@@ -3498,6 +3501,8 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
         env=_verifier_env(spec.env),
         # Its own session, never the worker's: it reads the request and the diff, not the work's account.
         resume_session="", fork_session=False, resume_note="", persist_session=False,
+        # Not the repository's settings files: hooks and rules it commits never reach the check that judges it.
+        setting_sources=VERIFIER_SETTING_SOURCES,
         timeout_s=launch.timeout_for(min(spec.max_turns, VERIFIER_TURNS)),
         model_id=models.pinned(vcell.model), permission_mode=grants.mode_for(vcell.model),
         disallowed_tools=tuple(dict.fromkeys([*spec.disallowed_tools, *launch.WRITE_TOOLS])),
@@ -3572,7 +3577,8 @@ def _judged(result: launch.WorkerResult, verdict: launch.WorkerResult, *, vcell:
                     passed=not blockers and decided, findings=list(shown)[:20], blocking=len(blockers),
                     blockers=list(blockers)[:20],
                     carried=len(carried), cost_usd=verdict.cost_usd, summary=verdict.summary[:500],
-                    round=corrections, wall_s=round(wall_s, 2), duration_s=round(verdict.duration_s, 2),
+                    setting_sources=list(VERIFIER_SETTING_SOURCES), round=corrections, wall_s=round(wall_s, 2),
+                    duration_s=round(verdict.duration_s, 2),
                     turns=verdict.turns, **({"verdicts": list(answered.values())} if rows else {}), **(recorded or {}),
                     **({"tracer_unanswered": unanswered} if unanswered else {}),
                     **({"beside_check": True, "beside_check_s": round(overlapped_s, 2)} if beside else {}))

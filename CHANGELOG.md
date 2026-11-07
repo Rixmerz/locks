@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-11-07
+
+### Changed
+- **A trial's winner must not be slower**: the two-arm trials that share `arms.pick` (a method, the
+  recall order) decided by pass-first alone, so an arm that passed as often but took longer won.
+  Each arm's passing first tries are timed (`tally`'s `pass_p50_s`, from `TIME_SAMPLES` or more),
+  and the change loses where its median is over `arms.SLOWER` times the other arm's; the verdict
+  says both. A pre-mortem's steps are untimed (they come after the plan), so it decides as before.
+
 ## [0.86.0] - 2026-11-07
 
 ### Changed

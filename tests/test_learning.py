@@ -157,7 +157,8 @@ def test_stats_show_each_method_s_trial(store: Store):
     done = finished(store, ("opus/high", 1), kind="debug-unclear")
     store.add_event(done, "briefed", method_arm="diagnosis:with")
     report = analysis.compute(store, days=0, repo="r")
-    assert report["methods"]["diagnosis"]["with"] == {"tasks": 1, "tries": 1, "passed": 1, "rate": 1.0}
+    assert report["methods"]["diagnosis"]["with"] == {"tasks": 1, "tries": 1, "passed": 1, "rate": 1.0,
+                                                       "pass_p50_s": None}
     assert "the diagnosis method (its trial" in analysis.text(report)
 
 
@@ -319,3 +320,20 @@ def test_two_trials_over_the_same_tasks_land_their_arms_on_different_tasks():
     # Once the arms drift `BALANCE` apart, the one with fewer tasks goes next, whatever the hash says.
     assert all(arms.side("primer", "r", n, 0, arms.BALANCE) == 0 for n in range(40))
     assert all(arms.side("primer", "r", n, arms.BALANCE, 0) == 1 for n in range(40))
+
+
+def test_a_change_that_passes_as_often_but_slower_loses_its_trial():
+    def rows(arm: str, took: float, n: int = 4) -> list[dict]:
+        return [{"arm": arm, "tries": 1, "passed": 1, "duration_s": took} for _ in range(n)]
+
+    found = arms.tally([*rows("with", 100.0), *rows("without", 60.0)], ("with", "without"))
+    assert found["with"]["pass_p50_s"] == 100.0 and found["without"]["pass_p50_s"] == 60.0
+    side, why = arms.pick(found, ("with", "without"), 1, 4, "diagnosis")
+    assert side == "without" and "passes took 100s at the median with against 60s without" in why
+    # Within the margin, or untimed, pass-first alone decides; a failed try's time is nobody's.
+    close = arms.tally([*rows("with", 70.0), *rows("without", 60.0)], ("with", "without"))
+    assert arms.pick(close, ("with", "without"), 1, 4, "diagnosis")[0] == "with"
+    untimed = arms.tally([{"arm": "with", "tries": 1, "passed": 1}] * 4 + rows("without", 60.0), ("with", "without"))
+    assert untimed["with"]["pass_p50_s"] is None and arms.pick(untimed, ("with", "without"), 1, 4, "d")[0] == "with"
+    failed = arms.tally([{"arm": "with", "tries": 1, "passed": 0, "duration_s": 999.0}] * 4, ("with", "without"))
+    assert failed["with"]["pass_p50_s"] is None

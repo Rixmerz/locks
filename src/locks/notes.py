@@ -505,7 +505,8 @@ def recall_on(env: Mapping[str, str] | None = None) -> bool:
 
 def recall_trial(store: Store, repo: str | None) -> dict[str, dict[str, Any]]:
     """Per arm of the recall order's trial: its tasks and first tries passed."""
-    rows = [{"arm": r["arm"], "tries": 1, "passed": r["passed_first"]} for r in store.arm_trial(repo, RECALL_KEY)]
+    rows = [{"arm": r["arm"], "tries": 1, "passed": r["passed_first"], "duration_s": r.get("duration_s")}
+            for r in store.arm_trial(repo, RECALL_KEY)]
     return arms_mod.tally(rows, RECALL_ARMS)
 
 

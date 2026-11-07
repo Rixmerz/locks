@@ -85,7 +85,9 @@ def trial(store: Store, repo: str | None, method: Method) -> dict[str, dict[str,
         if name != method.name:
             continue
         tries = _first_tries_after(store, int(row["task_id"])) if method.kind == "plan" else [row["passed_first"]]
-        rows.append({"arm": side, "tries": len(tries), "passed": sum(bool(t) for t in tries)})
+        # A diagnosis is timed by its own first try; a pre-mortem's steps come after it, untimed here.
+        rows.append({"arm": side, "tries": len(tries), "passed": sum(bool(t) for t in tries),
+                     "duration_s": None if method.kind == "plan" else row.get("duration_s")})
     return arms_mod.tally(rows, ARMS)
 
 

@@ -215,12 +215,16 @@ def repeated_answer(attempts: Sequence[Attempt]) -> bool:
 
 
 def reshape_streak(attempts: Sequence[Attempt]) -> int:
-    """How many attempts in a row, ending with the last, failed only the form of their answer on its cell."""
+    """How many attempts in a row, ending with the last, failed only the form of their answer on its cell.
+
+    A plan held back for its reader's findings (`locks.critique.SHAPE`) passed in form: it is no
+    failure of the answer's form and counts for nothing, so its one return never becomes a climb."""
     streak, cell = 0, attempts[-1].cell
     for a in reversed(attempts):
         if a.passed or not a.shape or a.cell != cell:
             break
-        streak += 1
+        if not a.shape.startswith("critique"):
+            streak += 1
     return streak
 
 

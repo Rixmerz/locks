@@ -1,6 +1,6 @@
 {
   "name": "locks",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
   "author": {
     "name": "Rixmerz"
@@ -31,6 +31,12 @@
       "type": "boolean",
       "title": "Predict a first try that would fail",
       "description": "A writing task shaped like ones that failed their first try at its start cell here (its kind, size, risk tier and how many areas it reaches) starts one rung up, only where the climbs from that start to the rung above rescued those failures: the backtest on this repository's record is the rule. Never a lower start, never a pinned or probation start. Off: the start comes from the ladder, the standards and history alone.",
+      "default": true
+    },
+    "critique": {
+      "type": "boolean",
+      "title": "Read a plan's parts before they are built",
+      "description": "A plan that splits into parts is read once by a fresh, read-only reader that sees only the request, the contract and each part's prompt and surfaces, and names the design decisions a part leaves to its worker (a name, a schema, an endpoint, where a file goes). The plan goes back once with what it found, and its second answer stands. Each repository tries it in turns against its absence and keeps it only where the first tries of the parts after it passed no less often. Off: plans go to their parts as they are.",
       "default": true
     },
     "livespec_trial": {

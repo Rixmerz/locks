@@ -529,6 +529,19 @@ def test_a_passing_ending_carries_its_verdict_so_the_session_never_redoes_the_wo
     assert hooks.verdict_lines(None) == [] and hooks.verdict_lines({}) [-1].endswith("not checked or not met")
 
 
+def test_an_independent_check_that_read_nothing_twice_is_said_so_and_lets_the_diff_be_opened():
+    held = {"criteria": [{"id": "S1", "met": True, "evidence": "test_export passes"}],
+            "check": {"command": "npm test", "passed": True},
+            "independent": {"ran": True, "passed": False, "blocking": 0, "unread": True}, "attempts": 1}
+    lines = hooks.verdict_lines(held)
+    assert "  independent check: read nothing twice; the pass stands on locks' own check" in lines
+    assert not any("blocker(s) left" in line for line in lines)
+    assert lines[-1].endswith("open the diff only where it says something was not checked or not met")
+    # Its TRACER lines nobody checked are still said.
+    unchecked = hooks.verdict_lines({**held, "independent": {**held["independent"], "unchecked": ["C2"]}})
+    assert "  TRACER CORRECT lines nobody checked: C2" in unchecked
+
+
 def test_a_command_line_flag_or_a_bare_slash_command_is_no_turn(store: Store, tmp_path):
     for echo in ("--continue", "--resume", "--resume 4f2a9c", "-c", "/clear", "/compact", "  --continue  "):
         prompt(store, echo)
@@ -687,3 +700,9 @@ def test_a_session_quiet_past_the_live_window_frees_its_version():
     link.record_loaded(root, "s", "0.1.0")
     assert link.live_versions(root) == {"0.1.0"}
     assert link.live_versions(root, now=time.time() + link.LIVE_S + 1) == set()
+
+
+def test_verdict_summary_says_an_unread_independent_check():
+    said = hooks.verdict_summary({"check": {"command": "pytest", "state": ""}, "criteria": [],
+                                  "independent": {"ran": True, "passed": False, "blocking": 0, "unread": True}})
+    assert "blocker" not in said and "read nothing" in said

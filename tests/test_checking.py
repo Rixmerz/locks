@@ -305,6 +305,10 @@ def test_a_risky_pass_is_checked_and_its_findings_earn_one_correction(git_repo, 
     assert "drops the last item" in recheck.prompt and "whether it is fixed" in recheck.prompt
     events = store.events_of(report.task_id, "verified")
     assert [e["data"]["blocking"] for e in events] == [1, 0] and events[0]["data"]["risk"]["tier"] == "high"
+    # The check (first and re-check alike) never loads the repository's settings files; the worker does.
+    assert verifier.setting_sources == recheck.setting_sources == ("user",)
+    assert script.specs[0].setting_sources is None and again.setting_sources is None
+    assert all(e["data"]["setting_sources"] == ["user"] for e in events)
     attempts = store.attempts(report.task_id)
     assert attempts[0]["cost_usd"] == pytest.approx(0.15)
     assert "risk high" in report.text()
@@ -1185,6 +1189,8 @@ def test_a_late_check_runs_after_the_ending_and_a_blocker_reopens_the_task(git_r
     assert card["late"] and "after this ending" in card["why"]
     verified = store.last_event(report.task_id, "verified")["data"]
     assert verified["late"] and verified["blocking"] == 1
+    # The late check, like the first, never loads the repository's settings files.
+    assert verified["setting_sources"] == ["user"] and script.specs[1].setting_sources == ("user",)
     # The blocker reopens it as a review, with an ending of its own, its work on its branch.
     assert kinds.count("finished") == 2 and kinds.index("finished", late_check) > late_check
     finished = store.last_event(report.task_id, "finished")["data"]
@@ -1351,3 +1357,58 @@ def test_a_reading_worker_is_told_where_its_whole_answer_goes(tmp_path):
     assert told.endswith(launch.REPORT_INSTRUCTIONS) and "`locks-report`" in told
     assert launch.REPORT_INSTRUCTIONS not in launch.instructions(
         launch.LaunchSpec(prompt="p", cell=Cell("haiku", "medium"), launch_dir=tmp_path))
+
+
+@pytest.mark.parametrize("dismissed", [False, True])
+def test_a_resume_after_a_review_stop_briefs_its_worker_with_the_blockers(git_repo, store, verifier_on, monkeypatch,
+                                                                          dismissed):
+    """Task #33: a resume after a `review` stop gave the blockers to its first check only, and its worker
+    "verified the already-committed template", changed nothing, and the blocker stood. The worker of the
+    resume (the dispatcher's `--unattended` one, and one of a dismissed review) is briefed with them."""
+    from locks import cli, stops
+
+    script = Script(passing("added the export endpoint"), check("fail", [BUG]),
+                    passing("fixed the dropped last row"), check("fail", [OTHER]), write="app.py")
+    report = run("add the cart export", git_repo, store, Options(start=Cell("opus", "high"), verify="true"),
+                 registry={}, launcher=script, classifier=kind("feature"))
+    assert report.status == "blocked" and report.stop.cause == "review"
+    if dismissed:
+        assert stops.dismiss(store, store.get_task(report.task_id), via="cli") is not None
+    resumed = Script(passing("fixed the crash"), check("pass"), write="lib.py")
+    monkeypatch.setattr(launch, "run", resumed)
+    assert cli.main(["resume", str(report.task_id), "--unattended", "--no-report"]) == 0
+    worker = resumed.specs[0]
+    assert orchestrate.REVIEW_FINDINGS in worker.prompt
+    section = worker.prompt.split(orchestrate.REVIEW_FINDINGS, 1)[1]
+    # The blocker the last round kept, as `findings.text` writes it; not the one a correction already fixed.
+    assert findings.text([OTHER]) in section and BUG["what"] not in section
+    # Data for the task, after its text.
+    assert worker.prompt.index("add the cart export") < worker.prompt.index(orchestrate.REVIEW_FINDINGS)
+    # Its first check still reads them first.
+    assert OTHER["what"] in resumed.specs[1].prompt
+
+
+def test_a_resume_with_no_review_blockers_says_nothing_of_them():
+    assert orchestrate.review_context([]) == []
+    line = orchestrate.review_context([BUG])[0]
+    assert line.startswith(orchestrate.REVIEW_FINDINGS) and findings.text([BUG]) in line
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_an_unanswered_criterion_is_asked_again_of_the_same_cell_not_climbed(git_repo, store):
+    left = WorkerResult(False, Failure.INCONCLUSIVE, "claimed a pass without saying whether S2 is met",
+                        cost_usd=0.1, shape=f"{launch.UNANSWERED_SHAPE}: S2")
+    answered = WorkerResult(True, None, "done", evidence="1 passed", cost_usd=0.1,
+                            criteria=({"id": "S1", "met": True, "evidence": "x"},
+                                      {"id": "S2", "met": True, "evidence": "y"}))
+    script = Script(left, answered, write="f.py")
+    report = run("Fix the total:\n- rounds once\n- keeps the sign", git_repo, store, registry={},
+                 launcher=script, classifier=kind("implement"))
+    assert report.status == "done" and report.cells == ["sonnet/medium", "sonnet/medium"]
+    assert len(script.specs) == 2
+    moved = store.last_event(report.task_id, "moved")["data"]
+    assert moved["from_cell"] == moved["to_cell"] == "sonnet/medium" and moved["move"] == "retry"
+    assert "form" in moved["because"][1] and "criteria-unanswered" in moved["reason"]
+    assert "S2" in script.specs[1].prompt and "criteria" in script.specs[1].prompt
+    assert orchestrate._reshape_prompt([Attempt(Cell("sonnet", "medium"), 30, False, Failure.INCONCLUSIVE,
+                                                shape=f"{launch.VERDICTS_SHAPE}: F2")]).count("F2") == 1

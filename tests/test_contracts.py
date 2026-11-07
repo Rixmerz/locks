@@ -248,6 +248,52 @@ def test_the_evidence_arm_a_brief_keeps_is_the_one_its_trial_reads_back(git_repo
     assert found["free"]["tasks"] == 1 and found["gate"]["tasks"] == 0
 
 
+def test_the_critique_arm_a_brief_keeps_is_the_one_its_trial_reads_back_and_its_event_is_the_contract(
+        git_repo, store, monkeypatch):
+    """`orchestrate` keeps a plan's arm on `briefed` (`critique.KEY`); `critique.trial` counts arms from it,
+    and `critique.read` writes the `critiqued` fields the contract names, once per reading."""
+    from locks import critique
+    from locks.launch import WorkerResult
+    from locks.orchestrate import run
+
+    from .conftest import git
+    from .test_orchestrate import Script, kind
+
+    monkeypatch.setenv("LOCKS_CRITIQUE", "on")
+    monkeypatch.setenv("LOCKS_VERIFIER", "off")
+    monkeypatch.setattr(critique, "arm", lambda store, repo, task_id: ("with", "with for the test"))
+    parts = ({"id": "a", "prompt": "Build a.", "surfaces": ["src/a/**"]},
+             {"id": "b", "prompt": "Build b.", "surfaces": ["src/b/**"]})
+    left_open = {"where": "b", "what": "the file name is left to its worker", "evidence_class": "inferential",
+                 "cause": "unknown", "proof": ""}
+    plan = WorkerResult(True, None, "planned", "read it", cost_usd=0.1, input_tokens=10, parts=parts,
+                        contract="a returns an int; b prints it")
+    script = Script(dataclasses.replace(plan, session_id="s1"), WorkerResult(True, None, "read", findings=(left_open,),
+                                                                           cost_usd=0.02, verdict="fail"),
+                    dataclasses.replace(plan, session_id="s2"), WorkerResult(True, None, "read", cost_usd=0.01))
+    head = git(git_repo, "rev-parse", "HEAD").strip()
+    report = run("Plan the export", git_repo, store, Options(parts=True, base=head), registry={}, launcher=script,
+                 classifier=kind("plan"))
+    assert report.status == "done"
+    task = store.get_task(report.task_id)
+    briefed = store.events_of(report.task_id, "briefed")[0]["data"]
+    assert briefed[critique.KEY] == "with" and briefed[critique.WHY_KEY] == "with for the test"
+    found = critique.trial(store, task["repo"])
+    assert found["with"]["tasks"] == 1 and found["without"]["tasks"] == 0
+    first, second = [e["data"] for e in store.events_of(report.task_id, "critiqued")]
+    fields = {"seq": int, "round": int, "cell": str, "findings": list, "cost_usd": float, "seconds": float,
+              "verdict": str, "held": bool}
+    for event in (first, second):
+        assert set(event) == set(fields)
+        assert all(isinstance(event[name], kind_) for name, kind_ in fields.items()), event
+    assert (first["seq"], first["round"], first["held"], first["cell"]) == (1, 1, True, "sonnet/low")
+    assert (second["seq"], second["round"], second["held"]) == (2, 2, False)
+    assert first["findings"][0]["where"] == "b" and first["verdict"] == "fail" and first["cost_usd"] == 0.02
+    assert set(first["findings"][0]) >= {"where", "what", "evidence_class", "cause", "proof"}
+    attempt = store.events_of(report.task_id, "attempt_finished")[0]["data"]
+    assert attempt["critique_cost_usd"] == first["cost_usd"] and attempt["worker_cost_usd"] == 0.1
+
+
 #: Keys read with `.get` from data that comes from outside locks, never from its own events: a
 #: neighbour's manifest (`format`, `hints`) and a request's body to the UI (`note`).
 OUTSIDE_KEYS = {"format", "hints", "note"}
@@ -309,3 +355,52 @@ def test_the_sessions_a_task_notifies_are_the_ones_that_hear_its_copy(store, mon
     store.add_event(task["id"], "finished", status="done")
     assert [t["id"] for t in store.unreported_copies("supervisor")] == [task["id"]]
     assert store.unreported_copies("owner") == []
+
+
+def _review_task(store, calls):
+    """A passed blind review whose attempt kept the profile of `calls`, as `orchestrate` keeps it."""
+    from locks import behavior
+
+    task = store.create_task("review the change", status="done", source="locks", repo="r", kind="review-routine")
+    store.add_event(task["id"], "planned", kind="review-routine", start="sonnet/high")
+    store.add_event(task["id"], "attempt_finished", seq=1, cell="sonnet/high", passed=True, tools_logged=True,
+                    behavior=behavior.profile(calls), version="0.91.0")
+    store.add_event(task["id"], "finished", status="done", findings=[], wall_s=1.0)
+    return task["id"]
+
+
+def test_the_read_calls_an_attempt_keeps_are_what_the_doctor_reads_back(store):
+    """`behavior.profile` writes `read_calls` on `attempt_finished.behavior`; `doctor` holds against it a clean
+    review that read nothing, and the `review_unread` event at the attempt's `seq` is what excuses it."""
+    from locks import behavior, doctor
+
+    def call(sig):
+        return {"ts": "2026-11-07T10:00:00+00:00", "tool": sig.split(":")[0], "sig": sig, "arg_hash": sig, "ok": 1}
+
+    def unread(found):
+        return [f.task_id for f in found if f.rule == "clean-review-read-nothing" and f.severity == doctor.SUSPECT]
+
+    nothing = _review_task(store, [call("edit:py"), call("bash:pytest")])
+    _review_task(store, [call("bash:git-diff"), call("read:py")])
+    assert behavior.profile([call("edit:py")])["read_calls"] == 0
+    assert behavior.profile([call("bash:git-diff"), call("read:py")])["read_calls"] == 2
+    assert unread(doctor.check(store, days=0)) == [nothing]
+    # The hold the run writes for that attempt (`orchestrate`: `seq=nth`) is the key the rule looks for.
+    store.add_event(nothing, "review_unread", seq=1, **behavior.unread_record("worker", again=False, calls=2))
+    assert unread(doctor.check(store, days=0)) == []
+
+
+def test_the_review_a_run_held_back_as_unread_is_what_stats_reads_back(store):
+    """`behavior.unread_record` is the data of a `review_unread` event; `analysis` counts them by `who` and `again`."""
+    from locks import analysis, behavior
+
+    task = _review_task(store, [])
+    assert set(behavior.unread_record("worker", again=False, calls=3)) == {"who", "again", "calls"}
+    store.add_event(task, "review_unread", seq=1, **behavior.unread_record("worker", again=False, calls=3))
+    assert analysis.compute(store, days=0)["reviews_unread"] == {
+        "worker": 1, "worker_again": 0, "verifier": 0, "verifier_again": 0}
+    store.add_event(task, "review_unread", seq=2, **behavior.unread_record("worker", again=True, calls=0))
+    store.add_event(task, "review_unread", seq=2, **behavior.unread_record("verifier", again=False, calls=1))
+    report = analysis.compute(store, days=0)
+    assert report["reviews_unread"] == {"worker": 1, "worker_again": 1, "verifier": 1, "verifier_again": 0}
+    assert "workers held 1 (1 unread again), independent checks run again 1 (0 unread twice)" in analysis.text(report)

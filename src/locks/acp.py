@@ -231,8 +231,9 @@ def verdict_text(card: Any) -> list[str]:
                                                                                    if unmet else ""))
     ind = card.get("independent") or {}
     if ind.get("ran"):
-        lines.append("independent check: " + ("passed" if ind.get("passed") else
-                                              f"{ind.get('blocking')} blocker(s) left, recorded"))
+        lines.append("independent check: " + (
+            "read nothing twice; the pass stands on locks' own check" if ind.get("unread") else
+            "passed" if ind.get("passed") else f"{ind.get('blocking')} blocker(s) left, recorded"))
     elif ind.get("why"):
         lines.append(f"independent check: not run ({ind['why']})")
     if card.get("unchecked"):

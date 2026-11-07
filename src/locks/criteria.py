@@ -36,10 +36,13 @@ _ITEM_OUT_OF_SCOPE = re.compile(
 
 def _split(text: str) -> tuple[list[str], list[str]]:
     """(in scope, out of scope): the listed items, the ones under a line that puts them
-    out of scope (a line ending in ':') or marked so themselves set apart."""
+    out of scope (a line ending in ':') or marked so themselves set apart. A quoted line (it starts
+    with `>`) is context a step was handed, never the step's own words: it is no item and no header."""
     kept, left = [], []
     skipping = False
     for line in text.splitlines():
+        if line.lstrip().startswith(">"):
+            continue
         match = _ITEM.match(line)
         if match is None:
             if line.strip():

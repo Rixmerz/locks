@@ -575,6 +575,30 @@ def test_a_lean_worker_gets_no_subagent_tool_nor_skill_listing_and_only_flags_it
     assert launch.lean_flags("claude", os.environ, help_text=lambda b: knows_all) == ()
 
 
+def test_setting_sources_reach_the_argv_only_when_asked_and_only_for_a_cli_that_lists_the_flag(tmp_path):
+    assert "--setting-sources" not in build_argv(spec(tmp_path))
+    argv = build_argv(spec(tmp_path, setting_sources=("user",)))
+    assert argv[argv.index("--setting-sources") + 1] == "user"
+    listed = "  --setting-sources <sources>  Comma-separated list of setting sources\n"
+    assert launch.setting_sources_flag("claude", os.environ, help_text=lambda b: listed) == ("--setting-sources",)
+    assert launch.setting_sources_flag("claude", os.environ, help_text=lambda b: "  --model <model>\n") == ()
+    assert launch.setting_sources_flag("claude", os.environ, help_text=lambda b: "") == ()
+
+
+def test_run_passes_setting_sources_only_to_a_cli_whose_help_lists_it(tmp_path, monkeypatch):
+    seen = []
+
+    def runner(argv, **kw):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    for said, expected in (("--setting-sources <s>", True), ("--model", False)):
+        seen.clear()
+        monkeypatch.setattr(launch, "_cli_help", lambda b, said=said: said)
+        launch.run(spec(tmp_path, setting_sources=("user",)), runner=runner)
+        assert ("--setting-sources" in seen[0]) is expected
+
+
 def test_the_account_s_usage_limit_is_read_with_when_it_resets():
     from datetime import UTC, datetime
 
@@ -651,3 +675,23 @@ def test_parse_reads_the_answer_a_background_notice_pushed_off_the_end(tmp_path,
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", env["CLAUDE_CONFIG_DIR"])
     out = parse(proc(envelope("The result stands.", session_id="s1")), spec(tmp_path))
     assert out.summary == "s" and not out.shape
+
+
+def test_a_plan_is_told_to_leave_no_design_choice_to_a_part():
+    from locks.launch import PARTS_INSTRUCTIONS
+
+    assert "leaves no design choice to its worker" in PARTS_INSTRUCTIONS
+    assert "a question in `summary`, never a part" in PARTS_INSTRUCTIONS
+
+
+def test_a_pass_that_leaves_criteria_or_rows_unanswered_failed_only_its_form(tmp_path):
+    ok = {"verdict": "pass", "summary": "s", "evidence": "1 passed"}
+    asked = spec(tmp_path, criteria=("S1", "S2"))
+    left = parse(proc(envelope(block(**ok, criteria=[{"id": "S1", "met": True}]))), asked)
+    assert left.failure is Failure.INCONCLUSIVE and left.shape == f"{launch.UNANSWERED_SHAPE}: S2"
+    # A criterion said not met is the work's failure, not the answer's form.
+    unmet = parse(proc(envelope(block(**ok, criteria=[{"id": "S1", "met": True}, {"id": "S2", "met": False}]))), asked)
+    assert unmet.failure is Failure.CODE_BUG and unmet.shape == ""
+    rows = spec(tmp_path, verdicts=("F1", "F2"), verdict_words=("fixed", "open"))
+    undecided = parse(proc(envelope(block(**ok, verdicts=[{"id": "F1", "verdict": "fixed"}]))), rows)
+    assert undecided.failure is Failure.INCONCLUSIVE and undecided.shape == f"{launch.VERDICTS_SHAPE}: F2"

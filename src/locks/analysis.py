@@ -27,6 +27,7 @@ from typing import Any
 
 from locks import behavior, launch, racing, revisions, trunks, trust, usage, workflows
 from locks import cells as cells_mod
+from locks import critique as critique_mod
 from locks import evidence as evidence_mod
 from locks import handing as handing_mod
 from locks import methods as methods_mod
@@ -145,7 +146,7 @@ def _start(task: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
         "task": task["id"], "repo": task.get("repo"), "title": task.get("title") or "",
         "kind": data.get("kind") or task.get("kind"), "source": task.get("source"),
         "workflow": task.get("workflow"), "step": task.get("workflow_step"),
-        "has_session": bool(task.get("session_id")),
+        "has_session": bool(task.get("session_id")), "fan_part": _fan_part(task), "last_failure": None,
         "start_cell": data.get("start"), "final_cell": None, "status": None, "stop": None,
         "started_at": event["ts"], "ended_at": None, "wall_s": None,
         "advance_s": None, "pickup_s": None, "spawn_s": None,
@@ -162,8 +163,36 @@ def _start(task: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fan_part(task: Mapping[str, Any]) -> bool:
+    """Whether the task was queued as a part of a plan's fan-out (`workflows.advance`: the `part` in its
+    options carries the `plan` it came from; one area of a blind review does not)."""
+    try:
+        part = json.loads(task.get("options") or "{}").get("part")
+    except ValueError:
+        return False
+    return isinstance(part, dict) and bool(part.get("plan"))
+
+
+#: How a part stops on a point: the stop causes and the attempt failures that name one.
+POINT_STOPS = ("decision", "spec")
+POINT_FAILURES = ("spec_bug", "architecture_bug")
+
+
+def parts_on_a_point(found: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Per repository, the parts of a fan-out that ended and how many stopped on a point (their stop cause
+    or the failure of their last attempt): a plan whose parts leave a design choice to the worker."""
+    count: dict[str | None, list[int]] = defaultdict(lambda: [0, 0])
+    for r in found:
+        if r.get("fan_part"):
+            row = count[r["repo"]]
+            row[1] += 1
+            row[0] += r["stop"] in POINT_STOPS or r.get("last_failure") in POINT_FAILURES
+    return [{"repo": repo, "stopped": n, "parts": total} for repo, (n, total) in sorted(count.items(), key=str)]
+
+
 def _attempt(run: dict[str, Any], data: Mapping[str, Any]) -> None:
     run["attempts"] += 1
+    run["last_failure"] = None if data.get("passed") else data.get("failure")
     if run["first_try"] is None:
         run["first_try"] = bool(data.get("passed"))
     run["cells"].append(data.get("cell"))
@@ -462,6 +491,28 @@ def capabilities_used(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -
     return out
 
 
+def reviews_unread(store: Store, task_ids: set[int], *, since: str | None = None) -> dict[str, int]:
+    """The reviews held back for reporting no finding while their calls show they read nothing
+    (`review_unread` events, which the run's events do not carry): a worker's answer asked again
+    (`worker`) and the second such answer (`worker_again`), an independent check run once more
+    (`verifier`) and the one that stayed unread (`verifier_again`). Observed, never a rule's input."""
+    found: Counter[tuple[str, bool]] = Counter()
+    for event in store.events_of_kinds(["review_unread"], since=since):
+        if int(event["task_id"]) in task_ids:
+            found[(str(event["data"].get("who") or ""), bool(event["data"].get("again")))] += 1
+    return {"worker": found[("worker", False)], "worker_again": found[("worker", True)],
+            "verifier": found[("verifier", False)], "verifier_again": found[("verifier", True)]}
+
+
+def unread_lines(held: Mapping[str, int]) -> list[str]:
+    """`locks stats`' line of the reviews held back as unread; none while none was."""
+    if not any(held.values()):
+        return []
+    return ["", "reviews held back for reporting no finding and reading nothing (their calls show no read): "
+            f"workers held {held['worker']} ({held['worker_again']} unread again), "
+            f"independent checks run again {held['verifier']} ({held['verifier_again']} unread twice)"]
+
+
 def cells(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> list[dict[str, Any]]:
     """Every attempt by the cell it ran at: how often it passed, its time, turns, its own
     cost (its independent check's apart) and how much of its input the cache served."""
@@ -654,6 +705,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "capabilities": capabilities_used(events, {r["task"] for r in found}),
         # How workers worked, from their own tool calls, by kind and outcome and by cell (`locks.behavior`).
         "behavior": behavior.table(events, {r["task"]: r["kind"] for r in found}),
+        # The reviews held back for reporting no finding and reading nothing (observed, never a verdict).
+        "reviews_unread": reviews_unread(store, {r["task"] for r in found}, since=since),
         # The notes briefs carried and the ones workers said they relied on (observed, never a verdict).
         "notes_used": notes_relied_on(events, {r["task"] for r in found}),
         # Each route's advice and whether the session sent locks work after it (observed, issue #124).
@@ -668,6 +721,9 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "methods": {m.name: methods_mod.trial(store, repo, m) for m in methods_mod.METHODS.values()},
         "methods_now": {m.name: methods_mod.arm(store, repo, m, 0)[1] for m in methods_mod.METHODS.values()}
         if repo else {},
+        # Whether a plan's parts are read before they are built, and its trial (`locks.critique`).
+        "critique": critique_mod.trial(store, repo),
+        "critique_now": critique_mod.arm(store, repo, 0)[1] if repo else None,
         # Whether workers of each nature are handed livespec here, and its trial (`locks.handing`).
         "livespec_handing": {n: handing_mod.trial(store, repo, n) for n in handing_mod.NATURES},
         "livespec_handing_now": {n: handing_mod.arm(store, repo, "chat" if n == "reading" else "implement", 0)[1]
@@ -677,6 +733,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # Each climb of a ladder and whether the attempt it started passed (observed): a rung's record.
         "climbs": climbs_by_rung(store, {r["task"]: r["kind"] for r in found}, since=since),
         "expensive": expensive(found),
+        # The parts of a fan-out that stopped on a point, per repository (observed).
+        "parts_on_a_point": parts_on_a_point(found),
     }
     if keep_runs is None:
         report["runs"] = found
@@ -959,6 +1017,7 @@ def text(report: Mapping[str, Any]) -> str:
                              + (f"  ({row['unlogged']} attempt(s) not recorded: their worker's hooks logged no call)"
                                 if row.get("unlogged") else ""))
         lines += behavior_lines(report.get("behavior") or {})
+        lines += unread_lines(report.get("reviews_unread") or {})
         for mode, row in (report.get("routing") or {}).items():
             lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "
                          f"{row['sent']} ({_rate(row['sent_rate'])}) (observed)")
@@ -966,6 +1025,9 @@ def text(report: Mapping[str, Any]) -> str:
             lines.append(f"heavy reads said {reads['advised']} time(s) (the session read "
                          f"{route_mod.READ_HEAVY_CHARS:,} characters or more of tool output in a turn), the session "
                          f"sent locks work after {reads['sent']} ({_rate(reads['sent_rate'])}) (observed)")
+        for row in report.get("parts_on_a_point") or ():
+            where = f" ({_name(row['repo'])})" if not report.get("repo") else ""
+            lines.append(f"parts stopped on a point: {row['stopped']} of {row['parts']}{where} (observed)")
         if relied := report.get("notes_used"):
             lines += ["", f"notes in briefs: {relied['tasks']} task(s) carried {relied['carried']}, workers said they "
                       f"relied on {relied['relied_on']} ({_rate(relied['relied_rate'])}); first tries passed "
@@ -997,6 +1059,16 @@ def text(report: Mapping[str, Any]) -> str:
                                  f"({_rate(row['rate'])})")
                 if (report.get("methods_now") or {}).get(name):
                     lines.append(f"  now: {report['methods_now'][name]}")
+        read = report.get("critique") or {}
+        if any(side.get("tasks") for side in read.values()):
+            lines += ["", "the critique of a plan's parts (its trial; plans, first tries of the parts after them "
+                      "passed):"]
+            for side, row in read.items():
+                if row.get("tasks"):
+                    lines.append(f"  {side:<8} plans {row['tasks']:>4}  first tries {row['passed']}/{row['tries']} "
+                                 f"({_rate(row['rate'])})")
+            if report.get("critique_now"):
+                lines.append(f"  now: {report['critique_now']}")
         for which, arms in (report.get("livespec_handing") or {}).items():
             if any(side.get("tasks") for side in arms.values()):
                 lines += ["", f"livespec handed to {which} workers (its trial; tasks, first tries passed, "

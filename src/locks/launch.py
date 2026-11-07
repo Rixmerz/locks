@@ -292,6 +292,11 @@ joined after. Beside the fields above, your result block carries:
   part listed before it: it starts once that part passes, from what that part
   built. Parts with no `after` build side by side. Order the work in phases
   this way rather than leaving a part to guess what another will write.
+- **A part leaves no design choice to its worker.** Every name, schema, endpoint,
+  error-handling strategy and file placement the part needs is written in its
+  prompt or in the contract, so a worker who reads only its part can start
+  coding without deciding anything the request did not leave open. A decision
+  you cannot make is a question in `summary`, never a part.
 - `contract`: what every part must keep the same (the names, types, interfaces,
   schemas or endpoints they share), as text; each part is given it verbatim.
 
@@ -335,6 +340,10 @@ DEEPER_PROMPT = ("Your last answer to this task did not pass; what failed it is 
 RESHAPE_PROMPT = ("Your last answer to this task could not be read; why is below. Your work so far is in this "
                   "directory and stands: do not redo it. Answer again, in the result contract you were given, "
                   "with exactly one result block.")
+#: A pass that left criteria or ledger rows unanswered failed only its answer's form: the same cell
+#: is asked again once (`WorkerResult.shape`), the work standing.
+UNANSWERED_SHAPE = "criteria-unanswered"
+VERDICTS_SHAPE = "verdicts-missing"
 #: The CLI's words when a session it was asked to resume is not there to resume.
 _NO_SESSION = re.compile(r"no conversation found|session[^\n]{0,60}(?:not found|does not exist|could not be "
                          r"(?:found|loaded|resumed))|invalid session", re.IGNORECASE)
@@ -399,6 +408,10 @@ class LaunchSpec:
     #: Extra environment for the worker: which task and attempt it is, so its
     #: tool calls are recorded against them.
     env: Mapping[str, str] = field(default_factory=dict)
+    #: The settings files the CLI loads (`--setting-sources`); None leaves its default (user, project,
+    #: local). The independent check asks for `("user",)`: the repository it judges must not choose, by a
+    #: committed `.claude/settings*.json`, the hooks and rules the check runs under.
+    setting_sources: tuple[str, ...] | None = None
 
     @property
     def target_dir(self) -> Path:
@@ -522,6 +535,17 @@ def lean_flags(claude_bin: str, env: Mapping[str, str], *, help_text: Callable[[
     return tuple(flag for flag in LEAN_FLAGS if flag in said)
 
 
+SETTING_SOURCES_FLAG = "--setting-sources"
+
+
+def setting_sources_flag(claude_bin: str, env: Mapping[str, str], *,
+                         help_text: Callable[[str], str] | None = None) -> tuple[str, ...]:
+    """`--setting-sources` when the installed CLI lists it in its `--help`, else nothing: a flag an
+    older CLI does not know is never passed."""
+    said = (help_text or _cli_help)(claude_bin)
+    return (SETTING_SOURCES_FLAG,) if SETTING_SOURCES_FLAG in said else ()
+
+
 def build_argv(spec: LaunchSpec, *, claude_bin: str = "claude", mcp_config_path: Path | None = None,
                prompt_path: Path | None = None, lean: Sequence[str] = ()) -> list[str]:
     argv = [
@@ -540,6 +564,8 @@ def build_argv(spec: LaunchSpec, *, claude_bin: str = "claude", mcp_config_path:
     if denied:
         argv += ["--disallowedTools", ",".join(denied)]
     argv += list(lean)
+    if spec.setting_sources:
+        argv += [SETTING_SOURCES_FLAG, ",".join(spec.setting_sources)]
     if spec.allowed_tools:
         argv += ["--allowedTools", *spec.allowed_tools]
     if spec.workdir is not None and spec.workdir != spec.launch_dir:
@@ -614,6 +640,8 @@ def run(
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(spec.append_system_prompt)
         prompt_path = Path(name)
+    if spec.setting_sources and not setting_sources_flag(claude_bin, os.environ):
+        spec = dataclasses.replace(spec, setting_sources=None)  # an older CLI has no such flag
     argv = build_argv(spec, claude_bin=claude_bin, mcp_config_path=mcp_path, prompt_path=prompt_path,
                       lean=lean_flags(claude_bin, os.environ))
     before = tracked_state(spec.target_dir)
@@ -783,12 +811,14 @@ def parse(
         if left_out:
             return WorkerResult(False, _refused(Failure.INCONCLUSIVE, denied),
                                 f"claimed a pass without saying whether {', '.join(left_out)} is met: " + summary,
-                                evidence, raw=text, verdict=verdict, **common)
+                                evidence, raw=text, verdict=verdict,
+                                shape=f"{UNANSWERED_SHAPE}: {', '.join(left_out)}", **common)
         undecided = ledger_mod.missing(spec.verdicts, spec.verdict_words, common["verdicts"])
         if undecided:
             return WorkerResult(False, _refused(Failure.INCONCLUSIVE, denied),
                                 f"claimed a pass without a verdict on {', '.join(undecided)}: " + summary,
-                                evidence, raw=text, verdict=verdict, **common)
+                                evidence, raw=text, verdict=verdict,
+                                shape=f"{VERDICTS_SHAPE}: {', '.join(undecided)}", **common)
         if spec.parts:
             parts, contract, problem = read_parts(block)
             if problem:

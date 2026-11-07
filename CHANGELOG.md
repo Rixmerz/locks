@@ -4,6 +4,56 @@
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-11-07
+
+### Added
+- A plan that a workflow fans out over is read blind before its parts are built (`locks.critique`, the
+  `critique` setting, on by default; the idea is Google's Elephant-Goldfish Model: a fresh reader with
+  none of the author's context): a read-only sonnet/low reader is given the request, the contract and each
+  part's prompt and surfaces, and nothing else; it paraphrases each part, names the design decisions a
+  part leaves to its worker (a name, a schema, an endpoint, where a file goes) and the criterion no part
+  answers. When it reports any, the plan goes back once to its own cell, in its own session, with those
+  lines, and its second answer stands whatever the reader says: never a climb, never a failure
+  (`critiqued` events keep the findings, cell, cost and seconds; `critique_cost_usd` on the attempt). Each
+  repository tries it in turns against its absence (`briefed.critique_arm`) and keeps it only where the
+  first tries of the parts after critiqued plans passed no less often, judged as the pre-mortem is;
+  `locks stats` shows both arms.
+- A plan's contract carries the zero-decision rule (`launch.PARTS_INSTRUCTIONS`, the `architect` role): a
+  part leaves no design choice to its worker, and a decision the plan cannot make is a question in its
+  summary, never a part. `locks stats` counts the parts of a fan-out that stopped on a point.
+- A review that reports no finding and whose own calls read no code is held back once instead of taken
+  as clean (`behavior.read_calls`, read from the tool-call log's signatures: a file read, `grep`, `glob`,
+  `git diff`, a shell read, a reading livespec tool): the same worker goes on in its own session told to
+  read the diff and answer again (`behavior.UNREAD_SHAPE`), and a second unread answer climbs as any
+  inconclusive does. An independent check that passed with no finding and read nothing runs once more;
+  unread twice, it decided nothing and the pass stands on locks' own check, said on the verdict card
+  (`verified.unread`). Calls that never reached the log hold nothing back: unknown is not none.
+  `review_unread` events, a `locks stats` line, and the doctor rule `clean-review-read-nothing`.
+- The independent check runs with `--setting-sources user` when the installed CLI lists the flag
+  (`launch.setting_sources_flag`, `LaunchSpec.setting_sources`): the repository it judges cannot choose, by
+  a committed `.claude/settings*.json`, the hooks and rules the check runs under. Workers and blind review
+  steps keep the repository's settings. The `verified` event records `setting_sources`.
+- Bundled workflow templates `design-review` (four blind readings of a design document, one lens each:
+  comprehension, design, readiness, codebase; then a refuter for what only one saw; no fix: the document is
+  the person's to change) and `drift` (one read-only `explore` step: every design document or spec in a
+  folder, one at a time, against the code, reporting only the divergences).
+
+### Fixed
+- A resume after a `review` stop briefs its worker with the blockers the independent check kept
+  (`orchestrate.review_context`); before, only the resume's first check got them, and a resumed worker
+  that was never told what was wrong "verified" its earlier work and changed nothing. The ending's line
+  says what the resume does.
+- `dispatch.named_surfaces` read a path in a clause that negates it ("do not edit CHANGELOG.md", "never
+  touch X") as a file the task may change, and held queued work behind tasks that would not touch it.
+- A workflow step's criteria were read from the lines it quotes (`>`): a fix of ledger rows was held to the
+  original request's S1..S6 and climbed three times for not answering them, and a fan-out part to 35 criteria of
+  the whole request. `criteria` skips quoted lines: what is quoted is context, never a criterion. And a pass
+  that leaves a criterion or a ledger row unanswered is a form failure, asked again once of the same cell
+  (`WorkerResult.shape` `criteria-unanswered`, `verdicts-missing`), never a climb on its own.
+- `route.split_first` read a numbered list of instructions as independent pieces and queued a piece for
+  "Standard library only"; a listed rule (a constraint, a test for the others, what not to do) is no piece
+  and is carried to every piece as context, and items that all touch one module of `src/` are one task.
+
 ## [0.90.0] - 2026-11-07
 
 ### Added

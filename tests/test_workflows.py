@@ -13,6 +13,13 @@ from locks.store import Store
 from .test_orchestrate import bad, kind, ok
 
 
+@pytest.fixture(autouse=True)
+def _no_critique(monkeypatch):
+    # These tests script the launcher's results one per worker; a plan's reader would take the next.
+    monkeypatch.setenv("LOCKS_CRITIQUE", "off")
+
+
+
 def _worker(results, seen):
     """A launcher that writes one file per writing attempt and records what each attempt saw."""
     results = list(results)
@@ -1722,3 +1729,29 @@ def test_a_row_the_fix_s_check_finds_open_earns_the_fix_a_correction(git_repo, s
     checks = [e["data"] for e in store.events_of(fix["id"], "verified")]
     assert [c["passed"] for c in checks] == [False, True] and "F1 is not fixed" in checks[0]["blockers"][0]["what"]
     assert not [p for p in asked if "Ledger (recheck" in p]
+
+
+def test_the_bundled_drift_is_one_read_only_explore_step_and_its_dry_run_queues_nothing(git_repo, store: Store, kicks,
+                                                                                         capsys, monkeypatch):
+    monkeypatch.chdir(git_repo)
+    defn = workflows.load("drift", git_repo, "bundled")
+    assert defn["inputs"] == ["dir"] and [(s["id"], s["kind"]) for s in defn["steps"]] == [("drift", "explore")]
+    assert "{dir}" in defn["steps"][0]["prompt"] and "locks-report" in defn["steps"][0]["prompt"]
+    assert cli.main(["workflow", "run", "drift", "--input", "dir=docs/designs", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "nothing is queued" in out and "docs/designs" in out
+    assert store.list_runs() == []
+
+
+def test_the_bundled_design_review_has_four_lenses_and_a_refuter(git_repo, store: Store, capsys):
+    defn = workflows.load("design-review", git_repo, "bundled")
+    steps = {s["id"]: s for s in defn["steps"]}
+    assert defn["inputs"] == ["doc", "goal"]
+    assert list(steps) == ["comprehension", "design", "readiness", "codebase", "refute"]
+    lenses = ["comprehension", "design", "readiness", "codebase"]
+    assert all(steps[i]["needs"] == [] and steps[i]["kind"] == "review-routine" for i in lenses)
+    assert steps["refute"]["needs"] == lenses and steps["refute"]["ledger"] == "refute"
+    assert cli.main(["workflow", "run", "design-review", "--input", "doc=docs/plan.md", "--input", "goal=ship it",
+                     "--dry-run"]) == 0
+    assert "nothing is queued" in capsys.readouterr().out
+    assert store.list_runs() == []

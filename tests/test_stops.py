@@ -175,6 +175,17 @@ def test_the_view_says_who_in_words_and_what_to_do(store: Store):
     assert stops.Stop("mystery", "x").status == "failed"
 
 
+def test_a_review_stop_says_what_its_resume_does(store: Store):
+    """The ending's next line, as `hooks` writes it (`todo: next`): a resume briefs the worker with the
+    independent check's findings, and that check reads them first."""
+    held = store.create_task("add the export", status="running", source="locks", cwd="/x")
+    stops.record(store, held["id"], stops.Stop("review", "the independent check still finds problems"))
+    view = stops.view(store, store.get_task(held["id"]))
+    assert f"{view['todo']}: {view['next']}" == (
+        "the independent check kept finding problems: resume it: the worker is briefed with the findings, "
+        f"and the check reads them first: locks resume {held['id']}")
+
+
 def test_a_dismissed_task_leaves_the_board_and_says_who_and_what_it_was(store):
     from locks.ui import api
 

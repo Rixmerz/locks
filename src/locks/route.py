@@ -177,11 +177,43 @@ SPLIT_ITEMS, SPLIT_WORDS = 6, 40
 SPLIT_KINDS = frozenset({"feature", "implement"})
 
 
+#: An item that states a rule, a limit, a test for the other items or what not to do: context for the
+#: pieces, never a piece of its own.
+_RULE_ITEM = re.compile(
+    r"\b(?:not|never|don'?t|without|untouched|only|must|should)\b|^\W*(?:tests?|checks?|verify|constraints?|rules?)\b",
+    re.IGNORECASE)
+
+
+def is_rule(item: str) -> bool:
+    """A listed item that states a rule rather than a change: it has a rule's words and opens with no
+    verb of change. "Add the endpoint, only for admins" is a piece; "Do not edit CHANGELOG.md",
+    "Tests: cover each item" and "Standard library only" are rules."""
+    return _RULE_ITEM.search(item) is not None and not opens_with_change(item)
+
+
+def pieces_of(text: str) -> list[str]:
+    """The request's listed items that can be a piece of their own: the ones that are no rule."""
+    return [item for item in criteria_mod.items(text) if not is_rule(item)]
+
+
+def one_module(items: list[str]) -> bool:
+    """Whether the files the items name are all in one top folder of `src/`: one module, one task."""
+    tops = set()
+    for item in items:
+        for path in points_mod.named(item):
+            parts = PurePosixPath(path.strip("/")).parts
+            if parts[:1] != ("src",) or len(parts) < 3:
+                return False
+            tops.add(parts[1])
+    return len(tops) == 1
+
+
 def split_first(text: str, kind: str | None = None) -> str | None:
     """Why a request should be sent as several tasks before one worker starts it, or None:
-    a build (`kind`, else read by rules, with no model) that lists `SPLIT_ITEMS` items or
+    a build (`kind`, else read by rules, with no model) that lists `SPLIT_ITEMS` pieces or
     more in `SPLIT_WORDS` words or more, is the largest size, or lists `PARALLEL_PIECES`
-    pieces in folders of their own.
+    pieces in folders of their own. A listed rule (a constraint, a test for the others, what
+    not to do) is no piece, and items that all touch one module of `src/` are one task.
     One worker on all of it outgrows its turns, and the climb that follows (more turns,
     another model) costs more than the parts would. Pure."""
     if kind is None:
@@ -190,10 +222,12 @@ def split_first(text: str, kind: str | None = None) -> str | None:
             "implement" if opens_with_change(text) else None)
     if kind not in SPLIT_KINDS:
         return None
-    items = len(criteria_mod.items(text))
+    items = pieces_of(text)
+    if one_module(items):
+        return None
     size = points_mod.of_request(text, kind, risk_mod.of_request(text, kind)).points
     pieces = listed_pieces(text)
-    why = [f"{items} listed items"] if items >= SPLIT_ITEMS and len(text.split()) >= SPLIT_WORDS else []
+    why = [f"{len(items)} listed items"] if len(items) >= SPLIT_ITEMS and len(text.split()) >= SPLIT_WORDS else []
     if size >= max(points_mod.SCALE):
         why.append(f"{size} points")
     if pieces >= PARALLEL_PIECES:
@@ -204,7 +238,7 @@ def split_first(text: str, kind: str | None = None) -> str | None:
 def listed_pieces(text: str) -> int:
     """How many of the request's listed items name a file in a top-level folder of their own."""
     tops = set()
-    for item in criteria_mod.items(text):
+    for item in pieces_of(text):
         for path in points_mod.named(item):
             parts = PurePosixPath(path.strip("/")).parts
             if len(parts) > 1:

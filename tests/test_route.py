@@ -224,3 +224,22 @@ def test_a_heavy_read_is_said_at_the_next_prompt_with_what_an_explore_worker_cos
     routed = store.session_events("s", ("routed",))[-1]["data"]
     assert routed["mode"] == "main" and routed["read_chars"] == 90_000 and routed["read_said"] is True
     assert store.kind_record("explore", "r") == {"passes": 0, "p50_s": None, "cost_per_pass": None}
+
+
+def test_listed_rules_are_no_pieces_and_one_module_is_one_task():
+    rules = ("Update the router docs:\n1. add a paragraph about split rules to docs/router.md\n"
+             "2. add a bullet to docs/guide.md\n3. add src/locks/route.py a helper for rules\n"
+             "4. Tests: cover each item in tests/test_route.py\n5. Standard library only. Do not edit CHANGELOG.md")
+    assert route.pieces_of(rules) == [
+        item for item in route.criteria_mod.items(rules) if not item.startswith(("Tests", "Standard"))]
+    assert route.split_first(rules, "implement") is None
+    # an item that opens with a verb of change is a piece whatever rule words follow it
+    assert not route.is_rule("Add the export endpoint, only for admins, without a page size")
+    assert route.is_rule("Do not edit CHANGELOG.md") and route.is_rule("Standard library only")
+    one = ("Change the router:\n- add src/locks/route.py helper\n- add src/locks/route.py test hook\n"
+           "- fix src/locks/route.py docs\n- update src/locks/route.py names\n- split src/locks/route.py\n"
+           "- tidy src/locks/route.py imports " + "word " * 40)
+    assert route.split_first(one, "implement") is None
+    five = ("Build the platform:\n- add api/users.py endpoint\n- add web/users.tsx screen\n- add docs/users.md page\n"
+            "- add db/users.sql table\n- add jobs/users.py worker")
+    assert route.split_first(five, "feature") == "5 pieces in folders of their own"

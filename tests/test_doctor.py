@@ -472,3 +472,64 @@ def test_a_problem_a_pass_opened_beside_a_race_s_other_try_is_suspect(store: Sto
     store.add_fix(p2, "sonnet/high: no", "failed", repo="r", task_id=u["id"])
     store.add_fix(p2, "sonnet/xhigh: done", "worked", repo="r", task_id=u["id"])
     assert [f.task_id for f in rules(store, now=LATER, alive=lambda pid: True)["problem-opened-by-a-race"]] == [t["id"]]
+
+
+def _clean_review(store: Store, *, kind: str = "review-routine", read_calls: int | None = 0, seq: int = 1,
+                  tools_logged: bool = True, passed: bool = True, version: str = "0.91.0", status: str = "done",
+                  findings: tuple = ()) -> int:
+    """A review task whose attempt `seq` ended as `behavior` says and whose run ended `status`."""
+    t = store.create_task("review the change", status="done", source="locks", repo="r", kind=kind)
+    worked = {"calls": 4} if read_calls is None else {"calls": 4, "read_calls": read_calls}
+    store.add_event(t["id"], "attempt_finished", seq=seq, cell="sonnet/high", passed=passed,
+                    tools_logged=tools_logged, behavior=worked, version=version)
+    store.add_event(t["id"], "finished", status=status, findings=list(findings))
+    return t["id"]
+
+
+def test_a_review_that_passed_clean_while_its_calls_show_it_read_nothing_is_suspect(store: Store):
+    t = _clean_review(store)
+    other = _clean_review(store, kind="review-critical")
+    found = rules(store, now=LATER, alive=lambda pid: True)["clean-review-read-nothing"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, t), (doctor.SUSPECT, other)]
+    assert found[0].what.startswith(f"#{t} attempt 1 passed a review with no finding") and found[0].repo == "r"
+    assert "read nothing" in found[0].what and doctor.FIXED_IN["clean-review-read-nothing"] == "0.91.0"
+    assert doctor.clean_reviews_read_nothing in doctor.RULES
+    # The window reads the same: an attempt finished now is inside the default two days.
+    assert [f.rule for f in doctor.check(store, now=LATER, alive=lambda pid: True)].count(
+        "clean-review-read-nothing") == 2
+
+
+def test_a_clean_review_from_before_the_release_that_holds_it_back_is_history(store: Store):
+    _clean_review(store, version="0.90.0")
+    unversioned = _clean_review(store, version=None)
+    found = rules(store, now=LATER, alive=lambda pid: True)["clean-review-read-nothing"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.FIXED, unversioned)]
+    assert found[0].what == f"2 record(s) from before 0.91.0, the release that fixes it (latest #{unversioned})"
+    now = _clean_review(store)
+    assert [(f.severity, f.task_id) for f in rules(store, now=LATER, alive=lambda pid: True)[
+        "clean-review-read-nothing"]] == [(doctor.SUSPECT, now), (doctor.FIXED, unversioned)]
+
+
+def test_a_clean_review_that_read_something_was_held_back_or_is_no_review_is_not_a_finding(store: Store):
+    _clean_review(store, read_calls=2)  # it read
+    _clean_review(store, tools_logged=False)  # unknown is not none
+    _clean_review(store, read_calls=None)  # recorded before the count existed
+    _clean_review(store, passed=False)  # an attempt that did not pass was not taken as clean
+    _clean_review(store, kind="implement")  # not a review
+    _clean_review(store, kind="explore")
+    _clean_review(store, findings=({"where": "a.py:1", "what": "x"},))  # it found something
+    _clean_review(store, status="blocked")  # its run did not end as a pass
+    held = _clean_review(store)
+    store.add_event(held, "review_unread", seq=1, who="worker", again=False, calls=3)
+    elsewhere = _clean_review(store, seq=2)
+    store.add_event(elsewhere, "review_unread", seq=1, who="worker", again=False, calls=3)  # another attempt's
+    found = rules(store, now=LATER, alive=lambda pid: True).get("clean-review-read-nothing", [])
+    assert [f.task_id for f in found] == [elsewhere]
+    assert "attempt 2" in found[0].what
+
+
+def test_a_verifier_hold_at_the_same_seq_does_not_excuse_a_worker_that_passed_unread(store: Store):
+    t = _clean_review(store)
+    store.add_event(t, "review_unread", seq=1, who="verifier", again=False, calls=2)
+    found = rules(store, now=LATER, alive=lambda pid: True)["clean-review-read-nothing"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, t)]

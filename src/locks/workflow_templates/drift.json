@@ -1,0 +1,16 @@
+{
+  "name": "drift",
+  "description": "Compare every design document or spec in a folder with the code, one at a time, and report only where they diverge; changes nothing",
+  "inputs": [
+    "dir"
+  ],
+  "steps": [
+    {
+      "id": "drift",
+      "title": "Documents against code",
+      "kind": "explore",
+      "needs": [],
+      "prompt": "Find where the code has drifted from its documents, without changing any file. The documents are in: {dir}\n\nList every design document, spec or README in that folder (markdown and plain text, subfolders included) and take them one at a time. For each document:\n1. Read it whole.\n2. Find the files, symbols, endpoints and tables it names. When it gives no explicit path, search the code for them.\n3. Read their current state in the code, not what the document says of them.\n4. Report only what diverges: logic the document describes that the code lacks; models missing fields the document specifies; hardcoded values where the document planned dynamic logic; patterns or dependencies that differ from the document; and behaviour in the code of the files the document describes that the document does not mention (there the document side of the bullet is the section it belongs under, with its line).\n\nPut the whole report in the `locks-report` block, with one `##` heading per document (its path). Under it, one bullet per divergence: what the document says with its line (`path:line`), and what the code does with its `file:line`. A document the code matches gets one line under its heading: \"no drift\". Do not list what matches, do not suggest fixes, and do not report a divergence whose code side you did not read. If the folder holds no documents, say so in one line."
+    }
+  ]
+}

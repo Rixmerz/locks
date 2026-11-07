@@ -17,6 +17,12 @@ from .conftest import git
 
 # --- after ---------------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _no_critique(monkeypatch):
+    # These tests script the launcher's results one per worker; a plan's reader would take the next.
+    monkeypatch.setenv("LOCKS_CRITIQUE", "off")
+
+
 
 def _held(store: Store, wanted: dict, *, repo: str = "r", cwd: str | None = None, **fields) -> dict:
     return store.create_task("held work", status="queued", source="queue", repo=repo, cwd=cwd,

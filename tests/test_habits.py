@@ -462,3 +462,70 @@ def test_a_repository_s_tool_files_declare_habits_before_any_session_repeats_the
     assert habits.declared(git_repo / "nowhere") == []
     (git_repo / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")  # ruff no longer declared
     assert [c.steps for c in habits.declared(git_repo)] == [("edit:.ts", "bash:eslint"), ("edit:.ts", "bash:tsc")]
+
+
+def test_a_review_of_one_habit_is_read_from_its_report_and_its_evidence(store: Store, tmp_path, monkeypatch):
+    """A list is two items or more, so a review of one habit has no criteria: its verdict is read
+    from the report block it kept and from its attempt's evidence; one with no readable verdict is
+    refused with why, never silent."""
+    from locks import hooks
+
+    monkeypatch.setenv("LOCKS_HABIT_AUTO", "on")
+    repo_dir = _git_repo(tmp_path / "r")
+    (repo_dir / "pyproject.toml").write_text("[tool.ruff]\n")
+    subprocess.run(["git", "add", "pyproject.toml"], cwd=repo_dir, check=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "ruff").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "ruff").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    task = habits.queue_review(store, repo="r", cwd=str(repo_dir), session_id="s0")
+    (hid,) = json.loads(task["options"])["habit_review"]
+    assert "declares ruff in pyproject.toml" in task["body"] and "`locks-report` block" in task["body"]
+    store.add_attempt(task["id"], cell="haiku/medium", max_turns=30, passed=1, evidence="ran it: 0.03 s")
+    store.add_event(task["id"], "report", seq=1, passed=True,
+                    report={"unparsed": f'install {hid}: `ruff check "$LOCKS_EDITED"`\n\nIt ran in 0.03 s.'})
+    store.update_task(task["id"], status="done", result="Installable: ruff on the edited file.")
+    store.add_event(task["id"], "finished", verdict={"criteria": []})
+    assert habits.review_verdicts(habits.review_texts(store, store.get_task(task["id"])), [hid])[0] == {
+        hid: 'ruff check "$LOCKS_EDITED"'}
+    done = habits.apply_reviews(store, tmp_path / "home")
+    assert [d.get("candidate") for d in done] == [hid] and "habit" in done[0]
+    assert "habit-run" in (repo_dir / ".claude" / "settings.local.json").read_text()
+    lines = hooks.habit_lines({**store.get_task(task["id"]), "finished_data": {"verdict": {"criteria": []}}}, store)
+    assert f"installed habit #{done[0]['habit']} ({hid})" in lines[1]
+    # A review that answered in its own words installs nothing, and the ending says so.
+    other = habits.Candidate(("edit:.py", "bash:mypy"), 3, 3, 1.0, 1, 9.0)
+    mute = store.create_task("r", status="done", source="queue", repo="r", cwd=str(repo_dir),
+                             result="Verdict: install.", options=json.dumps({"habit_review": [other.id]}))
+    store.add_event(mute["id"], "finished", verdict={"criteria": []})
+    done = habits.apply_reviews(store, tmp_path / "home")
+    assert done == [{"task": mute["id"], "candidate": other.id, "refused": "no verdict"}]
+    told = hooks.habit_lines({**store.get_task(mute["id"]), "finished_data": {}}, store)
+    assert "not installed" in told[1] and "no verdict locks could read" in told[1]
+
+
+def test_a_review_run_by_the_dispatcher_is_applied_and_a_runner_by_its_path_is_its_program(store: Store, tmp_path,
+                                                                                            monkeypatch):
+    """A review is queued as `queue` and runs as `locks`: it is found by its options. A command
+    that starts the habit's program through a runner named by its path (`.venv/bin/python -m
+    ruff`, as a project's own docs run it) runs the program."""
+    monkeypatch.setenv("LOCKS_HABIT_AUTO", "on")
+    repo_dir = _git_repo(tmp_path / "r")
+    (repo_dir / "pyproject.toml").write_text("[tool.ruff]\n")
+    subprocess.run(["git", "add", "pyproject.toml"], cwd=repo_dir, check=True)
+    cand = habits.declared(repo_dir)[0]
+    assert habits.shaped('.venv/bin/python -m ruff check "$LOCKS_EDITED"', cand) is None
+    assert habits.shaped("uv run ruff check x", cand) is None
+    assert "does not run the habit's program" in habits.shaped(".venv/bin/black --check x", cand)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "ruff").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "ruff").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    task = habits.queue_review(store, repo="r", cwd=str(repo_dir), session_id=None)
+    store.update_task(task["id"], status="done", source="locks",
+                      result=f'install {cand.id}: `ruff check "$LOCKS_EDITED"`')
+    store.add_event(task["id"], "finished", verdict={"criteria": []})
+    done = habits.apply_reviews(store, tmp_path / "home")
+    assert [d.get("candidate") for d in done] == [cand.id] and "habit" in done[0]

@@ -853,8 +853,11 @@ def habit_lines(task: Mapping[str, Any], store: Store | None = None) -> list[str
     data = task.get("finished_data") or {}
     if isinstance(data, str):
         data = json.loads(data or "{}")
-    texts = [str(c.get("evidence") or "") for c in (data.get("verdict") or {}).get("criteria") or ()]
-    installs, skips = habits.review_verdicts([*texts, str(task.get("result") or "")], reviewed)
+    texts = ([str(c.get("evidence") or "") for c in (data.get("verdict") or {}).get("criteria") or ()]
+             + [str(task.get("result") or "")])
+    if store is not None and task.get("id"):
+        texts = habits.review_texts(store, task, data)
+    installs, skips = habits.review_verdicts(texts, reviewed)
     skipped = [f"skip {cid}: {why}" for cid, why in skips.items()]
     unanswered = [cid for cid in reviewed if cid not in installs and cid not in skips]
     tail = [f"    not answered: {', '.join(unanswered)} (`locks habits` lists them)"] if unanswered else []
@@ -873,7 +876,8 @@ def habit_lines(task: Mapping[str, Any], store: Store | None = None) -> list[str
             took = f", {d['seconds']} s" if d.get("seconds") is not None else ""
             lines.append(f"    installed habit #{d['habit']} ({d['candidate']}): `{d['command']}` after each edit"
                          f"{took}; `locks habits uninstall {d['habit']}` removes it" if e["kind"] == "habit_installed"
-                         else f"    not installed {d['candidate']}: {d['why']} (proposed `{d['command']}`)")
+                         else f"    not installed {d['candidate']}: {d['why']}"
+                         + (f" (proposed `{d['command']}`)" if d.get("command") else ""))
         return [*lines, *(f"    {line}" for line in skipped), *tail]
     if not installs:
         return [f"  habits review: nothing worth a hook ({len(skips)} skipped)"

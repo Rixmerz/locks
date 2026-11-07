@@ -70,6 +70,7 @@ FIXED_IN = {
     "resumed-after-it-landed": "0.66.0",
     "swept-before-its-pid": "0.66.0",
     "advised-again-in-a-prompt": "0.82.0",
+    "habit-review-unapplied": "0.85.0",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -792,6 +793,37 @@ def advised_again_in_a_prompt(store: Store, *, since: str | None, **_) -> Iterab
         yield _history("advised-again-in-a-prompt", sorted(before), None)
 
 
+def habit_reviews_unapplied(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """A habits review that passed and whose proposals locks never applied: no `habit_installed` or
+    `habit_refused` event on it (`habits.apply_reviews` looked for reviews by the `queue` source a
+    started task no longer has; from 0.85.0 it finds them by their options and says every verdict
+    it could not read)."""
+    before: list[int] = []
+    for event in store.events_of_kinds(["finished"], since=since):
+        if event["data"].get("status") != "done":
+            continue
+        task = store.get_task(event["task_id"])
+        try:
+            reviewed = json.loads((task or {}).get("options") or "{}").get("habit_review")
+        except (TypeError, ValueError):
+            reviewed = None
+        if not task or not reviewed:
+            continue
+        kinds = {e["kind"] for e in store.events(task_id=task["id"], limit=500)}
+        if kinds & {"habit_installed", "habit_refused"}:
+            continue
+        if _fixed("habit-review-unapplied", event["data"].get("version")):
+            before.append(task["id"])
+            continue
+        yield Finding("habit-review-unapplied", SUSPECT,
+                      f"habits review #{task['id']} passed and locks never applied it: no habit_installed or "
+                      "habit_refused event",
+                      "the next settle applies it (a hook, the dispatcher, or `locks endings`); with `habit_auto` "
+                      f"off, `locks show {task['id']}` has the proposals", task["id"], task["repo"])
+    if before:
+        yield _history("habit-review-unapplied", sorted(before), None)
+
+
 RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     lanes_paused_on_ended, running_with_no_process, queued_with_no_dispatcher, held_behind_gone, wait_judged_on_gone,
     resumes_that_never_ran,
@@ -800,6 +832,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     trials_never_sampled, notes_proven_unbriefed, preexisting_that_was_not, problems_open_after_pass,
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
+    habit_reviews_unapplied,
 )
 
 

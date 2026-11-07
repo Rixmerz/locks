@@ -408,3 +408,24 @@ def test_compaction_advice_given_twice_in_one_prompt_is_suspect(store: Store):
         store.add_event(old["id"], "compaction_delivered", decision=decision, how="advise", locks="0.81.0")
     found = rules(store, now=LATER, alive=lambda pid: True)["advised-again-in-a-prompt"]
     assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, prompt["id"]), (doctor.FIXED, old["id"])]
+
+
+def test_a_habits_review_that_passed_and_nothing_applied_is_suspect(store: Store):
+    def review(version: str, *kinds: str) -> int:
+        task = store.create_task("[habits review]", status="done", source="locks", repo="r",
+                                 options=json.dumps({"kind": "explore", "habit_review": ["913c3597"]}))
+        store.add_event(task["id"], "finished", status="done", version=version)
+        for kind in kinds:
+            store.add_event(task["id"], kind, candidate="913c3597", command="x", why="y")
+        return task["id"]
+
+    unapplied = review("0.85.0")
+    applied = review("0.85.0", "habit_installed")
+    refused = review("0.85.0", "habit_refused")
+    old = review("0.84.0")
+    plain = store.create_task("not a review", status="done", source="locks", repo="r")
+    store.add_event(plain["id"], "finished", status="done", version="0.85.0")
+    found = rules(store, now=LATER, alive=lambda pid: True)["habit-review-unapplied"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, unapplied), (doctor.FIXED, old)]
+    assert "never applied it" in found[0].what and str(unapplied) in found[0].fix
+    assert {applied, refused} & {f.task_id for f in found} == set()

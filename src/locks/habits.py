@@ -458,6 +458,8 @@ def unreviewed(store: Store, repo: str, repo_dir: Path | None, *, days: int = RE
 def review_brief(found: Sequence[Candidate]) -> str:
     """A read-only worker's request: one criterion per habit, each answered with whether it is
     worth a hook here and, if so, the exact command, run and timed."""
+    from locks.launch import REPORT_FENCE
+
     lines = "\n".join(
         f"- {c.id}: after {c.steps[0]}, this repository declares {c.steps[-1].removeprefix('bash:')} in "
         f"{c.declared_by} (no session ran it after an edit yet)" if c.declared_by else
@@ -479,7 +481,8 @@ def review_brief(found: Sequence[Candidate]) -> str:
         "with no `;`, `&&`, pipe, redirection or `$(…)`: a hook that needs a script is a skip. locks runs it "
         "again itself before it installs it. Each criterion's evidence starts with its verdict, exactly "
         f"`install <id>: `<command>`` (the command in backticks, as you ran it) or `skip <id>: <why>`, then "
-        "its wall time and what you found.")
+        "its wall time and what you found. Write the same verdict lines, one per habit, at the top of your "
+        f"`{REPORT_FENCE}` block and in `evidence`: locks reads the verdicts from there too.")
 
 
 #: A habits review's verdict at the start of a criterion's evidence (`review_brief`): a command
@@ -563,7 +566,8 @@ def shaped(command: str, candidate: Candidate) -> str | None:
         return "it does not parse as a command"
     words = [w for w in words if not re.fullmatch(r"[A-Z_][A-Z0-9_]*=\S*", w)]
     program = candidate.steps[-1].removeprefix("bash:").split("-")
-    while words and words[0] in _RUNNERS and words[0] != program[0]:
+    # A runner by its name wherever it is (`.venv/bin/python -m ruff`, as a project's own docs run it).
+    while words and Path(words[0]).name in _RUNNERS and Path(words[0]).name != program[0]:
         words = words[1:]
     if not words or Path(words[0]).name != program[0] or (len(program) > 1 and program[1] not in words[1:3]):
         return f"it does not run the habit's program ({' '.join(program)})"
@@ -606,6 +610,23 @@ def vet(command: str, candidate: Candidate, repo_dir: Path, root: Path) -> tuple
         return f"it could not be tried: {exc}", None
 
 
+def review_texts(store: Store, task: Mapping[str, Any], finished: Mapping[str, Any] | None = None) -> list[str]:
+    """Where a review's verdicts are read from: each criterion's evidence on its ending, its summary,
+    the report block it kept (`report` event) and each attempt's evidence. A review of one habit has
+    no criteria (a list is two items or more), so its verdict lives in the report or the evidence."""
+    if finished is None:
+        finished = next((e["data"] for e in reversed(store.events(task_id=int(task["id"]), limit=500))
+                         if e["kind"] == "finished"), {})
+    texts = [str(c.get("evidence") or "") for c in (finished.get("verdict") or {}).get("criteria") or ()]
+    texts.append(str(task.get("result") or ""))
+    for e in store.events_of(int(task["id"]), "report"):
+        report = e["data"].get("report")
+        texts.append(str(report.get("unparsed")) if isinstance(report, dict) and "unparsed" in report
+                     else json.dumps(report, ensure_ascii=False))
+    texts += [str(a.get("evidence") or "") for a in store.attempts(int(task["id"]))]
+    return texts
+
+
 def apply_reviews(store: Store, root: Path, *, env: Mapping[str, str] | None = None,
                   task_ids: Sequence[int] | None = None) -> list[dict[str, Any]]:
     """Install what passing habits reviews proposed and locks' own check (`vet`) passed, once
@@ -617,8 +638,10 @@ def apply_reviews(store: Store, root: Path, *, env: Mapping[str, str] | None = N
     if not config.enabled(AUTO, dict(os.environ) if env is None else env):
         return []
     done: list[dict[str, Any]] = []
+    # A review is queued as `queue` and runs as `locks` (`orchestrate` sets a started task's source):
+    # it is found by its options, never by its source.
     tasks = ([t for t in (store.get_task(i) for i in task_ids) if t and t["status"] == "done"]
-             if task_ids is not None else store.list_tasks(source=("queue",), status=("done",), limit=200))
+             if task_ids is not None else store.list_tasks(status=("done",), limit=200))
     for task in tasks:
         options = json.loads(task.get("options") or "{}")
         reviewed = options.get("habit_review")
@@ -629,11 +652,15 @@ def apply_reviews(store: Store, root: Path, *, env: Mapping[str, str] | None = N
                 continue
             store.set_meta(f"habits.applied:{task['id']}", "1")
         top = checkout_of(task.get("cwd"))
-        finished = next((e["data"] for e in reversed(store.events(task_id=task["id"], limit=500))
-                         if e["kind"] == "finished"), {})
-        texts = [str(c.get("evidence") or "") for c in (finished.get("verdict") or {}).get("criteria") or ()]
-        installs, _ = review_verdicts([*texts, str(task.get("result") or "")], reviewed)
+        installs, skips = review_verdicts(review_texts(store, task), reviewed)
         known = {c.id: c for c in current(store, task.get("repo"), top)}
+        for cid in reviewed:
+            if cid not in installs and cid not in skips:
+                # Said, never silent: a verdict locks could not read installs nothing and is an event.
+                store.add_event(task["id"], "habit_refused", candidate=cid, command=None, seconds=None,
+                                why="the review gave no verdict locks could read (`install <id>: `<command>`` "
+                                    "or `skip <id>: <why>`; `locks show` has its words)")
+                done.append({"task": task["id"], "candidate": cid, "refused": "no verdict"})
         for cid, command in installs.items():
             candidate = known.get(cid)
             why, seconds = (("it no longer passes the gates", None) if candidate is None else

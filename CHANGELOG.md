@@ -46,6 +46,17 @@
   is installed, as a mined one is; a habit a session already showed is the mined one.
 
 ### Fixed
+- **A habits review the dispatcher ran was never applied**: `habits.apply_reviews` looked for reviews
+  by the `queue` source they were created with, and a task's source becomes `locks` once it runs, so
+  the vetted install from `evolution.settle` never happened (only an ending delivered to a session
+  applied it). Reviews are found by their options now. A review whose verdict locks cannot read
+  (`install <id>: `<command>`` or `skip <id>: <why>`) is a `habit_refused` event that says so, never
+  silence; a review of one habit has no criteria (a list is two items or more), so the verdicts are
+  read from its `locks-report` block and its evidence too, and the brief asks for them there.
+  `locks doctor` says a passed review nothing applied (`habit-review-unapplied`).
+- **A runner named by its path is the habit's program**: `.venv/bin/python -m ruff check` (how a
+  project's own docs run it) was refused as not running `ruff`; a runner is read by its name wherever
+  it is.
 - **An older install a live session still runs from is no longer offered for removal**: SessionStart
   named every older install with an `rm -rf` line, and removing one a session started before the
   update still ran its hooks from made that session's next hook fail to start (after a compaction,

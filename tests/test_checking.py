@@ -960,9 +960,11 @@ def test_the_cli_sets_a_step_s_ledger_part(git_repo, capsys, monkeypatch):
     assert "ledger" not in json.loads(capsys.readouterr().out)["steps"][1]
 
 
-def test_the_check_keeps_only_the_neighbours_that_measure(git_repo, store, verifier_on):
+def test_the_check_keeps_only_the_neighbours_that_measure(git_repo, store, verifier_on, monkeypatch):
     from locks import capabilities as caps
 
+    # rastro handed to writing work is held to evidence on the gate arm (`evidence.arm`): not this test's.
+    monkeypatch.setenv("LOCKS_EVIDENCE", "off")
     registry = {"layout-inspector": caps.Capability("layout-inspector", {"command": "li"}),
                 "rastro": caps.Capability("rastro", {"command": "rastro"})}
     script = Script(passing(), check("pass"), write="app.py")

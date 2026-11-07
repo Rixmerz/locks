@@ -1860,7 +1860,7 @@ def run(
                 # answer stands whatever the reader says. Never a climb, never a failure.
                 again = any(a.shape.startswith(critique_mod.SHAPE) for a in attempts)
                 seen = critique_mod.read(launcher, spec, text, result.parts, result.contract, store=store,
-                                         task_id=task["id"], nth=nth, round=2 if again else 1)
+                                         task_id=task["id"], nth=nth, nth_round=2 if again else 1)
                 critic_cost = seen.cost_usd
                 result = dataclasses.replace(result, cost_usd=result.cost_usd + critic_cost)
                 if seen.findings and not again:

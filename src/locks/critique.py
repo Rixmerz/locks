@@ -13,13 +13,12 @@ Every reading is a `critiqued` event with its findings, cell, cost and seconds.
 
 Whether it helps is measured, never assumed: a repository's plans with parts alternate between
 `with` and `without` the reader (the `briefed` event's `critique_arm`) until each arm has `TRIAL`
-first tries, then the reader runs only where the first tries of the steps that came after a plan
-read first passed no less often (`arm`), judged as the pre-mortem is (`methods`), since a plan's own
+first tries of the steps after its plans, then the reader runs only where those first tries
+passed no less often (`arm`), judged as the pre-mortem is (`methods`), since a plan's own
 pass is its answer. A resume keeps the arm its first brief drew (`arm_for`).
 """
 from __future__ import annotations
 
-import builtins
 import dataclasses
 import json
 import os
@@ -38,7 +37,7 @@ from locks.store import Store
 KEY = "critique_arm"
 WHY_KEY = "critique_why"
 ARMS = ("with", "without")
-#: Plans with parts per arm before the trial decides.
+#: First tries of the steps after plans with parts, per arm, before the trial decides.
 TRIAL = 6
 #: The reader's own turns: it reads the plan and a few files, never builds.
 TURNS = 40
@@ -115,7 +114,7 @@ def spec_for(spec: launch.LaunchSpec, text: str, parts: Sequence[Mapping[str, An
 
 def read(launcher: Callable[[launch.LaunchSpec], launch.WorkerResult], spec: launch.LaunchSpec, text: str,
          parts: Sequence[Mapping[str, Any]], contract: str, *, store: Store, task_id: int, nth: int,
-         round: int) -> Critique:
+         nth_round: int) -> Critique:
     """Launch the reader once and keep what it said as a `critiqued` event. A reader that broke
     (a launch that errored or timed out, an answer without exactly one result block) gives no
     findings: the plan goes on, and the event says the reader found nothing."""
@@ -124,9 +123,9 @@ def read(launcher: Callable[[launch.LaunchSpec], launch.WorkerResult], spec: lau
     seconds = time.monotonic() - mark
     broke = result.transient or bool(result.shape)
     found = () if broke else findings_mod.read({"findings": list(result.findings)})
-    store.add_event(task_id, "critiqued", seq=nth, round=round, cell=CELL.label, findings=list(found),
-                    cost_usd=builtins.round(result.cost_usd, 4), seconds=builtins.round(seconds, 2),
-                    verdict=result.verdict, held=round == 1 and bool(found))
+    store.add_event(task_id, "critiqued", seq=nth, round=nth_round, cell=CELL.label, findings=list(found),
+                    cost_usd=round(result.cost_usd, 4), seconds=round(seconds, 2),
+                    verdict=result.verdict, held=nth_round == 1 and bool(found))
     return Critique(found, result.cost_usd, seconds, result.verdict)
 
 

@@ -136,7 +136,7 @@ def test_a_reading_is_launched_once_and_kept_as_a_critiqued_event(store: Store, 
                                         findings=(found(), found("request", "S2 is answered by no part"))), takes=2.5)
     monkeypatch.setattr(critique.time, "monotonic", reader.clock)
     got = critique.read(reader, plan_spec(), REQUEST, PARTS, CONTRACT, store=store, task_id=task["id"], nth=2,
-                        round=1)
+                        nth_round=1)
     assert len(reader.specs) == 1 and reader.specs[0].cell == critique.CELL
     assert got == critique.Critique(findings=got.findings, cost_usd=0.123456, seconds=2.5, verdict="pass")
     assert [f["where"] for f in got.findings] == ["cli", "request"]
@@ -150,7 +150,7 @@ def test_the_second_reading_is_never_held(store: Store):
     task = store.create_task("plan it", status="running", source="locks", repo="r", kind="plan")
     reader = Reader(launch.WorkerResult(True, None, "ok", "read", findings=(found(),), verdict="pass"))
     again = critique.read(reader, plan_spec(), REQUEST, PARTS, CONTRACT, store=store, task_id=task["id"], nth=1,
-                          round=2)
+                          nth_round=2)
     assert again.findings
     assert store.events_of(task["id"], "critiqued")[0]["data"]["held"] is False
     assert store.events_of(task["id"], "critiqued")[0]["data"]["round"] == 2
@@ -159,7 +159,7 @@ def test_the_second_reading_is_never_held(store: Store):
 def test_a_clean_reading_holds_nothing_back(store: Store):
     task = store.create_task("plan it", status="running", source="locks", repo="r", kind="plan")
     clean = critique.read(Reader(), plan_spec(), REQUEST, PARTS, CONTRACT, store=store, task_id=task["id"], nth=1,
-                          round=1)
+                          nth_round=1)
     assert clean.findings == () and clean.verdict == "pass"
     data = store.events_of(task["id"], "critiqued")[0]["data"]
     assert data["findings"] == [] and data["held"] is False
@@ -174,7 +174,7 @@ def test_a_clean_reading_holds_nothing_back(store: Store):
 def test_a_reader_that_broke_gives_no_findings_and_the_plan_goes_on(store: Store, broken):
     task = store.create_task("plan it", status="running", source="locks", repo="r", kind="plan")
     got = critique.read(Reader(broken), plan_spec(), REQUEST, PARTS, CONTRACT, store=store, task_id=task["id"],
-                        nth=1, round=1)
+                        nth=1, nth_round=1)
     assert got.findings == ()
     data = store.events_of(task["id"], "critiqued")[0]["data"]
     assert data["findings"] == [] and data["held"] is False and data["cost_usd"] == round(broken.cost_usd, 4)
@@ -184,7 +184,7 @@ def test_the_findings_are_read_as_findings_are(store: Store):
     task = store.create_task("plan it", status="running", source="locks", repo="r", kind="plan")
     raw = {"where": "writer", "what": "  the   file's place is left open ", "evidence_class": "deterministic"}
     got = critique.read(Reader(launch.WorkerResult(True, None, "ok", "read", findings=(raw, {"what": ""}))),
-                        plan_spec(), REQUEST, PARTS, CONTRACT, store=store, task_id=task["id"], nth=1, round=1)
+                        plan_spec(), REQUEST, PARTS, CONTRACT, store=store, task_id=task["id"], nth=1, nth_round=1)
     # No proof: a claim of "deterministic" without one is read from the code. A row with no `what` is none.
     assert got.findings == ({"where": "writer", "what": "the file's place is left open",
                              "evidence_class": "inferential", "cause": "unknown", "proof": ""},)

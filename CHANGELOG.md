@@ -18,6 +18,10 @@
   (`classify._WHERE`); the first change is the function, and the tests are how it proves itself.
 
 ## [0.85.1] - 2026-11-07
+- **`locks forensics` reads the cache share from the workers' attempts** when no session usage was
+  recorded (a session's usage comes from its transcript, kept only with the trace on): every
+  `attempt_finished` keeps its input, cache-read and cache-write tokens, so the share is shown per
+  model from them (`source: attempts`) instead of "no usage recorded".
 
 ### Fixed
 - **A check in a worktree tests the work, not the checkout**: a Python project installed editable

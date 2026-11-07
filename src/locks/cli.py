@@ -2827,10 +2827,13 @@ def cmd_forensics(args: argparse.Namespace) -> int:
     for c in s["cells"][:args.limit]:
         print(f"  {c['kind']:<14} {c['cell']:<16} {c['attempts']:>4} attempts {c['passed']:>4} passed "
               f"${c['usd']:.2f} (unpassed ${c['unpassed_usd']:.2f})")
-    print("cache, by model:" + ("" if info["cache"] else " no usage recorded"))
+    print("cache, by model:" + ("" if info["cache"] else " no usage recorded")
+          + (" (from the workers' attempts; a session's own usage needs its transcript)"
+             if info["cache"] and info["cache"][0].get("source") == "attempts" else ""))
     for m in info["cache"]:
         read = f"{m['read_share']:.0%}" if m["read_share"] is not None else "n/a"
-        print(f"  {m['model']}: {read} of input read from the cache over {m['messages']} messages")
+        unit = "attempts" if m.get("source") == "attempts" else "messages"
+        print(f"  {m['model']}: {read} of input read from the cache over {m['messages']} {unit}")
     f = info["friction"]
     print(f"tool friction: {f['failed']} of {f['calls']} calls failed, {f['repeated']} repeated back to back")
     for t in f["tools"][:args.limit]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from locks import analysis, evidence, notes, orchestrate
+from locks import analysis, arms, evidence, notes, orchestrate
 from locks import capabilities as caps
 from locks.launch import WorkerResult
 from locks.orchestrate import Options, run
@@ -197,17 +197,19 @@ def test_the_trial_alternates_then_keeps_the_gate_only_where_it_drew_fewer_block
             store.add_event(t["id"], "verified", seq=1, round=0, worker="sonnet/medium", passed=outcome == "clean",
                             blocking=int(outcome == "blocked"))
 
-    assert evidence.arm(store, "r", 2)[0] == "gate" and evidence.arm(store, "r", 3)[0] == "free"
+    ids = {evidence.ARMS[arms.side("evidence", "r", n, 0, 0)]: n for n in range(1, 30)}
+    assert evidence.arm(store, "r", ids["gate"])[0] == "gate" and evidence.arm(store, "r", ids["free"])[0] == "free"
     task("gate", "clean")
-    assert evidence.arm(store, "r", 2)[0] == "free"  # the arm with fewer tasks goes next
+    task("gate", "clean")
+    assert evidence.arm(store, "r", ids["gate"])[0] == "free"  # two apart: the arm with fewer tasks goes next
     for n in range(evidence.TRIAL):
         task("gate", "clean")
         task("free", "blocked" if n < 3 else "clean")
     arm, why = evidence.arm(store, "r", 2)
     assert arm == "gate" and why.startswith("holding work to evidence won its trial here")
     found = evidence.trial(store, "r")
-    assert found["gate"]["read"] == evidence.TRIAL + 1 and found["free"]["blocked"] == 3
-    for _ in range(6):  # 6 of 15 held blocked against 3 of 8 free: the gate lost
+    assert found["gate"]["read"] == evidence.TRIAL + 2 and found["free"]["blocked"] == 3
+    for _ in range(6):  # 6 of 16 held blocked against 3 of 8 free: the gate lost
         task("gate", "blocked")
     arm, why = evidence.arm(store, "r", 2)
     assert arm == "free" and why.startswith("holding work to evidence lost its trial here")
@@ -282,3 +284,25 @@ def test_the_setting_turns_it_off(setting, monkeypatch):
     monkeypatch.setenv("LOCKS_EVIDENCE", "on")
     assert evidence.enabled()
     assert notes and orchestrate  # imported for the module's own checks above
+
+
+def test_an_attempt_whose_hooks_logged_no_call_is_not_recorded_as_silent(store: Store):
+    silent = {"rastro": {"calls": 0, "ok": 0}}
+    events = [{"kind": "attempt_finished", "task_id": 1,
+               "data": {"passed": True, "tools_logged": False, "capability_calls": silent}},
+              {"kind": "attempt_finished", "task_id": 2,
+               "data": {"passed": True, "tools_logged": True, "capability_calls": silent}}]
+    rows = {r["capability"]: r for r in analysis.capabilities_used(events, {1, 2})}
+    assert rows["rastro"]["handed"] == 1 and rows["rastro"]["never_called"] == 1 and rows["rastro"]["unlogged"] == 1
+    assert rows["rastro"]["called_rate"] == 0.0
+
+
+def test_stats_say_when_a_worker_s_calls_were_never_logged(store: Store):
+    t = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
+    store.add_attempt(t["id"], cell="sonnet/medium", max_turns=30, passed=1)
+    store.add_event(t["id"], "planned", kind="implement", start="sonnet/medium", plan_s=1.0)
+    store.add_event(t["id"], "attempt_finished", seq=1, cell="sonnet/medium", passed=True, tools_logged=False,
+                    capability_calls={"rastro": {"calls": 0, "ok": 0}})
+    store.add_event(t["id"], "finished", status="done", wall_s=60.0)
+    said = analysis.text(analysis.compute(store, days=0))
+    assert "rastro" in said and "1 attempt(s) not recorded: their worker's hooks logged no call" in said

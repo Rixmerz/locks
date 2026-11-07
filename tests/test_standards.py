@@ -572,3 +572,36 @@ def test_a_skip_holds_no_start_cell_back(store):
     many(store, standards.MIN_SAMPLES, ("opus/high", True))
     changed = standards.calibrate(store, "r", now=NOW + timedelta(minutes=1))
     assert any(c["field"] == "start_cell" for c in changed)
+
+
+# --- a pass nobody read moves no start cell cheaper ------------------------------------------------
+
+def test_a_first_try_the_sampling_let_through_is_no_evidence_for_a_cheaper_start(store: Store):
+    from locks.matrix import Cell
+
+    ladder = [Cell("sonnet", "medium"), Cell("sonnet", "high")]
+    read = {"sonnet/medium": [5, 5]}
+    # Every first try at the cheaper rung passed, but none was read: the start stays.
+    moved, evidence = standards.start_cell(ladder, Cell("sonnet", "high"), read, read=({"sonnet/medium": [0, 0]}))
+    assert moved is None and "held" in evidence and evidence["read"] == {"sonnet/medium": [0, 0]}
+    # Read ones move it; a move up never asks for them.
+    assert standards.start_cell(ladder, Cell("sonnet", "high"), read, read=read)[0] == Cell("sonnet", "medium")
+    up = {"sonnet/high": [5, 5], "sonnet/medium": [1, 5]}
+    assert standards.start_cell(ladder, None, up, Cell("sonnet", "medium"), read={})[0] == Cell("sonnet", "high")
+
+
+def test_the_calibration_leaves_unread_passes_out_of_a_move_down(store: Store):
+    store.set_standard("r", "implement", 3, start_cell="sonnet/high")
+    for _ in range(standards.MIN_SAMPLES):
+        task = finished(store, ("sonnet/medium", True), points=3)
+        store.add_event(task, "verifier_sampled", seq=1, worker="sonnet/medium", every=2)
+    ended = standards.ended(store, repo="r")
+    assert all(t.unread for t in ended)
+    assert standards.rates(ended) == {"sonnet/medium": [5, 5]} and standards.rates(ended, read=True) == {}
+    assert not [c for c in standards.calibrate(store, "r") if c["field"] == "start_cell"]
+    assert store.standard("r", "implement", 3)["start_cell"] == "sonnet/high"
+    # The same passes read by the independent check move it down one rung.
+    for _ in range(standards.MIN_SAMPLES):
+        finished(store, ("sonnet/medium", True), points=3)
+    changes = [c for c in standards.calibrate(store, "r") if c["field"] == "start_cell"]
+    assert changes and changes[0]["new_value"] == "sonnet/medium"

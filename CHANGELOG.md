@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-11-07
+
+### Changed
+- **Trials no longer move in lockstep**: every two-arm trial (a method, the primer, a trunk, the
+  evidence gate, a role's lessons, the recall order) broke a tie by the task's parity and then kept
+  the arms level, so trials that ran over the same tasks put the same tasks in every "with" arm and
+  read each other's effect as their own. The side is now the hash of the trial, the repository and
+  the task (`arms.side`), and the arm with fewer tasks goes next only once they are `arms.BALANCE`
+  apart. Deterministic, no clock, no model; the `briefed` event's arm fields show it.
+- **A pass nobody read moves no start cell cheaper**: a first try the independent check's sampling
+  let through (`verifier_sampled`) counted as a first-try pass, so a cheap cell looked better the less
+  it was checked and the calibration chose it sooner. `Ended.unread` marks it, `standards.rates(read=True)`
+  leaves it out, and `start_cell` moves to a cheaper rung only on first tries that were read (the
+  change's evidence keeps `read` and `held`); a move up reads every try as before.
+
+### Added
+- **A reading worker's answer is kept whole**: a worker of a reading kind (explore, a review, a plan,
+  chat) is told to put its whole answer in a `locks-report` block (`launch.REPORT_INSTRUCTIONS`),
+  which was already parsed and kept as a `report` event and shown only for investigations. The
+  result contract's `summary` is one or two sentences, and the tables and lists a reading task was
+  asked for were dropped with the rest of the prose. `locks show N` prints the report whole, the
+  ending notice says it is kept, and the UI's task detail carries it (`report`). The surveyor keeps
+  its own JSON report.
+- **`attempt_finished.tools_logged`**: whether any tool call of the attempt reached the log. A worker
+  whose hooks did not run (no locks plugin installed where it ran) logs none, and its
+  `capability_calls` zeros, its missing `behavior` and `livespec_calls: {}` were read as "never
+  called". `locks stats` counts such attempts apart ("not recorded") instead of as silent.
+
 ### Fixed
 - **An older install a live session still runs from is no longer offered for removal**: SessionStart
   named every older install with an `rm -rf` line, and removing one a session started before the

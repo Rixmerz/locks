@@ -125,6 +125,9 @@ class Ended:
     used: tuple[int, ...]
     ended_at: str
     realized: int | None
+    #: Its first try passed with no independent check read: the sampling let it through
+    #: (`verifier_sampled`). It is a first try like any, but moves no start cell cheaper.
+    unread: bool = False
 
     @property
     def passed(self) -> bool:
@@ -146,13 +149,16 @@ def ended(store: Store, *, repo: str | None = None, since: str = "", until: str 
     rows = [r for r in store.ended_tasks(repo=repo, since=since, until=until)
             if '"investigation"' not in (r.get("options") or "")]
     attempts = store.attempts_of([r["id"] for r in rows])
+    # The tasks whose first try passed unread: the sampling let it through (`trust.sampling`).
+    unread = {int(e["task_id"]) for e in store.verifier_record(repo)
+              if e["event"] == "verifier_sampled" and int((e["data"] or {}).get("seq") or 0) == 1}
     out = []
     for r in rows:
         used = ((r["planned_data"] or {}).get("standard") or {}).get("changes") or ()
         out.append(Ended(int(r["id"]), r["repo"], r["kind"] or "", r.get("points"), r["status"],
                          float(r["cost_usd"] or 0), float(r["wall_s"] or 0), bool(r["pinned"]),
                          tuple(attempts.get(int(r["id"]), ())), tuple(int(c) for c in used), r["ended_at"],
-                         r["ended_data"].get("realized")))
+                         r["ended_data"].get("realized"), int(r["id"]) in unread))
     return out
 
 
@@ -215,14 +221,18 @@ def turns_needed(attempts: Sequence[Mapping[str, Any]]) -> int | None:
     return total or None
 
 
-def rates(tasks: Sequence[Ended]) -> dict[str, list[int]]:
+def rates(tasks: Sequence[Ended], *, read: bool = False) -> dict[str, list[int]]:
     """Per cell, [passed, tried] over its first tries. A cell a person pinned says nothing of
-    where the router should start, so a pinned task teaches none."""
+    where the router should start, so a pinned task teaches none. With `read`, a first try the
+    independent check never read (`Ended.unread`) is left out: a pass nobody looked at is no
+    evidence for a cheaper start."""
     out: dict[str, list[int]] = {}
     for task in tasks:
         if task.pinned:
             continue
-        for cell, passed in samples(task.attempts):
+        for i, (cell, passed) in enumerate(samples(task.attempts)):
+            if read and task.unread and i == 0:
+                continue
             row = out.setdefault(cell, [0, 0])
             row[0] += int(passed)
             row[1] += 1
@@ -272,21 +282,39 @@ def _position(rungs: Sequence[Cell], cell: Cell | None) -> int:
     return below[-1] if below else 0
 
 
+def _qualified(rungs: Sequence[Cell], cells: Mapping[str, Sequence[int]]) -> list[int]:
+    return [i for i, c in enumerate(rungs) if c.label in cells and cells[c.label][1] >= MIN_SAMPLES
+            and cells[c.label][0] / cells[c.label][1] >= PASS_FIRST]
+
+
 def start_cell(ladder: Sequence[Cell], current: Cell | None, measured: Mapping[str, Sequence[int]],
-               home: Cell | None = None) -> tuple[Cell | None, dict[str, Any]]:
+               home: Cell | None = None,
+               read: Mapping[str, Sequence[int]] | None = None) -> tuple[Cell | None, dict[str, Any]]:
     """Where the start cell moves (None: it stays), and the evidence. `current` None is
     locks' own rules, which start at `home`, the kind's ladder's first rung (the first of
-    `ladder` when none is given: a reach that holds a probation cell starts above it)."""
+    `ladder` when none is given: a reach that holds a probation cell starts above it). A move
+    to a cheaper rung is made on `read` when given: the first tries the independent check read
+    (`rates(read=True)`), since a pass its sampling let through unchecked is the very thing a
+    cheaper start would make more of."""
     rungs = [c for c in ladder if not c.needs_approval]
     cells = {c.label: list(measured[c.label]) for c in rungs if c.label in measured}
     evidence: dict[str, Any] = {"cells": cells, "rates": {k: round(p / n, 3) for k, (p, n) in cells.items() if n},
                                 "threshold": PASS_FIRST, "min_samples": MIN_SAMPLES, "target": None}
-    qualified = [i for i, c in enumerate(rungs) if c.label in cells and cells[c.label][1] >= MIN_SAMPLES
-                 and cells[c.label][0] / cells[c.label][1] >= PASS_FIRST]
+    qualified = _qualified(rungs, cells)
     if not qualified:
         return None, evidence
     target, at = qualified[0], _position(rungs, current if current is not None else home)
     evidence["target"] = rungs[target].label
+    if target < at and read is not None:
+        seen = {c.label: list(read[c.label]) for c in rungs if c.label in read}
+        evidence["read"] = seen
+        held = _qualified(rungs, seen)
+        if not held or held[0] >= at:
+            evidence["held"] = ("a cheaper start needs first tries the independent check read, and the ones "
+                                "it did not read are left out")
+            return None, evidence
+        target = held[0]
+        evidence["target"] = rungs[target].label
     if target == at:
         return None, evidence
     return rungs[at + (1 if target > at else -1)], evidence
@@ -361,7 +389,8 @@ def calibrate(store: Store, repo: str, *, now: datetime | None = None) -> list[d
         store.set_standard(repo, kind, band, measured={**metrics(window), "cells": cells})
         if (kind, band) in waiting:
             continue
-        moved, evidence = start_cell(rungs_of(kind), _cell(row.get("start_cell")), cells, ladder_for(kind)[0])
+        moved, evidence = start_cell(rungs_of(kind), _cell(row.get("start_cell")), cells, ladder_for(kind)[0],
+                                     read=rates(window, read=True))
         if moved is not None:
             target = evidence["target"]
             rule = (f"the cheapest rung of the {kind} ladder whose first tries passed at least {PASS_FIRST:.0%} of "

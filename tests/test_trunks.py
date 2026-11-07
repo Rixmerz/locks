@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from locks import analysis, flow, trunks, workflows
+from locks import analysis, arms, flow, trunks, workflows
 from locks.escalate import Failure
 from locks.launch import WorkerResult
 from locks.orchestrate import Options, run
@@ -98,10 +98,12 @@ def _trial_task(store: Store, arm: str, *, passed: bool, calls: int, took: float
 
 
 def test_the_trunk_s_trial_alternates_then_keeps_forking_only_where_it_won(store: Store):
-    assert trunks.arm(store, "r", 7) == ("fresh", "the trunk's trial here (0 forked, 0 fresh, 10 each)")
-    assert trunks.arm(store, "r", 8)[0] == "fork" and trunks.arm(store, None, 7)[0] == "fork"
+    ids = {trunks.ARMS[arms.side("trunk", "r", n, 0, 0)]: n for n in range(1, 30)}
+    assert trunks.arm(store, "r", ids["fresh"]) == ("fresh", "the trunk's trial here (0 forked, 0 fresh, 10 each)")
+    assert trunks.arm(store, "r", ids["fork"])[0] == "fork" and trunks.arm(store, None, 7)[0] == "fork"
     _trial_task(store, "fork", passed=True, calls=2, took=60)
-    assert trunks.arm(store, "r", 8)[0] == "fresh"  # the arm with fewer tasks goes next
+    _trial_task(store, "fork", passed=True, calls=2, took=60)
+    assert trunks.arm(store, "r", ids["fork"])[0] == "fresh"  # two apart: the arm with fewer tasks goes next
     for _ in range(trunks.TRIAL):
         _trial_task(store, "fork", passed=True, calls=2, took=60)
         _trial_task(store, "fresh", passed=True, calls=15, took=200)
@@ -184,6 +186,7 @@ def test_a_trunk_over_its_room_is_not_forked(git_repo, store: Store, forking, mo
 
 
 def test_trunks_off_forks_nothing(git_repo, store: Store, monkeypatch):
+    monkeypatch.setenv("LOCKS_TRUNK", "off")
     script = Script(ok())
     run("add the export", git_repo, store, Options(trunk=dict(TRUNK)), registry={}, launcher=script,
         classifier=kind("implement"))

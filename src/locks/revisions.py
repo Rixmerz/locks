@@ -36,6 +36,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from locks import __version__, config
+from locks import arms as arms_mod
 from locks.store import Store, home
 from locks.text import clip
 
@@ -181,8 +182,7 @@ def for_brief(store: Store, repo: str | None, role: str | None, task_id: int) ->
             arm, why = mine, "the arm this task's first brief had"
         else:
             counts = {a: sum(b["data"].get("revision_arm") == a for b in seen) for a in ARMS}
-            arm = (ARMS[task_id % 2] if counts["candidate"] == counts["current"]
-                   else min(ARMS, key=lambda a: counts[a]))
+            arm = ARMS[arms_mod.side("revision", repo, task_id, counts["candidate"], counts["current"])]
             why = (f"the trial of revision #{candidate['id']} here ({counts['candidate']} with it, "
                    f"{counts['current']} without, {ROLE_TRIAL} first tries each)")
         given = candidate if arm == "candidate" else current

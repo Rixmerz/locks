@@ -1338,3 +1338,13 @@ def test_a_broad_change_is_high_whatever_its_tests():
     assert any("broad change" in r for r in got.reasons)
     narrow = risk_mod.of_change(risk_mod.Risk("passive"), [*changed[:3], "src/feature/part.test.ts"])
     assert narrow.tier == "medium"
+
+
+def test_a_reading_worker_is_told_where_its_whole_answer_goes(tmp_path):
+    from locks.matrix import Cell
+
+    reading = launch.LaunchSpec(prompt="p", cell=Cell("haiku", "medium"), launch_dir=tmp_path, report=True)
+    told = launch.instructions(reading)
+    assert told.endswith(launch.REPORT_INSTRUCTIONS) and "`locks-report`" in told
+    assert launch.REPORT_INSTRUCTIONS not in launch.instructions(
+        launch.LaunchSpec(prompt="p", cell=Cell("haiku", "medium"), launch_dir=tmp_path))

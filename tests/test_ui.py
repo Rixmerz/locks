@@ -890,3 +890,10 @@ def test_every_script_of_the_page_parses(script: Path, tmp_path: Path):
     module.write_text(script.read_text(encoding="utf-8"), encoding="utf-8")
     checked = subprocess.run(["node", "--check", str(module)], capture_output=True, text=True)
     assert checked.returncode == 0, checked.stderr
+
+
+def test_task_detail_carries_a_reading_worker_s_whole_answer(store: Store):
+    t = store.create_task("where is x?", status="done", source="locks", repo="r", kind="explore")
+    assert api.task_detail(store, t["id"])["report"] is None
+    store.add_event(t["id"], "report", seq=1, passed=True, report={"unparsed": "# where\n\nx lives in a.py"})
+    assert api.task_detail(store, t["id"])["report"] == {"unparsed": "# where\n\nx lives in a.py"}

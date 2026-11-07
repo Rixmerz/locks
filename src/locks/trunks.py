@@ -17,6 +17,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from locks import arms as arms_mod
 from locks.store import Store
 
 #: The kinds a trunk may be: reading, and nothing it says is the work under judgment.
@@ -167,7 +168,7 @@ def arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
     early = min(f["tasks"], c["tasks"]) >= EARLY and \
         f["passed_first"] / f["tasks"] < c["passed_first"] / c["tasks"] - EARLY_MARGIN
     if min(f["tasks"], c["tasks"]) < TRIAL and not early:
-        pick = ARMS[task_id % 2] if f["tasks"] == c["tasks"] else "fork" if f["tasks"] < c["tasks"] else "fresh"
+        pick = ARMS[arms_mod.side("trunk", repo, task_id, f["tasks"], c["tasks"])]
         return pick, f"the trunk's trial here ({f['tasks']} forked, {c['tasks']} fresh, {TRIAL} each)"
     rate_f, rate_c = f["passed_first"] / f["tasks"], c["passed_first"] / c["tasks"]
     if early:

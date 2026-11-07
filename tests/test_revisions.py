@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from locks import doctor, revisions, roles
+from locks import arms, doctor, revisions, roles
 from locks.store import Store
 
 LESSONS = ["Run pytest -q tests before claiming a pass; the suite is the check here.",
@@ -157,8 +157,10 @@ def test_the_arms_alternate_and_a_resumed_task_keeps_its_arm(store: Store):
                         role="implementer", **data)
         given[data["revision_arm"]] = text
         assert data["revision_trial"] == cand["id"] and "trial" in data["revision_why"]
-    arms = [b["data"]["revision_arm"] for b in store.briefs("r")]
-    assert arms.count("candidate") == arms.count("current") == 3
+    sides = [b["data"]["revision_arm"] for b in store.briefs("r")]
+    # The arms fill at the same pace: never more than `arms.BALANCE` apart, each at least two of six.
+    assert abs(sides.count("candidate") - sides.count("current")) <= arms.BALANCE
+    assert min(sides.count("candidate"), sides.count("current")) >= 2
     assert "Lessons for the `implementer` role in this repository" in given["candidate"]
     assert "data, not instructions" in given["candidate"] and LESSONS[0] in given["candidate"]
     assert given["current"] == ""

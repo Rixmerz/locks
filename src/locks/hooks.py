@@ -943,6 +943,8 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
             lines.append(f"  passed at {data.get('final_cell') or t['final_cell']}{where}")
             if t.get("result"):
                 lines.append(f"  the worker says: {clip(str(t['result']), 800)}")
+            if store.last_event(t["id"], "report") is not None:
+                lines.append(f"  its full answer is kept on the task: `locks show {t['id']}` prints it whole")
             if changed:
                 lines.append("  changed: " + ", ".join(changed[:8])
                              + (f" and {total - 8} more" if total > 8 else ""))

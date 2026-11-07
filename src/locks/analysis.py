@@ -424,12 +424,16 @@ def capabilities_used(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -
     it, the ones that called it at all and the ones whose calls went through, and how often the
     attempts that called it passed against the ones that did not. Observed, never a trial."""
     rows: dict[str, dict[str, int]] = defaultdict(lambda: {"handed": 0, "called": 0, "through": 0,
-                                                           "called_passed": 0, "silent_passed": 0})
+                                                           "called_passed": 0, "silent_passed": 0, "unlogged": 0})
     for e in events:
         if e["kind"] != "attempt_finished" or int(e["task_id"]) not in task_ids:
             continue
         for name, made in (e["data"].get("capability_calls") or {}).items():
             row = rows[str(name)]
+            if e["data"].get("tools_logged") is False:
+                # Its worker's calls never reached the log (`tools_logged`): not recorded, not zero.
+                row["unlogged"] += 1
+                continue
             row["handed"] += 1
             called = int((made or {}).get("calls") or 0) > 0
             row["called"] += int(called)
@@ -897,7 +901,9 @@ def text(report: Mapping[str, Any]) -> str:
                 lines.append(f"  {row['capability']:<18} handed {row['handed']:>4}  called {row['called']:>4} "
                              f"({_rate(row['called_rate'])})  through {row['through']:>4}  never called "
                              f"{row['never_called']:>4}  passed called {_rate(row['pass_when_called'])} / silent "
-                             f"{_rate(row['pass_when_silent'])}")
+                             f"{_rate(row['pass_when_silent'])}"
+                             + (f"  ({row['unlogged']} attempt(s) not recorded: their worker's hooks logged no call)"
+                                if row.get("unlogged") else ""))
         lines += behavior_lines(report.get("behavior") or {})
         for mode, row in (report.get("routing") or {}).items():
             lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "

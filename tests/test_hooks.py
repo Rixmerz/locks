@@ -308,6 +308,7 @@ def test_work_a_session_sent_is_reported_to_it_once_when_it_ends(store: Store, g
                                cwd=str(git_repo), final_cell="haiku")
     store.add_event(answer["id"], "finished", status="done", final_cell="haiku")
     store.update_task(answer["id"], status="done", result="slug.js:1")
+    store.add_event(answer["id"], "report", seq=1, passed=True, report={"unparsed": "# slug\n\nslug.js:1"})
     other = store.create_task("not this session's", status="failed", source="locks", session_id="t")
     store.add_event(other["id"], "finished", status="failed")
     store.create_task("still going", status="running", source="locks", session_id="s")
@@ -319,6 +320,7 @@ def test_work_a_session_sent_is_reported_to_it_once_when_it_ends(store: Store, g
     assert "git diff" not in notice
     assert "the worker says: Wrote the 0.5.0 entry." in notice and "changed: CHANGELOG.md" in notice
     assert "passed at haiku; it changed nothing\n  the worker says: slug.js:1" in notice
+    assert f"its full answer is kept on the task: `locks show {answer['id']}` prints it whole" in notice
     assert f"#{big['id']} [replan]" in notice and "stopped by locks' rules" in notice
     assert "src/f0.ts, src/f1.ts, src/f2.ts, src/f3.ts, src/f4.ts and 2 more" in notice
     assert f"locks resume {big['id']} --max-turns 120" in notice

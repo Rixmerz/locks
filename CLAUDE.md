@@ -65,7 +65,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/store.py` | SQLite memory: tasks, messages, attempts, problems and fixes, notes |
 | `src/locks/revisions.py` | a role's lessons per repository, improved by measured trial: proposed by Haiku from the role's dead ends and verifier blockers there, tried in alternating arms, adopted, dropped or reverted, every record appended to `role_revisions`; `locks roles revisions` reads it |
 | `src/locks/behavior.py` | how a worker worked, per attempt, from its own tool calls (never their arguments): before its first write, the checks it ran, fix loops, an unchecked end, rereads, repeats, silences, tool families; kept on `attempt_finished.behavior`, added up by kind, outcome and cell for `locks stats` and exported per attempt (`--attempts`); observed, no model |
-| `src/locks/arms.py` | two arms tried in turns until each has enough first tries, then the one that did no worse: the shape methods and the recall order share (`tally`, `pick`); no model |
+| `src/locks/arms.py` | two arms tried in turns until each has enough first tries, then the one that did no worse: the shape methods and the recall order share (`tally`, `pick`); which arm a task goes in is the hash of the trial, the repository and the task (`side`), the arm with fewer tasks only once they are `BALANCE` apart, so no two trials over the same tasks move in lockstep; no model |
 | `src/locks/methods.py` | how a kind's workers are briefed to work, tried against its absence: a diagnosis protocol for `debug-unclear`, a pre-mortem for `plan` whose `Risks:` reach the independent check of the steps after it; arms per repository (`method_arm`); no model |
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
 | `src/locks/cells.py` | where a lesson belongs: the area a path or a change is in, the role that met it, or everyone (`scope`); the text a failure is kept and matched by (a workflow step's goal, never its template); the cell's primer (how its workers got oriented) and its trial; no model |
@@ -488,6 +488,10 @@ yields the default kind, not a guess.
   (`Options.detach_after`, `orchestrate._after_ending`), so the command exits with the ending: never
   a fork, since a forked child's SQLite writes were lost when it closed.
   Tests run with `LOCKS_VERIFIER=off`, `LOCKS_OVERLAP=off` and `LOCKS_LATE_VERIFIER=off`.
+- A pass the sampling let through unchecked (`verifier_sampled`) is a first try like any, but
+  moves no start cell cheaper (`Ended.unread`, `standards.rates(read=True)`, `start_cell`'s `read`):
+  a cheap cell checked less would otherwise look better for it, and the calibration would choose
+  it sooner; a move up reads every try.
 - The independent check's record earns trust (`locks.trust`, the `trust` setting), never a worker's
   word: a cell is a repository, a kind and the worker's cell, and each task's first decided check
   is one inspection (a correction's re-check is no new one). Skip-lot sampling (ISO 2859-3): once
@@ -711,7 +715,11 @@ yields the default kind, not a guess.
   stopped nothing.
 - A reading task's answer is its deliverable: findings, broken code included,
   are a pass, and two cells reporting the same findings stop it as
-  `converged` instead of climbing. A task whose own text says it changes
+  `converged` instead of climbing. The answer is kept whole: a reading worker
+  (an internal role aside) is told to put it in a `locks-report` block
+  (`launch.REPORT_INSTRUCTIONS`, `LaunchSpec.report`), kept as a `report` event, printed whole by
+  `locks show`, named by the ending and carried by the UI; `summary` stays short, and prose
+  outside the blocks is not kept. A task whose own text says it changes
   nothing (words about the task, never about what it builds) is read as
   reading while it changes nothing, and holds no checkout; a `feature`,
   `implement`, `refactor` or `docs` task never is.
@@ -1291,7 +1299,9 @@ yields the default kind, not a guess.
   tasks the independent check read; then the gate stays only where its passes drew the check's
   blockers less often (`evidence.arm`). Every handed capability's calls are counted per attempt
   (`attempt_finished.capability_calls`), and `locks stats` shows each one handed, called and never
-  called, observed. Tests run with `LOCKS_EVIDENCE=off`.
+  called, observed. An attempt none of whose calls reached the log (`attempt_finished.tools_logged`
+  false: its worker's hooks did not run) is not recorded, never silent, and `locks stats` counts it
+  apart. Tests run with `LOCKS_EVIDENCE=off`.
 - Each CORRECT line of the TRACER flows a request names is a criterion of the independent check,
   `C1..Cn` (`tracer.criteria`; the lines that fit in half of `tracer.BRIEF_CHARS`, the rest said by
   count), added to its `criteria`: one it says is not met is a blocker (`orchestrate._correct_lines`),

@@ -515,7 +515,7 @@ def recall_arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
     fusion only where its arm passed no less often. Asked only when the two orders differ."""
     if repo is None:
         return "fused", "no repository to run a trial in"
-    return arms_mod.pick(recall_trial(store, repo), RECALL_ARMS, task_id, RECALL_TRIAL, "recall order")
+    return arms_mod.pick(recall_trial(store, repo), RECALL_ARMS, task_id, RECALL_TRIAL, "recall order", repo)
 
 
 def anchored_to(store: Store, project: str, paths: Iterable[str], skip: Iterable[int] = ()) -> list[dict]:

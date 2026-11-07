@@ -3830,6 +3830,16 @@ def _reshape_prompt(attempts: Sequence[Attempt], base: str | None = None) -> str
         return evidence_mod.PROMPT
     if attempts and attempts[-1].shape.startswith(critique_mod.SHAPE):
         return critique_mod.PROMPT
+    if attempts and attempts[-1].shape.startswith(launch.UNANSWERED_SHAPE):
+        left = attempts[-1].shape.partition(": ")[2]
+        return (f"Your last answer claimed a pass but left {left} out of `criteria`. Your work stands: do not "
+                f"redo it. Answer again with exactly one result block that answers each of them in `criteria` "
+                f"(its id, whether it is met, and what shows it), and every other criterion as before.")
+    if attempts and attempts[-1].shape.startswith(launch.VERDICTS_SHAPE):
+        left = attempts[-1].shape.partition(": ")[2]
+        return (f"Your last answer claimed a pass but gave no verdict for {left}. Your work stands: do not redo "
+                f"it. Answer again with exactly one result block that gives each of them in `verdicts` (its id, "
+                f"one of the words the task names, and what shows it), and every other row as before.")
     return specs_mod.FIRST_PROMPT if attempts and attempts[-1].shape.startswith(specs_mod.FIRST_SHAPE) \
         else launch.RESHAPE_PROMPT
 
@@ -3839,7 +3849,7 @@ def continuation_note(last: Attempt) -> str:
     hold: the independent check's blockers in a correction round (its work passed its
     own check), else the output that failed it."""
     if last.shape.startswith((specs_mod.FIRST_SHAPE, evidence_mod.SHAPE, behavior.UNREAD_SHAPE,
-                              critique_mod.SHAPE)):
+                              critique_mod.SHAPE, launch.UNANSWERED_SHAPE, launch.VERDICTS_SHAPE)):
         return f"Why your last answer was held back: {last.shape}."
     if last.shape:
         return f"Why your last answer could not be read: {last.shape}."

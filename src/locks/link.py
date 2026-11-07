@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -120,6 +121,12 @@ LOADED: str | None = None
 #: What each session's hooks last ran as, kept in the locks home's `work/`; the newest only.
 LOADED_BY_HOOKS, LOADED_KEPT = "loaded-plugin.json", 200
 
+#: When each session's hooks last ran, beside `LOADED_BY_HOOKS`: a version a session ran from
+#: within `LIVE_S` is one a live session's hooks still point at, so its folder is not offered for
+#: removal (a compaction's SessionStart hook in that session would fail to start, and the prompt it
+#: carries be lost). Refreshed at most every `LOADED_REFRESH_S`, never on every hook.
+LOADED_AT, LIVE_S, LOADED_REFRESH_S = "loaded-plugin-at.json", 12 * 3600, 600
+
 
 def _read_loaded(path: Path) -> dict[str, str]:
     try:
@@ -132,6 +139,7 @@ def _read_loaded(path: Path) -> dict[str, str]:
 def record_loaded(root: Path, session_id: str, version: str) -> None:
     """A hook runs the plugin its session has loaded now (Claude Code re-reads the hooks on
     `/reload-plugins`), so the version it runs is what the session's text is."""
+    _touch_loaded(root, session_id)
     path = root / "work" / LOADED_BY_HOOKS
     seen = _read_loaded(path)
     if seen.get(session_id) == version:
@@ -140,6 +148,36 @@ def record_loaded(root: Path, session_id: str, version: str) -> None:
     seen[session_id] = version
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict(list(seen.items())[-LOADED_KEPT:])))
+
+
+def _touch_loaded(root: Path, session_id: str, now: float | None = None) -> None:
+    path = root / "work" / LOADED_AT
+    try:
+        seen = json.loads(path.read_text())
+        seen = {k: v for k, v in seen.items() if isinstance(v, (int, float))} if isinstance(seen, dict) else {}
+    except (OSError, ValueError):
+        seen = {}
+    now = time.time() if now is None else now
+    if now - seen.get(session_id, 0) < LOADED_REFRESH_S:
+        return
+    seen.pop(session_id, None)
+    seen[session_id] = now
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(list(seen.items())[-LOADED_KEPT:])))
+
+
+def live_versions(root: Path, now: float | None = None) -> set[str]:
+    """The versions sessions ran their hooks from within `LIVE_S`: still loaded somewhere."""
+    try:
+        at = json.loads((root / "work" / LOADED_AT).read_text())
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(at, dict):
+        return set()
+    now = time.time() if now is None else now
+    loaded = _read_loaded(root / "work" / LOADED_BY_HOOKS)
+    return {loaded[s] for s, t in at.items()
+            if s in loaded and isinstance(t, (int, float)) and now - t < LIVE_S}
 
 
 def session_loaded(root: Path, session_id: str | None) -> str | None:

@@ -9,6 +9,9 @@ result (`build.hidden`). Arms:
 - `karpathy:<cell>`: the same session with `andrej-karpathy-skills`' CLAUDE.md (behavioural
   guidelines: think first, simplicity, surgical changes, verifiable goals) committed in the copy,
   where Claude Code reads it as the project's instructions (`KARPATHY`, a clone of that repository);
+- `omega`: the "Omega" orchestrator-and-workers recipe (`OMEGA_CLAUDE_MD`, `OMEGA_AGENTS`): one
+  `claude -p` on Opus at xhigh that plans and checks, Haiku subagents that build and review, every
+  brief with a "Done when:" check the boss reruns, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40`;
 - `locks`: `locks run <request> --verify 'make test'` in the copy, with a locks home of its own
   (no history: every start comes from locks' rules), the work judged on the branch it kept. Its
   wall time ends when the command exits; a late independent check (`late_verifier`) that runs after
@@ -64,6 +67,92 @@ def plain(cell: str, where: Path, request: str) -> dict:
     except ValueError:
         return {"error": (done.stderr or done.stdout)[-300:]}
     return {"cost": round(float(reply.get("total_cost_usd") or 0), 4), "turns": reply.get("num_turns")}
+
+
+#: The "Omega" setup (an orchestrator-and-workers recipe published for Claude Code): the session runs
+#: Opus at xhigh effort as the boss, which plans, writes a brief with a "Done when:" check for each
+#: worker and reruns that check itself; the workers are Haiku subagents; context compacts at 40%.
+#: Written into the copy as that recipe's prompt would have it set up, committed, before the run.
+OMEGA_CLAUDE_MD = """# tally
+
+A small pricing engine: rules price a cart for a customer at checkout.
+
+## Rules
+
+- You (the main session) are the orchestrator. You plan, write briefs and check results. You don't do
+  bulk work yourself when a worker can do it.
+- Workers are subagents on Haiku. Every brief states the goal, the files to read, and a "Done when:"
+  check that can be run or seen.
+- Before accepting any worker's output, run its check yourself. If it fails, send it back with the
+  failure. Never pass on a worker's report unchecked.
+- Start of every session: read CLAUDE.md and the three docs. End of every session: update
+  progress.md, add new decisions and gotchas.
+
+## Map
+
+CLAUDE.md               what this project is, the rules, where everything lives (read first)
+docs/progress.md        where we are: done, next, a dated log line per session
+docs/decisions.md       what's settled, with the date and why
+docs/known-issues.md    gotchas and their fixes
+.claude/agents/         worker agents, each with model: haiku and one job
+src/tally/              the engine; tests/ its tests; `make test` runs them
+"""
+OMEGA_AGENTS = {
+    "builder.md": """---
+name: builder
+description: Writes code to a brief, runs the brief's check, reports what it ran.
+model: haiku
+---
+
+You get a brief with a goal, the files to read and a "Done when:" check.
+Do the work, run the check, and report the exact command you ran and its output.
+If the check fails, say so. Don't report done until it passes.
+""",
+    "reviewer.md": """---
+name: reviewer
+description: Reads a diff against a brief and lists what fails it.
+model: haiku
+---
+
+You get a brief and a diff. Read the diff against the brief, run its "Done when:" check,
+and list every point where the change fails the brief. Change nothing.
+""",
+}
+OMEGA_DOCS = {"progress.md": "# Progress\n", "decisions.md": "# Decisions\n", "known-issues.md": "# Known issues\n"}
+#: The tools the Omega session gets: the plain arm's plus the one that starts a subagent (`Agent`,
+#: once called `Task`).
+OMEGA_TOOLS = (*TOOLS, "Agent", "Task")
+
+
+def omega_setup(where: Path) -> None:
+    (where / "CLAUDE.md").write_text(OMEGA_CLAUDE_MD)
+    for name, text in OMEGA_AGENTS.items():
+        (where / ".claude" / "agents").mkdir(parents=True, exist_ok=True)
+        (where / ".claude" / "agents" / name).write_text(text)
+    for name, text in OMEGA_DOCS.items():
+        (where / "docs").mkdir(exist_ok=True)
+        (where / "docs" / name).write_text(text)
+    subprocess.run(["git", "add", "-A"], cwd=where, check=True)
+    subprocess.run(["git", "-c", "user.email=b@b", "-c", "user.name=b", "commit", "--amend", "-qm", "init"],
+                   cwd=where, check=True)
+
+
+def omega(where: Path, request: str) -> dict:
+    """`omega`: one `claude -p` on Opus at xhigh, the Omega files in the copy, its Haiku subagents
+    counted in the CLI's own cost and `modelUsage`; locks' hooks off, as a program's session."""
+    env = {**os.environ, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "40", "LOCKS_HOOKS_OFF": "1"}
+    done = subprocess.run(["claude", "-p", "--model", "opus", "--effort", "xhigh", "--output-format", "json",
+                           "--permission-mode", "acceptEdits", "--max-turns", str(build.MAX_TURNS),
+                           "--allowedTools", *OMEGA_TOOLS],
+                          input=request, cwd=where, env=env, capture_output=True, text=True, timeout=3600)
+    try:
+        reply = json.loads(done.stdout)
+    except ValueError:
+        return {"error": (done.stderr or done.stdout)[-300:]}
+    usage = reply.get("modelUsage") or {}
+    by_model = {name: round(float(u.get("costUSD") or 0), 4) for name, u in usage.items()}
+    return {"cost": round(float(reply.get("total_cost_usd") or 0), 4), "turns": reply.get("num_turns"),
+            "by_model": by_model, "subagents": any("haiku" in name for name in by_model)}
 
 
 def locks(where: Path, request: str, arm: str = "locks") -> dict:
@@ -178,9 +267,12 @@ def one(arm: str, variant: str) -> dict:
         subprocess.run(["git", "add", "CLAUDE.md"], cwd=where, check=True)
         subprocess.run(["git", "-c", "user.email=b@b", "-c", "user.name=b", "commit", "--amend", "-qm", "init"],
                        cwd=where, check=True)
+    if arm == "omega":
+        omega_setup(where)
     began = time.monotonic()
     try:
-        got = (split(where) if arm == "locks-split"
+        got = (omega(where, ask(variant)) if arm == "omega"
+               else split(where) if arm == "locks-split"
                else locks(where, ask(variant), arm.removesuffix("+karpathy")) if arm.startswith("locks")
                else plain(arm.removeprefix("karpathy:"), where, ask(variant)))
     except subprocess.TimeoutExpired:

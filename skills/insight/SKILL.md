@@ -24,8 +24,13 @@ person's previous insight (or the last three). Each entry claims an effect. For 
 the record that would show it (a field, an event, a `locks stats` row), read it for the tasks
 run on that release (`version` on their events) against the tasks before it, and give one verdict:
 **worked**, **no effect**, **regressed**, **not exercised** (no task of this session reached it) or
-**too few** (under 5 tasks on either side). A release whose change cannot be read from any record
-is said as unverifiable, never assumed to work. In the report it comes right after what blocks
+**too few** (under 5 tasks on either side). A release that changes what the hooks do (what they inject,
+what they claim, which sessions they leave alone) is read from the trace, not from tasks: every trace
+record names the release that wrote it (`version`), so compare the `hook:`, `inject:` and `locks:` action
+records of sessions on that release with those before it. When a verdict needs a command (`locks
+forensics`, `locks doctor`, `locks stats`, `locks trace <session>`), run it: "not checked" is never a
+verdict. A release whose change cannot be read from any record is said as unverifiable, never assumed to
+work. In the report it comes right after what blocks
 the person's work (section 6), before anything else.
 
 ## 1. Is tracing on?
@@ -50,8 +55,11 @@ masked) in their locks home's `traces/`, and grows with every call. Go on with w
 | `tool:<name>` | a tool call: `phase` PreToolUse (its `input`) or PostToolUse (its `response`); `livespec_tool` is set for livespec's MCP tools |
 | `inject:<Event>` | what a locks hook gave back to the session (context, a block) |
 | `locks:<event>` | an event locks recorded on a task sent from the session (`planned`, `briefed`, `attempt_started`, `attempt_finished`, `verified`, `finished`…) |
+| `locks:<action>`, no `task_id` | what the hooks did to the session beyond injecting (`trace.ACTIONS`): `launch` (at SessionStart: `-p`, `--json-schema`, the output and input formats, whether its input was a terminal, and `scripted`, why it is a program's), `scripted` (a hook skipped as a program's, with why), `orchestrator_taken` / `orchestrator_lost` / `orchestrator_ended`, `relay_taken` / `relay_given`, `notes_filed` (from its conversation, by id), `dispatcher_revived` |
 
-Records with `worker_task` came from a locks worker's own session (its hooks run too).
+Every record names the locks release that wrote it (`version`). Records with `worker_task` came from a
+locks worker's own session (its hooks run too). `locks trace <session>` opens with the releases, the
+launch and the actions; a session traced before 0.92.0 has none of them, which is no zero.
 `<session>.transcript.jsonl` beside the trace is the transcript copied at each Stop; its
 tokens are in the summary's `tokens`.
 
@@ -65,6 +73,13 @@ tokens are in the summary's `tokens`.
   the worker say it used (`attempt_finished.notes_used`), and did `locks recall` run?
 - **Context injected**: what did UserPromptSubmit and SessionStart put in front of the model
   (`inject:*`), and was it relevant to the request?
+- **Whose session, and what the hooks did to it**: was it a person's or a program's (`locks:launch`)?
+  A program's session (`claude -p` with `--json-schema`, a program's output format, or no terminal)
+  should show no `inject:*` and no action but `launch` and `scripted`; any other is a finding. Across the
+  person's sessions: who took or lost the orchestrator role, and to whom (`orchestrator_*`); was a relay
+  taken by the session the person meant; which notes were filed from each conversation (`notes_filed`):
+  read them, and say when a note holds text the session wrote for a tool or another model (a prompt, a
+  schema) rather than something the conversation established.
 - **Capabilities and evidence**: were the handed MCP servers called (`capability_calls`)?
 - **Cost**: tokens per model in the session; per task `locks spend --json`, `locks stats`.
 - **Forensics**: `locks forensics --json` (from a copy of the store, every figure observed): the
@@ -91,6 +106,10 @@ Known mechanisms — check them before reading a count as a fault:
 - A note no worker names goes back on trial by itself (`notes.retry_idle`, with `note_trials` on).
 - A resume a session's shell starts runs in its own process group (`cli._shielded`); a death at a
   container restart is the machine's, and `dispatch.recover` resumes it once.
+- From 0.91.1 the hooks leave a program's `claude -p` alone (`locks.scripted`): a session with no
+  injection and a `locks:scripted` record is one locks skipped on purpose, never one it failed. Its own
+  workers run with `LOCKS_HOOKS_OFF=1`, which turns every hook off, and a person may set it on a command of
+  theirs: a session with `hook:` records and nothing after them may be one.
 
 A count is a symptom, never a conclusion: "livespec was called 0 times" or "notes went unused"
 says nothing of why. Before you propose anything for a gap, find its mechanism:

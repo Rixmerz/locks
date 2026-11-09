@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-11-09
+
+### Added
+- The trace keeps what the hooks did to a session beyond what they injected, as `locks:<action>` records
+  with no task (`trace.ACTIONS`): how the session was launched (its `claude` flags, never a prompt, and why
+  it is a program's when it is), each hook skipped as a program's, the orchestrator role taken, lost (in the
+  old holder's trace too) or ended, a relay taken and given, the notes filed from its conversation, and a
+  dispatcher a hook revived. A script's `claude -p` taking the orchestrating session's role was invisible
+  to an audit before; now both sessions' traces say it. `locks trace <session>` opens with them.
+- Every trace record names the locks release that wrote it (`version`), so a change to what the hooks do is
+  compared release against release from the trace.
+- The insight skill checks a release that changes the hooks from the trace by release, runs the command a
+  verdict needs instead of leaving it unchecked, asks whose session it was and what the hooks did to it
+  (a program's session should show no injection; notes filed from a conversation are read for text the
+  session wrote for a tool), and knows that a program's session is skipped on purpose and that
+  `LOCKS_HOOKS_OFF=1` turns every hook off.
+
 ## [0.91.1] - 2026-11-09
 
 ### Fixed

@@ -385,8 +385,15 @@ def test_extract_notes_runs_once_per_session(git_repo: Path, tmp_path, monkeypat
                          "title": "Staging resets nightly", "duplicate_of": None, "links": [], "paths": [],
                          "new_topic": None}]}
     monkeypatch.setattr("locks.classify.ask_haiku", _ask(answer))
+    monkeypatch.setenv("LOCKS_TRACE", "on")
     assert cli.main(["extract-notes", "s1", str(transcript), str(git_repo)]) == 0
     assert "kept #1 [environment] Staging resets nightly" in capsys.readouterr().out
+    import os
+
+    from locks import trace
+
+    filed = [a for a in trace.summary(dict(os.environ), "s1")["actions"] if a["action"] == "notes_filed"]
+    assert filed and filed[0]["notes"] == [{"id": 1, "new": True, "topic": "environment"}]
     from locks import dispatch
     from locks.store import home
 

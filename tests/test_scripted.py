@@ -111,7 +111,7 @@ def test_ps_reader_parses_and_fails_closed(monkeypatch):
 
 def test_a_programs_session_gets_no_injection(tmp_path, monkeypatch):
     """The hook answers nothing and opens no store for a scripted session; a person's gets its answer."""
-    monkeypatch.setattr(hooks.scripted, "scripted", lambda env: "it asks for structured output")
+    monkeypatch.setattr(hooks.scripted, "look", lambda env: ("it asks for structured output", None))
     opened = []
     monkeypatch.setattr(hooks, "Store", lambda *a, **k: opened.append(a))
     out = io.StringIO()
@@ -121,10 +121,22 @@ def test_a_programs_session_gets_no_injection(tmp_path, monkeypatch):
 
 
 def test_a_persons_session_is_handled(tmp_path, monkeypatch):
-    monkeypatch.setattr(hooks.scripted, "scripted", lambda env: None)
+    monkeypatch.setattr(hooks.scripted, "look", lambda env: (None, None))
     seen = []
     monkeypatch.setattr(hooks, "handle", lambda name, event, store, root, env: seen.append(name) or {"ok": 1})
     out = io.StringIO()
     event = {"session_id": "s1", "cwd": str(tmp_path)}
     hooks.main("UserPromptSubmit", io.StringIO(json.dumps(event)), out, {"LOCKS_HOME": str(tmp_path)})
     assert seen == ["UserPromptSubmit"] and json.loads(out.getvalue()) == {"ok": 1}
+
+
+def test_look_gives_the_launch_shape_without_any_argument_text():
+    read = tree((["/bin/sh", "-c", "x"], False),
+                (["claude", "-p", "secret prompt", "--output-format=json", "--input-format", "text"], False))
+    why, shape = scripted.look({}, start=100, read=read)
+    assert why == "a program reads its output"
+    assert shape == {"print": True, "json_schema": False, "output_format": "json", "input_format": "text",
+                     "tty": False}
+    assert "secret" not in json.dumps(shape)
+    assert scripted.look({scripted.CHECK: "off"}, start=100, read=read) == (None, None)
+    assert scripted.look({}, start=100, read=lambda pid: None) == (None, None)

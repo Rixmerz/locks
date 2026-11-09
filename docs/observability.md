@@ -11,6 +11,22 @@ hook injected (`inject:<Event>`) and every event locks recorded on the session's
 (`locks:<event>`). The session's transcript is copied beside it at each Stop. Secrets are masked.
 Read it with `locks trace`, or audit it with the `insight` skill.
 
+Every record names the locks release that wrote it (`version`), so a change to what the hooks do is
+compared release against release from the trace itself. What the hooks did to a session beyond what they
+injected is kept too, as `locks:<action>` records with no task (`trace.ACTIONS`):
+
+- `launch`, at its SessionStart: how its `claude` was started (`-p`, `--json-schema`, the output and input
+  formats, whether its input was a terminal; flags only, never a prompt) and, for a program's session, why
+  the hooks leave it alone (`locks.scripted`)
+- `scripted`: each hook skipped as a program's, with why
+- `orchestrator_taken`, `orchestrator_lost`, `orchestrator_ended`: the project's orchestrator role moving,
+  in the trace of each session it touched
+- `relay_taken`, `relay_given`
+- `notes_filed`: the notes filed from its conversation, by id and topic
+- `dispatcher_revived`: the lanes a hook started a dispatcher for, and the tasks it resumed
+
+`locks trace <session>` opens with the releases, the launch and these actions.
+
 ## Forensics (`locks forensics`)
 
 Reads a copy of the store, never the live file: a backup through SQLite, or a copy passed with

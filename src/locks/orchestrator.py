@@ -22,6 +22,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
+import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -86,7 +87,19 @@ def claim(folder: Path, session_id: str, cwd: str | None, *, via: str, force: bo
             return False, None
         _write(folder, {"session": session_id, "cwd": cwd, "via": via,
                         "since": stamp or datetime.now(UTC).isoformat(timespec="seconds")})
-        return True, (current or {}).get("session")
+        previous = (current or {}).get("session")
+        _traced(session_id, "orchestrator_taken", via=via, cwd=cwd, took_from=previous)
+        if previous:
+            _traced(previous, "orchestrator_lost", to=session_id, via=via, cwd=cwd)
+        return True, previous
+
+
+def _traced(session_id: str, kind: str, **data: Any) -> None:
+    """The role's move in the person's trace of each session it touched (`trace.action`): a session
+    that took it, or lost it, says so where an audit of that session reads. Never raises."""
+    from locks import trace
+
+    trace.action(os.environ, session_id, kind, **data)
 
 
 def _write(folder: Path, entry: dict[str, Any]) -> None:
@@ -106,6 +119,7 @@ def ended(folder: Path | None, session_id: str | None, reason: str, *, stamp: st
             return False
         _write(folder, {**current, "ended": stamp or datetime.now(UTC).isoformat(timespec="seconds"),
                         "end_reason": reason or "other"})
+        _traced(session_id, "orchestrator_ended", reason=reason or "other", cwd=current.get("cwd"))
         return True
 
 

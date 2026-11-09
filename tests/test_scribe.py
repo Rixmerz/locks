@@ -340,3 +340,22 @@ def test_the_scribe_counts_what_each_turn_read_with_the_session_s_own_tools(git_
     state = scribe.update(home(), "s9", transcript_of(tmp_path, git_repo, sid="s9", entries=entries))
     # The write's result is not reading; the turn before is kept as the last.
     assert state["read"] == {"chars": 700, "calls": 1, "last_chars": 3500, "last_calls": 2}
+
+
+def test_a_relay_taken_is_in_both_sessions_traces(git_repo, tmp_path, store, monkeypatch):
+    from locks import trace
+
+    monkeypatch.setenv("LOCKS_TRACE", "on")
+    scribe.update(home(), "old", transcript_of(tmp_path, git_repo, sid="old"))
+    store.enqueue("Add the coupon field", repo="k", cwd=str(git_repo), session_id="old")
+    scribe.mark_relay(home(), "old", git_repo)
+    event = {"session_id": "new", "cwd": str(git_repo), "source": "clear",
+             "transcript_path": str(tmp_path / "new.jsonl")}
+    hooks.session_start(event, store, home(), {})
+    import os
+
+    env = dict(os.environ)
+    taken = [a for a in trace.summary(env, "new")["actions"] if a["action"] == "relay_taken"]
+    given = [a for a in trace.summary(env, "old")["actions"] if a["action"] == "relay_given"]
+    assert taken == [{**taken[0], "source": "old", "tasks_moved": 1}]
+    assert given[0]["to"] == "new"

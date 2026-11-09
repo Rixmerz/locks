@@ -154,3 +154,12 @@ def test_every_skill_meets_the_agent_skills_spec(skill):
     assert 0 < len(meta.get("description", "")) <= 1024
     assert "<" not in meta["description"] and ">" not in meta["description"]
     assert skill.read_text(encoding="utf-8").count("\n") < 500
+
+
+def test_no_test_undoes_the_suite_s_isolation():
+    """`monkeypatch.undo()` undoes every patch of the test, the autouse home and session among them: a
+    test that called it queued real work into the person's store under the session running the suite,
+    and a real dispatcher ran it with real workers. Restore what one test patched by name instead."""
+    used = [str(path.relative_to(ROOT)) for path in sorted((ROOT / "tests").glob("*.py"))
+            if ".undo()" in path.read_text() and path.name != "test_plugin.py"]
+    assert used == []

@@ -782,6 +782,20 @@ A turn that delegated to a subagent is not done while the subagent still runs,
 including one started in the background. A cell a person pinned (`--start`)
 never counts as evidence for where the router should start.
 
+### Sessions a program runs
+
+A script that runs `claude -p` (a batch of structured questions, an experiment, a
+pipeline) holds no conversation, so locks' hooks leave it alone: no notes, no route
+advice, no endings are put in its context, nothing is filed from it, and it never takes
+a relay or the orchestrator's role. Its answers then do not depend on what locks'
+memory held when it ran. locks reads it from the session's own `claude` process: print
+mode (`-p`) with structured output (`--json-schema`), output a program reads
+(`--output-format json` or `stream-json`), or no terminal on its input. A `claude -p
+"…"` you type in a terminal, and an app that holds a conversation over
+`--input-format stream-json`, keep the hooks. To turn every hook of locks off for a
+command of your own, set `LOCKS_HOOKS_OFF=1` in its environment: locks' own workers
+run that way.
+
 ### Inside Claude Code: the mod
 
 On a Claude Code that loads mods (function hooks), the plugin also loads

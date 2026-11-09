@@ -95,6 +95,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/scribe.py` | the scribe: at every turn's end, what a session's transcript gained (requests verbatim, corrections, files written, failed calls and the one that passed after), kept in the locks home; the thread a task the session sent gets in its brief, when the notes are due, and the relay to a fresh session; no model call |
 | `src/locks/analysis.py` | where locks' time and money go (`locks stats`, the UI's Analysis): runs from `planned` to `finished`, their timed phases (and the gaps before them: advance, pickup, spawn), attempts by cell, the session's thread in briefs, a session's own turns; read only, no model |
 | `src/locks/hooks.py` | Claude Code hooks: prompt ↔ task coupling, dead ends into context |
+| `src/locks/scripted.py` | whether a hook's session is a program's `claude -p` (print mode with `--json-schema`, a program's output format, or no terminal on its input), read from the nearest `claude` process above the hook; stdlib, imports nothing of locks |
 | `src/locks/loops.py` | goals that run in rounds (`locks loop`): a definition, a diary and a state per loop in the person's locks home, each round a workflow run, the metric measured by locks, stops on evidence, strategies tried in arms; `loop_cli.py` is `locks loop …` and the detached `loop-runner` |
 | `src/locks/trunks.py` | a workflow step whose first try forks the session of a reading step before it (`trunk`): what it forks, the note that marks the role it takes from there, and the trial (`fork` against `fresh`) that keeps forking only where it paid; no model |
 | `src/locks/workflows.py` | saved chains of tasks: definitions in three scopes (project, user, bundled `workflow_templates/`), runs the engine advances when a step passes, each step on the commit the one before kept; a step that fans out over a plan's parts, one that joins their branches, a large change's review by area; the bundled templates (`feature`, `feature-parallel`, `bugfix`, `review-fix`, `dual-review`, `panel`, `tracer-slice`, `design-review`: four blind readings of a design document, one lens each, then a refuter, no fix; `drift`: one read-only step comparing a folder's documents with the code); steps that choose (`when`), ask the person (`ask`) or run another workflow (`workflow`); the graph as Mermaid (`render`); a change refused on a stale revision (`expect`); `workflow_cli.py` is `locks workflow …` |
@@ -988,6 +989,14 @@ yields the default kind, not a guess.
   starts with and climbs by evidence (`matrix`, `escalate`), as above. Neither
   reads a cost. Tests run on a fake machine of three CPUs (`capacity.machine`,
   in `tests/conftest.py`); a test that wants another passes `machine`.
+- A session a program runs is no person's (`locks.scripted`): where the nearest `claude` above a hook runs in
+  print mode and asks for structured output (`--json-schema`), writes an output a program reads
+  (`--output-format json|stream-json`) or has no terminal on its input, `hooks.main` answers nothing, opens
+  no store and claims nothing (no injection, no notes filed, no relay, no orchestrator role); the person's
+  trace still keeps the event. Environment variables cannot tell it (a `claude -p` from a session's shell
+  inherits that session's); a person's `claude -p` in a terminal and an app over `--input-format stream-json`
+  keep the hooks, and what cannot be read is no program's. `LOCKS_HOOKS_OFF=1` turns every hook off (locks'
+  workers run so). Tests run with `LOCKS_SCRIPTED_CHECK=off`.
 - A session belongs to the `.locks/` in its own directory or up to the top of
   its checkout, never above it; outside a checkout, its own directory only.
   The home directory, `/`, Claude Code's own folder (a plugin's cached copy)

@@ -44,7 +44,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TextIO
 
-from locks import after, config, legacy, orchestrator, project, repo, specs, stops, trace
+from locks import after, config, legacy, orchestrator, project, repo, scripted, specs, stops, trace
 from locks import findings as findings_mod
 from locks.notes import _SECRET
 from locks.store import OPEN_FOR_A_RELAY, Store, home
@@ -1481,6 +1481,10 @@ def main(event_name: str, stdin: TextIO, stdout: TextIO, env: Mapping[str, str])
         traced = trace.enabled(env)
         if traced:
             _trace_hook(event_name, event, env)
+        if scripted.scripted(env):
+            # A program's `claude -p` holds no conversation: nothing is injected into it, filed
+            # from it or claimed by it (`locks.scripted`). The trace above still keeps the event.
+            return 0
         store = Store(legacy.database(root))
         try:
             answer = handle(event_name, event, store, root, env)

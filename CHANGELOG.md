@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.91.1] - 2026-11-09
+
+### Fixed
+- A `claude -p` a program runs (structured output, a program's output format, or no terminal on its
+  input) got locks' hooks as a person's session does: notes, route advice and endings in its context, so
+  its answers depended on what locks' memory held then, and its SessionStart could take the project's
+  orchestrator role from the orchestrating session. `locks.scripted` reads it from the session's own
+  `claude` process (environment variables cannot: such a run inherits its parent session's), and the hooks
+  answer nothing, file nothing and claim nothing for it. A `claude -p` typed in a terminal keeps them.
+- `LOCKS_HOOKS_OFF=1`, which turns every hook of locks off for a command, is documented in the README.
+
 ## [0.91.0] - 2026-11-07
 
 ### Added

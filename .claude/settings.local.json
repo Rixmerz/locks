@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/user/locks/bin/locks\" habit-run 1",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

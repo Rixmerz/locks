@@ -11,6 +11,7 @@ python bench/speed/handoff.py run self,locks 4 4 && python bench/speed/handoff.p
 python bench/speed/dispatch.py current,named2 3 && python bench/speed/dispatch.py report
 python bench/speed/build.py run sonnet/high,sonnet/high+batch 4 4      # a `+batch` arm asks for parallel calls
 python bench/speed/versus.py run locks,opus/low,opus/medium 3 3 [--hard] && python bench/speed/versus.py report
+python bench/speed/versus.py run omega,locks 3 3 [--hard]             # X: the "Omega" recipe against locks
 ```
 
 ## Summary: what was measured, built, left alone, and never measured
@@ -51,6 +52,7 @@ section. Three to four runs a cell is noisy: a difference under about 20% is not
 | a guidelines CLAUDE.md (`andrej-karpathy-skills`) in locks' workers | N: diffs 4 to 15% smaller, no arm but opus/low faster |
 | skipping locks' check after the worker ran it | the overlap hides it wherever a verifier runs; about 4% elsewhere |
 | splitting a review with no parts by folder | `bench/review/areas.py`: slower and dearer |
+| an Opus boss at xhigh briefing Haiku workers ("Omega") | X: as right, 1.6 to 4.6 times slower and 1.5 to 7 times dearer; Opus spent 96-98% of it |
 
 **Do not change without a new measurement:**
 - *The verifier's cell (the work's model at high effort).* Every cheaper cell measured missed a
@@ -562,3 +564,35 @@ With the method sonnet/high was as right as opus/high, in little over half the t
 the cost; without it each missed once in three. From 0.90.0 `debug-unclear` starts at sonnet/high and
 climbs to opus/high; the method stays on trial per repository (`methods.arm`). Three runs a side is a
 small sample: the climbs by rung in `locks stats` are the record that judges the start.
+
+## X: the "Omega" orchestrator-and-workers recipe against locks (`versus.py`, `omega`, 0.92.0)
+
+A recipe published for Claude Code: the session runs Opus 5.5 at xhigh effort as the boss, which plans,
+writes each worker a brief that ends in a "Done when:" check and reruns that check itself; the workers
+are Haiku 5.5 subagents (a `builder` and a `reviewer`, one job each); context compacts at 40%
+(`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`); a CLAUDE.md of rules and three docs files are the memory. The arm
+writes those files into the copy and runs it as one `claude -p` (locks' hooks off), its Haiku subagents
+counted in the CLI's own cost. locks 0.92.0 ran with a locks home of its own, no history. Same request,
+same hidden tests, three runs each (Claude Code 2.1.319).
+
+| build | arm | right (hidden) | wall p50 (min-max) | $ p50 | $ of the 3 | +lines p50 | +test lines p50 |
+|---|---|---|---|---|---|---|---|
+| medium | locks 0.92.0 | 3/3 (7/7 each) | 83 s (77-88) | 0.22 | 0.64 | 209 | 93 |
+| medium | omega | 3/3 (7/7 each) | 381 s (373-398) | 1.65 | 4.62 | 440 | 237 |
+| hard | locks 0.92.0 | 3/3 (10/10 each) | 442 s (411-473) | 1.45 | 4.40 | 533 | 323 |
+| hard | omega | 3/3 (10/10 each) | 700 s (620-719) | 2.23 | 6.45 | 722 | 441 |
+
+Every run of both arms passed every hidden test, and no run's own check passed while the hidden ones
+failed. The difference is time and money: on the medium build Omega took 4.6 times as long and cost 7
+times as much; on the hard one 1.6 times as long and 1.5 times as much (locks' every hard run started at
+sonnet/xhigh and its independent check ran after the ending, read and passed each time, its cost in the
+task's). The Haiku workers were not where Omega's money went: they cost $0.03 to $0.09 a run, 2 to 4%; the
+Opus boss reading, briefing and rerunning checks spent the rest. The recipe's own sum ("a Haiku token
+costs a fortieth of an Opus one") prices the tokens the workers spend, and the boss's are most of them.
+Its diffs were about twice as large, mostly tests.
+
+What locks does differently, and what this measures: one worker at the cell its rules start a kind at,
+a check locks runs itself, and an independent reader only where the risk asks for one. Nothing here
+argues for a Haiku worker under an Opus planner on a build of this size; it was not built. Three runs a
+cell, one repository: a difference under about 20% is not read as one, and these are far above it.
+

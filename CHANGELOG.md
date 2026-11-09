@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-11-09
+
 ### Added
 - `bench/speed/versus.py` has an `omega` arm: the "Omega" orchestrator-and-workers recipe for Claude Code
   (an Opus session at xhigh effort that plans, briefs each worker with a "Done when:" check and reruns it,

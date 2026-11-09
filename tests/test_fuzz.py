@@ -132,6 +132,18 @@ def test_a_real_shaped_key_is_masked_wherever_text_is_kept(key):
     assert notes._SECRET.search("use sk-learn, task-123 and risk-free words") is None
 
 
+def test_a_word_that_holds_sk_dash_is_no_key():
+    """`(?<![A-Za-z0-9])`: `<task-notification>` was traced as `<ta[secret]>` 63 times in one session, and
+    a note that quoted it was dropped as a secret. A key stands at a word's start; inside a word it is
+    one."""
+    from locks import notes, trace
+
+    for word in ("<task-notification>", "task-runner-for-everything", "desk-reference-guide"):
+        assert notes._SECRET.search(word) is None and trace._SECRET.search(word) is None
+    for key in ("sk-abcdefghijklmnop", "(sk-ant-api03-AbCd0123456789xyz)", "KEY=sk-proj-abc123def456"):
+        assert notes._SECRET.search(key) and trace._SECRET.search(key)
+
+
 def test_a_signature_keeps_a_file_s_type_only_when_it_is_one_and_a_quoted_token_never():
     """A path's text after a dot is no extension (`notes.final draft`): kept, the signature held the
     argument. A token whose quotes `shlex` could not split showed a secret once cleaned."""

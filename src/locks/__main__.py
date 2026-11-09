@@ -37,7 +37,7 @@ elif sys.argv[1:2] not in (["hook"], ["hook-trace"]):
         os.environ["LOCKS_FORWARDED"] = __version__
         os.execv(str(newer_install), [str(newer_install), *sys.argv[1:]])  # noqa: S606 — the same argv, a newer locks
 
-if sys.argv[1:3] == ["hook", "PostToolUse"]:
+if sys.argv[1:2] == ["hook"] and sys.argv[2:3] in (["PostToolUse"], ["PostToolUseFailure"], ["PermissionDenied"]):
     # The fastest path: every tool call lands here. One JSON line appended to
     # a file, no database; a delegation still takes the full hook below.
     import json
@@ -45,17 +45,24 @@ if sys.argv[1:3] == ["hook", "PostToolUse"]:
     from locks import signature
 
     try:
+        name = sys.argv[2]
         event = json.loads(sys.stdin.read() or "{}")
+        if isinstance(event, dict):
+            event.setdefault("hook_event_name", name)
         signature.append(event, os.environ)
         if isinstance(event, dict):
             from locks import trace
 
-            if trace.enabled(os.environ):
-                trace.hook("PostToolUse", event, os.environ)
+            # A session with the hooks off is traced only when it is a locks worker, whose calls its
+            # attempt's record reads: locks' own Haiku calls (classify, notes) are no session of the person's.
+            if (os.environ.get("LOCKS_HOOKS_OFF") != "1" or os.environ.get("LOCKS_WORKER_TASK")) \
+                    and trace.enabled(os.environ):
+                trace.hook(name, event, os.environ)
     except Exception:  # a hook never takes the session down, and says when it failed
         signature.note_error(os.environ)
         event = None
-    if not (isinstance(event, dict) and event.get("tool_name") in signature.DELEGATION_TOOLS):
+    if sys.argv[2] != "PostToolUse" or not (isinstance(event, dict)
+                                            and event.get("tool_name") in signature.DELEGATION_TOOLS):
         sys.exit(0)
     if os.environ.get("LOCKS_HOOKS_OFF") == "1":
         sys.exit(0)

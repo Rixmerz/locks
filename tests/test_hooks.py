@@ -414,10 +414,16 @@ def test_a_subagent_s_report_joins_the_task_that_delegated_it(store: Store, tmp_
 
 
 def test_locks_s_own_notices_are_no_turn_and_a_lost_turn_is_nothing_to_resume(store: Store, capsys):
-    from locks import cli
+    from locks import cli, compaction
 
     notice = hooks.ENDINGS_HEADER + "\n#21 [done] add median"
-    for text in (notice, "The locks plugin sent a message: " + notice):
+    # locks' compaction advice and continuation are its own notices too: one long session injected 80k
+    # characters into 32 of them at 92-99% context and made 54 tasks of them (#159).
+    advice = compaction.advice({"id": 584, "data": {"because": ["the cache is cold"]}})
+    assert advice.startswith(compaction.NOTICE.format(id=584))
+    for text in (notice, "The locks plugin sent a message: " + notice, advice,
+                 "locks [compaction #589]: this session compacted. Go on with it now.",
+                 "cauce [compaction #3]: this looks like a good moment"):  # legacy-name: an old install's notice
         assert hooks.user_prompt_submit({"session_id": "s", "prompt": text}, store) is None
     assert store.list_tasks(source=("hook",)) == []
     hooks.user_prompt_submit({"session_id": "s", "prompt": "y ahora que resultado da?", "prompt_id": "p1"}, store)

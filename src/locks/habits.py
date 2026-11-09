@@ -661,6 +661,10 @@ def apply_reviews(store: Store, root: Path, *, env: Mapping[str, str] | None = N
                                 why="the review gave no verdict locks could read (`install <id>: `<command>`` "
                                     "or `skip <id>: <why>`; `locks show` has its words)")
                 done.append({"task": task["id"], "candidate": cid, "refused": "no verdict"})
+        for cid, why in skips.items():
+            # The review's own call: nothing to install and nothing refused, said all the same.
+            store.add_event(task["id"], "habit_skipped", candidate=cid, why=str(why or "")[:300])
+            done.append({"task": task["id"], "candidate": cid, "skipped": why})
         for cid, command in installs.items():
             candidate = known.get(cid)
             why, seconds = (("it no longer passes the gates", None) if candidate is None else

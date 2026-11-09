@@ -34,7 +34,9 @@ Reads a copy of the store, never the live file: a backup through SQLite, or a co
 
 - spend by kind and cell, and the dollars of attempts that did not pass
 - the share of input the cache served, by model
-- tool friction: calls that failed, and calls repeated back to back with the same arguments
+- tool friction: calls that failed (PostToolUse with an error, PostToolUseFailure, or a PermissionDenied refusal;
+  before 0.93.0 the last two left no record, so the count read low), and calls repeated back to back with the
+  same arguments
 - brief footprint growth
 - the notes-fork trial
 - what the trace shows across its sessions

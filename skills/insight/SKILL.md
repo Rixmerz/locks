@@ -52,7 +52,7 @@ masked) in their locks home's `traces/`, and grows with every call. Go on with w
 | Tag | What it is |
 |---|---|
 | `hook:<Event>` | a hook Claude Code ran (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, PreCompact, SubagentStop…) with its payload |
-| `tool:<name>` | a tool call: `phase` PreToolUse (its `input`) or PostToolUse (its `response`); `livespec_tool` is set for livespec's MCP tools |
+| `tool:<name>` | a tool call: `phase` PreToolUse (its `input`), PostToolUse (its `response`), or PostToolUseFailure / PermissionDenied (`failed: true` and its `error`: a call that failed, or a permission refused before it ran; from 0.93.0, before which failed calls left no record); `livespec_tool` is set for livespec's MCP tools |
 | `inject:<Event>` | what a locks hook gave back to the session (context, a block) |
 | `locks:<event>` | an event locks recorded on a task sent from the session (`planned`, `briefed`, `attempt_started`, `attempt_finished`, `verified`, `finished`…) |
 | `locks:<action>`, no `task_id` | what the hooks did to the session beyond injecting (`trace.ACTIONS`): `launch` (at SessionStart: `-p`, `--json-schema`, the output and input formats, whether its input was a terminal, and `scripted`, why it is a program's), `scripted` (a hook skipped as a program's, with why), `orchestrator_taken` / `orchestrator_lost` / `orchestrator_ended`, `relay_taken` / `relay_given`, `notes_filed` (from its conversation, by id), `dispatcher_revived` |

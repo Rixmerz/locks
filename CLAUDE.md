@@ -95,7 +95,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/scribe.py` | the scribe: at every turn's end, what a session's transcript gained (requests verbatim, corrections, files written, failed calls and the one that passed after), kept in the locks home; the thread a task the session sent gets in its brief, when the notes are due, and the relay to a fresh session; no model call |
 | `src/locks/analysis.py` | where locks' time and money go (`locks stats`, the UI's Analysis): runs from `planned` to `finished`, their timed phases (and the gaps before them: advance, pickup, spawn), attempts by cell, the session's thread in briefs, a session's own turns; read only, no model |
 | `src/locks/hooks.py` | Claude Code hooks: prompt ↔ task coupling, dead ends into context |
-| `src/locks/scripted.py` | whether a hook's session is a program's `claude -p` (print mode with `--json-schema`, a program's output format, or no terminal on its input), read from the nearest `claude` process above the hook; stdlib, imports nothing of locks |
+| `src/locks/scripted.py` | whether a hook's session is a program's `claude -p` (print mode with `--json-schema`, a program's output format, or no terminal on its input), read from the nearest `claude` process above the hook (/proc on Linux, `ps` elsewhere, its terminal standing for its input's); stdlib, imports nothing of locks |
 | `src/locks/loops.py` | goals that run in rounds (`locks loop`): a definition, a diary and a state per loop in the person's locks home, each round a workflow run, the metric measured by locks, stops on evidence, strategies tried in arms; `loop_cli.py` is `locks loop …` and the detached `loop-runner` |
 | `src/locks/trunks.py` | a workflow step whose first try forks the session of a reading step before it (`trunk`): what it forks, the note that marks the role it takes from there, and the trial (`fork` against `fresh`) that keeps forking only where it paid; no model |
 | `src/locks/workflows.py` | saved chains of tasks: definitions in three scopes (project, user, bundled `workflow_templates/`), runs the engine advances when a step passes, each step on the commit the one before kept; a step that fans out over a plan's parts, one that joins their branches, a large change's review by area; the bundled templates (`feature`, `feature-parallel`, `bugfix`, `review-fix`, `dual-review`, `panel`, `tracer-slice`, `design-review`: four blind readings of a design document, one lens each, then a refuter, no fix; `drift`: one read-only step comparing a folder's documents with the code); steps that choose (`when`), ask the person (`ask`) or run another workflow (`workflow`); the graph as Mermaid (`render`); a change refused on a stale revision (`expect`); `workflow_cli.py` is `locks workflow …` |
@@ -210,7 +210,10 @@ yields the default kind, not a guess.
   ladder walk. More effort on the same model keeps the approach, and so the
   session (below); another model never inherits it.
 - A retry is for a launch that broke (a timeout before any change, no JSON,
-  an errored session); it is never an escalation. An answer only its form
+  an errored session); it is never an escalation. A session that ended with no turn and nothing spent
+  (`launch._never_reached`: its envelope says both) never got its brief, a hook of the machine turned it
+  away: the environment at once, the hook named, never a shape asked again in that session nor a climb;
+  an API error before the first turn stays an API error. An answer only its form
   failed (no single result block, a plan's parts that cannot run:
   `WorkerResult.shape`) is asked again of the same cell, once, with its turns
   and in its own session when one is kept (`Decision.reshape`); a second one
@@ -286,7 +289,7 @@ yields the default kind, not a guess.
   deno task its files lack, a `python -m X` whose interpreter lacks `X` (`preflight._modules`), a declared Node nothing installed fits stops the task as `preflight`
   (blocked, the environment's) with the fix line, no attempt counted, nothing ran. It fails open:
   what it cannot tell (a substitution, a `cd`, a workspace flag, a path or script the request may
-  add, dependencies the worker installs, a dependency's tool in a script) is said, never a stop,
+  add (named outside an invocation: a request that quotes its check's `npm run build` adds no `build`), dependencies the worker installs, a dependency's tool in a script) is said, never a stop,
   and a `.venv` importing the package from elsewhere is a warning that says the package here goes first
   on PYTHONPATH (`runtime.env_for`). Ports stay `locks.services`'.
 - A request that opens with a verb of change is never read as a read-only
@@ -824,7 +827,8 @@ yields the default kind, not a guess.
   its answer is a `turn` stop with nothing to resume, and so is a subagent
   whose ending never reached locks after `flow.DELEGATION_TIMEOUT`; neither is
   listed as unfinished work. A notice locks put
-  in a session (the endings, a plugin's message) is no turn.
+  in a session (the endings, a plugin's message, its compaction advice and continuation,
+  `compaction.NOTICE`, read back by `NOTICE_RE`) is no turn and gets nothing injected.
 - A kept commit's subject is the change's: the line the worker proposed
   (`commit`), else the task's title, never a task number; the task and an
   unverified state are trailers (`Locks-Task`, `Locks-Verified: no`).
@@ -838,7 +842,9 @@ yields the default kind, not a guess.
 - What locks' own check writes in a worktree (`isolate.fingerprint` before
   and after it) is committed with the work and said: a `check_rewrote` event,
   the report's line beside `changed (from git)`, and a `Locks-Check-Output`
-  trailer. It is never a verdict.
+  trailer. It is never a verdict, and the independent check is told which files
+  they are (`verifier_brief`'s `generated`, the late check's too): a tracked
+  coverage report the check rewrote was blocked as the worker's change in every round.
 - A repository's specs are kept alive, never written by locks (`locks.specs`): where `openspec/` exists, a
   writing worker is told a change of behaviour updates the spec it reaches in the same work, the plan says how
   far the specs are behind (said once a day), and an ending whose change wrote no spec, where they are
@@ -1067,6 +1073,11 @@ yields the default kind, not a guess.
   opt-in (`trace`, off by default), in their locks home only, secrets masked, a worker's own transcript kept
   beside it when its attempt ends (`launch._keep_worker_transcript`: a `claude -p` worker fires no Stop of the person's), written by its own
   `hook-trace` entry or the existing fast path, never read by a rule; a trace never fails a hook or a write.
+  The fast path traces a session with the hooks off only when it is a locks worker (`LOCKS_WORKER_TASK`):
+  locks' own Haiku calls are no session of the person's. A call that failed (`PostToolUseFailure`) or a
+  permission refused before it ran (`PermissionDenied`) takes the fast path too (`signature.FAILED`): a failed
+  call in the tool-call log and a `failed` tool record with its error, so friction counts what never reached
+  PostToolUse. `sk-` is a key only at a word's start, or glued with a digit in it: `<task-notification>` is none.
   Every record names the release that wrote it (`version`), and what a hook does to a session beyond what it
   injects is a `locks:<action>` record with no task (`trace.action`, `trace.ACTIONS`), written where it
   happens: the launch at SessionStart (flags only, never a prompt, `scripted.shape`) and each hook skipped as
@@ -1096,7 +1107,9 @@ yields the default kind, not a guess.
   mod submits it once (`compaction.continuation`, a `compaction_continued`
   event) as the session's next prompt, quoted and marked as its own words; a
   worker never compacts, and with `compact off`
-  the tool is refused. The tool is delegated like `queue` and `resume`.
+  the tool is refused. The tool is delegated like `queue` and `resume`. `queue` waits `QUEUE_MS` for `locks queue add`, which splits
+  a request that is several tasks first (Haiku may propose the pieces), and reads the pieces it queued from
+  its one JSON line (`--json` keeps prose on stderr).
 - The scribe reads a session's transcript, never its context, and never with a
   model: the same rules as a compaction digest, kept as the session goes, in the
   locks home, secrets masked. Its failure never costs a turn its endings. A
@@ -1131,8 +1144,8 @@ yields the default kind, not a guess.
   (`habits.vet`): one simple command that runs the habit's own program (`shaped`: no
   second command, pipe, redirection, substitution or other variable), passing on a
   tracked file of its type at HEAD in a temporary worktree, within
-  `habits.REVIEW_SECONDS`, writing nothing. Each install and refusal is an event on the
-  review (`habit_installed`, `habit_refused`) and its ending says it with the line that
+  `habits.REVIEW_SECONDS`, writing nothing. Each install, refusal and skip the review chose is an event on the
+  review (`habit_installed`, `habit_refused`, `habit_skipped`) and its ending says it with the line that
   removes it; with `habit_auto` off the ending gives the install lines for the person. A
   worker never runs `locks habits install` or `review`. An installed habit whose command breaks
   three times in a row (cannot start, hangs, or runs past `habits.SLOW_SECONDS`) turns itself off; a

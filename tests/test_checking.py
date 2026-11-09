@@ -318,6 +318,17 @@ def test_a_risky_pass_is_checked_and_its_findings_earn_one_correction(git_repo, 
     assert first["worker_cost_usd"] == pytest.approx(0.1) and first["verifier_cost_usd"] == pytest.approx(0.05)
 
 
+def test_the_independent_check_hears_which_files_locks_check_wrote(git_repo, store, verifier_on):
+    """#130: a tracked coverage report the check rewrites is committed as its output, and the verifier
+    blocked it as the worker's change in every round."""
+    script = Script(passing(), check("pass"), write="app.py")
+    report = run("fix the cart total", git_repo, store, Options(verify="mkdir -p cov && date +%N > cov/lcov.info"),
+                 registry={}, launcher=script, classifier=kind("implement"))
+    assert report.status == "done" and report.check_output == ["cov/lcov.info"]
+    verifier = script.specs[1]
+    assert "Written by the project's own check" in verifier.prompt and "cov/lcov.info" in verifier.prompt
+
+
 def test_a_correction_continues_the_worker_s_session_with_the_blockers_and_the_check_never_does(
         git_repo, store, verifier_on):
     worked = WorkerResult(True, None, "done", "1 passed", cost_usd=0.1, session_id="sess-1")
@@ -502,6 +513,12 @@ def test_the_verifier_cell_and_brief():
     assert "Why this check runs: the request is about data" in fixing and "at the base commit abc123def456" in fixing
     # It is read-only, as its role says: never told to stash the work it checks.
     assert "never `git stash`" in fixing and "git worktree add" in fixing
+    # A tracked file the project's check rewrites (a coverage report) is said as the check's output: read as
+    # the worker's change, it blocked every round and the task could not converge (#130).
+    covered = verifier_brief("add the export", "implement", home(), "abc", ["src/x.ts", "coverage/lcov.info"],
+                             generated=["coverage/lcov.info"])
+    assert "Written by the project's own check" in covered and "coverage/lcov.info" in covered
+    assert "never a finding by themselves" in covered and "Written by" not in text
 
 
 def test_a_worker_that_climbed_to_many_turns_does_not_hand_them_to_its_check(git_repo, store, verifier_on):

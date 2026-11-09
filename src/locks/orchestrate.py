@@ -1917,7 +1917,8 @@ def run(
                     deferred = {"cell": cell, "spec": spec, "changed": so_far, "nth": nth,
                                 "impact": _impact(the_plan, so_far, repo_dir, workdir=workdir, base=base_commit),
                                 "index": _index_servers(the_plan, repo_dir, workdir),
-                                "rules": [n for n in the_plan.notes if n.get("kind") == notes.CONSTRAINT]}
+                                "rules": [n for n in the_plan.notes if n.get("kind") == notes.CONSTRAINT],
+                                "generated": list(report.check_output)}
                     store.add_event(task["id"], "verifier_deferred", seq=nth, risk=the_plan.risk.tier,
                                     **({"sampled": sampled.why} if sampled is not None and sampled.why else {}))
                     say(f"locks: #{task['id']} attempt {nth} passed; risk {the_plan.risk.tier}: its independent "
@@ -1935,7 +1936,7 @@ def run(
                         rows=_fixing(options), ahead=_tolerating(ahead, report.check_output),
                         impact=_impact(the_plan, so_far, repo_dir, workdir=workdir, base=base_commit),
                         index=_index_servers(the_plan, repo_dir, workdir), snapshots=workspace is not None,
-                        sampled=sampled.why if sampled is not None else "")
+                        sampled=sampled.why if sampled is not None else "", generated=report.check_output)
                     ahead = None
                     if workspace is not None and read_from is not None:
                         _read_only(workspace.path, read_from, store, task["id"], nth, say)
@@ -3033,7 +3034,7 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                    known: Sequence[Mapping[str, str]] = (), why: Sequence[str] = (),
                    rules: Sequence[Mapping[str, Any]] = (), rows: Sequence[str] = (), running: str = "",
                    impact: Sequence[str] = (), method: Sequence[str] = (),
-                   since: tuple[str, Sequence[str]] | None = None) -> str:
+                   since: tuple[str, Sequence[str]] | None = None, generated: Sequence[str] = ()) -> str:
     """What the verifier is given: the request in its words, the change, why it is checked
     (the risk's reasons, in the router's words) and the constraints the project keeps —
     never the worker's account."""
@@ -3050,6 +3051,12 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
     where = (f"The change is in {workdir}: `git diff {base}` shows it against the base commit {base}, the state "
              "before it." if base else f"The change is in {workdir}, uncommitted: `git diff` shows it.")
     parts.append(f"{where} Files it changed: {shown}.")
+    if generated:
+        # A tracked file the project's own check rewrites (a coverage report) is committed with the work as
+        # the check's output: read as the worker's change, it blocked every round and could not converge.
+        wrote = ", ".join(generated[:20]) + (f" and {len(generated) - 20} more" if len(generated) > 20 else "")
+        parts.append(f"Written by the project's own check when locks ran it, not by the worker, and committed as "
+                     f"its output: {wrote}. They are no change of the work: never a finding by themselves.")
     links = [line.removeprefix(specs_mod.LINK_PREFIX) for line in impact if line.startswith(specs_mod.LINK_PREFIX)]
     if reach := [line for line in impact if not line.startswith(specs_mod.LINK_PREFIX)]:
         # What the code index (livespec) says the change reaches beyond its own files: where to probe.
@@ -3187,7 +3194,8 @@ def _late_check(store: Store, task_id: int, *, text: str, kind: str, risk: risk_
             check, vcell = _check_spec(text=text, kind=kind, cell=deferred["cell"], spec=spec, workdir=where,
                                        base=base, changed=deferred["changed"], risk=risk, ledger={},
                                        registry=registry, rules=deferred["rules"], rows=(),
-                                       impact=deferred.get("impact") or (), index=deferred.get("index") or None)
+                                       impact=deferred.get("impact") or (), index=deferred.get("index") or None,
+                                       generated=deferred.get("generated") or ())
             mark = time.monotonic()
             since = _stamp()
             verdict = launcher(check)
@@ -3536,7 +3544,7 @@ def _independent_check(result: launch.WorkerResult, *, text: str, kind: str, cel
                        rules: Sequence[Mapping[str, Any]] = (), rows: Sequence[str] = (),
                        ahead: Ahead | None = None, impact: Sequence[str] = (),
                        index: Mapping[str, tuple[Mapping[str, Any], str]] | None = None,
-                       snapshots: bool = False, sampled: str = ""
+                       snapshots: bool = False, sampled: str = "", generated: Sequence[str] = ()
                        ) -> tuple[launch.WorkerResult, stops.Stop | None, dict[str, Mapping[str, str]], int,
                                   tuple[dict[str, str], ...]]:
     """A pass checked again by a worker that verifies the request, not the work.
@@ -3557,7 +3565,7 @@ def _independent_check(result: launch.WorkerResult, *, text: str, kind: str, cel
     check, vcell = _check_spec(text=text, kind=kind, cell=cell, spec=spec, workdir=workdir, base=base,
                                changed=changed, risk=risk, ledger=ledger, registry=registry, rules=rules, rows=rows,
                                running=ahead.running if ahead is not None else "", impact=impact, index=index,
-                               since=since)
+                               since=since, generated=generated)
     say(f"locks: #{task_id} attempt {nth} passed; risk {risk.tier}: an independent check at {vcell.label}"
         + (" (it ran beside locks' check)" if ahead is not None else ""))
     mark = time.monotonic()
@@ -3601,7 +3609,8 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
                 registry: Mapping[str, caps.Capability] | None, rules: Sequence[Mapping[str, Any]],
                 rows: Sequence[str], running: str = "", impact: Sequence[str] = (),
                 index: Mapping[str, tuple[Mapping[str, Any], str]] | None = None,
-                since: tuple[str, Sequence[str]] | None = None) -> tuple[launch.LaunchSpec, Cell]:
+                since: tuple[str, Sequence[str]] | None = None,
+                generated: Sequence[str] = ()) -> tuple[launch.LaunchSpec, Cell]:
     """The independent check's launch: its cell, its brief and the capabilities that measure, and
     the code index (`index`: name -> read-only server and its hint) where the repository has one."""
     role = roles.internal("verifier")
@@ -3627,7 +3636,8 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
         prompt=verifier_brief(text, kind, workdir, base, changed, list(ledger.values()), risk.reasons,
                                     rules=rules, rows=fixing, running=running, impact=impact,
                                     method=tracer_mod.verifier_lines(workdir, text, tuple(measuring))
-                                    if config.enabled("tracer", os.environ) else (), since=since),
+                                    if config.enabled("tracer", os.environ) else (), since=since,
+                                    generated=generated),
         verdicts=fixing, verdict_words=ledger_mod.WORDS["recheck"] if fixing else (),
         cell=vcell, max_turns=min(spec.max_turns, VERIFIER_TURNS),
         # Its calls are never the worker's: the log keeps them under no attempt, so what a worker used

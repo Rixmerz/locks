@@ -93,6 +93,18 @@ def test_a_script_the_request_names_may_be_the_work_to_add(project, env):
     assert result.ok and "the request names it" in result.unknown[0]
 
 
+def test_a_script_the_request_only_runs_is_none_it_adds(project, env):
+    """A request that quotes its check (`npm run build`) names `build` by running it: no sign the work adds
+    it. It went through, the worker did the whole task, and the check said `Missing script` (#161)."""
+    _bin(Path(env["PATH"]), "npm")
+    _package(project, {"lint": "exit 0", "test": "exit 0", "build-qa": "exit 0", "build-production": "exit 0"})
+    command = "npm run lint && npm test && npm run build"
+    result = preflight.check(command, project, asked=f"Fix the form. Verify with `{command}`.", env=env)
+    assert not result.ok and result.blockers[0].what.startswith("`npm run build`")
+    assert "(it has: build-production, build-qa, lint, test)" in result.blockers[0].what
+    assert preflight.check(command, project, asked="add a build script, then run npm run build", env=env).ok
+
+
 def test_a_workspace_flag_or_a_cd_is_not_told(project, env):
     _bin(Path(env["PATH"]), "npm")
     _package(project, {})

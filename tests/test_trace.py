@@ -187,3 +187,38 @@ def test_the_trace_command_says_the_launch_and_the_hooks_actions(on: dict[str, s
     assert "launch: claude (interactive), a terminal; a person's" in out
     assert "launch: its claude process could not be read" in out
     assert "launch: not traced" in out and "what the hooks did beyond injecting: nothing recorded" in out
+
+
+def test_the_fast_path_traces_a_person_and_a_worker_never_locks_own_model_calls(on: dict[str, str]) -> None:
+    """locks' own `claude -p` (classify, notes) runs with `LOCKS_HOOKS_OFF=1` and no task: its tool calls
+    filled three of twelve recent sessions' traces. A worker runs hooks-off too, and its calls are what its
+    attempt's record reads, so it stays."""
+    def call(session: str, **env: str) -> list[str]:
+        event = {"session_id": session, "tool_name": "Read", "tool_input": {"file_path": "a.py"}}
+        subprocess.run([sys.executable, "-m", "locks", "hook", "PostToolUse"], input=json.dumps(event),
+                       text=True, env={**on, **env}, check=True)
+        return [r["tag"] for r in trace.records(on, session)]
+
+    assert call("person") == ["hook:PostToolUse", "tool:Read"]
+    assert call("haiku", LOCKS_HOOKS_OFF="1") == []
+    assert call("worker", LOCKS_HOOKS_OFF="1", LOCKS_WORKER_TASK="7") == ["hook:PostToolUse", "tool:Read"]
+
+
+def test_a_failed_or_refused_call_is_a_failed_call_in_the_log_and_the_trace(on: dict[str, str]) -> None:
+    """Claude Code fires PostToolUseFailure (a call that failed) or PermissionDenied (refused before it ran)
+    instead of PostToolUse: forensics read 0 failed of 16 450 calls while a refused `npm install` and an
+    MCP error happened in the same session (#160)."""
+    from locks import signature
+
+    for name, said in (("PostToolUseFailure", {"error": "Exit code 1"}),
+                       ("PermissionDenied", {"reason": "auto mode classifier"})):
+        event = {"session_id": "f", "tool_name": "Bash", "tool_input": {"command": "npm install"}, **said}
+        subprocess.run([sys.executable, "-m", "locks", "hook", name], input=json.dumps(event),
+                       text=True, env=on, check=True)
+    tools = [r for r in trace.records(on, "f") if r["tag"] == "tool:Bash"]
+    assert [(r["phase"], r["failed"], r["error"]) for r in tools] == [
+        ("PostToolUseFailure", True, "Exit code 1"), ("PermissionDenied", True, "auto mode classifier")]
+    logged = [json.loads(line) for f in sorted(signature.log_dir(on).glob("*.ndjson"))
+              for line in f.read_text().splitlines()]
+    assert [e["ok"] for e in logged if e["session_id"] == "f"] == [0, 0]
+    assert signature.entry({"tool_name": "Read", "tool_response": {}}, on)["ok"] == 1

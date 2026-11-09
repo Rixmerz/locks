@@ -84,15 +84,18 @@ _PLUGIN_SENT = re.compile(r"^The [\w.:@-]+ plugin sent a message")
 
 def _ignored(text: str) -> bool:
     from locks.compact import ASKED
+    from locks.compaction import NOTICE_RE
 
     stripped = text.strip()
     # Harness-generated turns (task notifications, local command output) are not
     # requests anyone made, and neither is a notice locks itself put in the
-    # session, nor a `/compact` the mod submitted that reached the model as a
-    # message: none of them is a turn to record as a task.
+    # session (its compaction advice and continuation among them), nor a `/compact`
+    # the mod submitted that reached the model as a message: none of them is a turn
+    # to record as a task or to inject into.
     return (not stripped or stripped.startswith(("<task-notification", "<command-", "<local-command", "<system-",
                                                  ENDINGS_HEADER, ASKED))
-            or bool(_PLUGIN_SENT.match(stripped)) or bool(_ECHO.fullmatch(stripped)))
+            or bool(_PLUGIN_SENT.match(stripped)) or bool(NOTICE_RE.match(stripped))
+            or bool(_ECHO.fullmatch(stripped)))
 
 
 #: A prompt that is only a command line's flags (`--continue`, `--resume <id>`) or a bare

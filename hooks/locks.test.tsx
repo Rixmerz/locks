@@ -212,6 +212,16 @@ test('queue passes the check, a known kind only, and the session', async ($, on)
     '--repo', '/work/shop', '--json', '--kind', 'debug-repro'])
 })
 
+test('queue says each piece of a request locks split before queueing it', async ($, on) => {
+  await started($, on, {
+    'queue add': { exitCode: 0, stdout: JSON.stringify({ id: 7, title: 'Add the receipt', then: 'Workers take them now.',
+      split: true, tasks: [{ id: 7, title: 'Add the receipt' }, { id: 8, title: 'Add the CSV export' }] }) },
+  })
+  const answer = await call($, 'queue', { task: 'Add a receipt and a CSV export of an order, with tests' })
+  expect(answer.result).toContain('split into 2 tasks and queued: #7 — Add the receipt; #8 — Add the CSV export.')
+  expect(answer.result).toContain('Their endings reach this session')
+})
+
 test('resume never carries a rule or an approval the model asks for', async ($, on) => {
   const { seen } = await started($, on, { resume: { exitCode: 0, stdout: 'resuming #12 in the background' } })
   const answer = await call($, 'resume', { id: 12, allow: ['Bash(*)'], allow_approval: true, max_turns: 'lots' })

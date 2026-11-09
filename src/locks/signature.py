@@ -102,6 +102,10 @@ DELEGATION_TOOLS = frozenset({"Agent", "Task"})
 #: Not a step of anyone's work: the CLI's own answer to a JSON schema, made by
 #: every classifier, dispatch and naming call locks asks Haiku.
 NOT_STEPS = frozenset({"StructuredOutput"})
+#: The events Claude Code fires instead of PostToolUse for a call that did not go through: one that
+#: failed, and one a permission (a rule, the auto mode's classifier) refused before it ran. Each is a
+#: failed call of the log; PostToolUse alone left them out, and the friction read 0 of 16 450.
+FAILED = frozenset({"PostToolUseFailure", "PermissionDenied"})
 
 
 def log_dir(env: Mapping[str, str]) -> Path:
@@ -118,7 +122,8 @@ def log_dir(env: Mapping[str, str]) -> Path:
 def entry(event: Mapping[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
     """One tool call as a record: never its arguments, contents or output."""
     response = event.get("tool_response")
-    ok = not (isinstance(response, Mapping) and (response.get("is_error") or response.get("interrupted")))
+    ok = event.get("hook_event_name") not in FAILED and not (
+        isinstance(response, Mapping) and (response.get("is_error") or response.get("interrupted")))
     tool = str(event.get("tool_name") or "")
     task = env.get("LOCKS_WORKER_TASK")
     attempt = env.get("LOCKS_WORKER_ATTEMPT")

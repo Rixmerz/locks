@@ -10,6 +10,36 @@
   Haiku subagents that build and review, compaction at 40%), set up in the copy and run on the same build
   as locks, judged by the same hidden tests, its cost split by model.
 
+### Fixed
+- A brief a hook turned away is the environment, never the worker (#158). A session that ended with no
+  turn and nothing spent never got its task: another plugin's prompt filter took two file ids for secrets,
+  and locks resumed into that empty session as if its answer had the wrong form, then climbed two rungs.
+  It now blocks at once as `environment`, names the hook's line, and says how to let locks' briefs through.
+  An API error before the first turn is still read as one.
+- locks' compaction advice and the continuation it submits are its own notices, never a request (#159).
+  One long session injected 80k characters into 32 of them at 92-99% context and made 54 tasks from them.
+  The notice and the filter now share one constant (`compaction.NOTICE`).
+- Tool calls that failed or were refused are counted (#160). Claude Code fires `PostToolUseFailure` or
+  `PermissionDenied` instead of `PostToolUse`, so `locks forensics` read 0 failed of 16 450 calls. Both now
+  take the fast path: a failed call in the tool-call log, and a trace record with `failed` and the error.
+- The preflight stops a `--verify` that runs an npm script `package.json` lacks, even when the request
+  quotes the command (#161). A script the request only runs (`npm run build`) is not one it adds. The
+  stop lists the scripts whose names hold it first (`build-qa`, `build-production`).
+- On macOS the session's terminal is read from `ps` (#162). /proc does not exist there, so `launch.tty` was
+  empty in 4 of 4 sessions, and the "no terminal" sign of a program's session never fired.
+- The trace's `sk-` mask no longer cuts words (#163). `<task-notification>` was traced as `<ta[secret]>` 63
+  times in one session, and a note that quoted it was dropped as a secret. A key starts a word, or holds
+  a digit when glued to one.
+- The PostToolUse fast path traces a session with the hooks off only when it is a locks worker: locks' own
+  Haiku calls (classify, notes) filled three of twelve recent sessions' traces.
+- `locks doctor` no longer calls a habits review that skipped every habit unapplied. Each skip is now a
+  `habit_skipped` event on the review.
+- The mod's `queue` no longer gives up after a minute on a request locks splits first. It waits up to five
+  minutes, and `locks queue add --json` answers with the pieces it queued as one JSON line (the split's
+  prose made the mod say the queue failed while its pieces were queued).
+- The independent check is told which files locks' own check wrote and committed as its output (#130). A
+  tracked coverage report the check rewrote was blocked as the worker's change in every round.
+
 ## [0.92.0] - 2026-11-09
 
 ### Added

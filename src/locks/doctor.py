@@ -813,7 +813,10 @@ def habit_reviews_unapplied(store: Store, *, since: str | None, **_) -> Iterable
         if not task or not reviewed:
             continue
         kinds = {e["kind"] for e in store.events(task_id=task["id"], limit=500)}
-        if kinds & {"habit_installed", "habit_refused"}:
+        # Applied is applied: a review that skipped every habit installs and refuses nothing (#280 here,
+        # clippy that cannot run on one file), and before `habit_skipped` it left only its mark.
+        if kinds & {"habit_installed", "habit_refused", "habit_skipped"} or \
+                store.meta(f"habits.applied:{task['id']}"):
             continue
         if _fixed("habit-review-unapplied", event["data"].get("version")):
             before.append(task["id"])

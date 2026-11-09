@@ -24,6 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from locks import __version__ as VERSION
+
 #: The folder in the locks home that holds the traces.
 DIR = "traces"
 _SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_\w{8,}|"
@@ -81,7 +83,7 @@ def write(env: Mapping[str, str], session_id: str | None, tag: str, **data: Any)
               "session_id": session_id,
               "worker_task": int(task) if task and task.isdigit() else None,
               "worker_attempt": int(attempt) if attempt and attempt.isdigit() else None,
-              **mask(data)}
+              "version": VERSION, **mask(data)}
     target = path(env, session_id or "")
     target.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, ensure_ascii=False, default=str, separators=(",", ":")) + "\n"
@@ -121,6 +123,23 @@ def locks_event(env: Mapping[str, str], session_id: str | None, task_id: int, ki
                 data: Mapping[str, Any]) -> None:
     """An event locks recorded on a task, under the session that sent it."""
     write(env, session_id, f"locks:{kind}", task_id=task_id, data=dict(data))
+
+
+#: What locks' hooks did to a session beyond what they injected, each a `locks:<kind>` record with no
+#: task: how it was launched, a hook it skipped as a program's, the orchestrator's role taken, lost or
+#: ended, a relay taken or given, notes filed from its conversation, a dispatcher started for a lane.
+ACTIONS = frozenset({"launch", "scripted", "orchestrator_taken", "orchestrator_lost", "orchestrator_ended",
+                     "relay_taken", "relay_given", "notes_filed", "dispatcher_revived"})
+
+
+def action(env: Mapping[str, str], session_id: str | None, kind: str, **data: Any) -> None:
+    """A session-level act of locks' hooks (`ACTIONS`), under that session, with the trace on.
+    Never raises: a trace never fails what it watches."""
+    try:
+        if session_id and enabled(env):
+            write(env, session_id, f"locks:{kind}", task_id=None, data=data)
+    except Exception:  # noqa: S110 - losing a trace line is acceptable, failing a hook is not
+        pass
 
 
 def keep_transcript(event: Mapping[str, Any], env: Mapping[str, str]) -> Path | None:
@@ -223,6 +242,8 @@ def summary(env: Mapping[str, str], session_id: str) -> dict[str, Any]:
         if "livespec" in kind or any(str(k).startswith("livespec") for k in data):
             index.append({"task_id": r.get("task_id"), "event": kind,
                           **{k: v for k, v in data.items() if str(k).startswith("livespec") or k == "index"}})
+    acts = [r for r in locks_events if r.get("task_id") is None and str(r["tag"])[6:] in ACTIONS]
+    launch = next((r.get("data") or {} for r in acts if r["tag"] == "locks:launch"), None)
     transcript = path(env, session_id).with_suffix(".transcript.jsonl")
     return {
         "session_id": session_id, "records": len(rows), "by_tag": dict(tags.most_common()),
@@ -230,6 +251,10 @@ def summary(env: Mapping[str, str], session_id: str) -> dict[str, Any]:
         "livespec_events": index, "notes_briefed": notes,
         "injected": sum(n for t, n in tags.items() if str(t).startswith("inject:")),
         "locks_events": dict(Counter(str(r["tag"])[6:] for r in locks_events).most_common()),
+        "launch": launch,
+        "actions": [{"ts": r.get("ts"), "action": str(r["tag"])[6:], **(r.get("data") or {})}
+                    for r in acts if r["tag"] != "locks:launch"],
+        "versions": sorted({str(r["version"]) for r in rows if r.get("version")}),
         "tokens": tokens(transcript) if transcript.is_file() else {},
     }
 

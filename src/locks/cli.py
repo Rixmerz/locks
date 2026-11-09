@@ -2343,6 +2343,10 @@ def cmd_extract_notes(args: argparse.Namespace) -> int:
                                  usd=float(answered[0][1]))
         finally:
             store.close()
+    from locks import trace
+
+    trace.action(os.environ, args.session, "notes_filed", repo=key, fork=side,
+                 notes=[{"id": f["id"], "new": bool(f["new"]), "topic": f["topic"]} for f in filed])
     for f in filed:
         print(f"{'kept' if f['new'] else 'already known'} #{f['id']} [{f['topic']}] {f['title']}")
     return 0
@@ -2780,7 +2784,24 @@ def cmd_trace(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(info, ensure_ascii=False))
         return 0
-    print(f"session {info['session_id']}: {info['records']} records")
+    print(f"session {info['session_id']}: {info['records']} records"
+          + (f", locks {', '.join(info['versions'])}" if info["versions"] else ""))
+    launch = info["launch"]
+    if launch is None:
+        print("launch: not traced (a session traced before 0.92.0, or its SessionStart was not)")
+    elif launch.get("read") is False:
+        print("launch: its claude process could not be read; the hooks ran as for a person")
+    else:
+        flags = [f for f, on in (("-p", launch.get("print")), ("--json-schema", launch.get("json_schema"))) if on]
+        flags += [f"--{k.replace('_', '-')} {launch[k]}" for k in ("output_format", "input_format") if launch.get(k)]
+        tty = {True: "a terminal", False: "no terminal"}.get(launch.get("tty"), "input unknown")
+        who = (f"a program's: {launch['scripted']}, so the hooks gave it nothing" if launch.get("scripted")
+               else "a person's")
+        print(f"launch: claude {' '.join(flags) or '(interactive)'}, {tty}; {who}")
+    print("what the hooks did beyond injecting:" + ("" if info["actions"] else " nothing recorded"))
+    for a in info["actions"]:
+        rest = {k: v for k, v in a.items() if k not in ("ts", "action")}
+        print(f"  {a.get('ts')}  {a['action']}  {clip(json.dumps(rest, ensure_ascii=False), 160)}")
     for title, key in (("by tag", "by_tag"), ("tools called", "tools"), ("livespec tools called", "livespec_calls"),
                        ("locks events", "locks_events")):
         print(f"{title}:" + ("" if info[key] else " none"))

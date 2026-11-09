@@ -57,6 +57,15 @@ def why(argv: Sequence[str], tty: bool | None) -> str | None:
     return None
 
 
+def shape(argv: Sequence[str], tty: bool | None) -> dict[str, object]:
+    """How the session was launched, for the trace: its flags only, never an argument's text (a
+    prompt may be one)."""
+    return {"print": bool(_PRINT.intersection(argv)),
+            "json_schema": any(a == "--json-schema" or a.startswith("--json-schema=") for a in argv),
+            "output_format": _option(argv, "--output-format"), "input_format": _option(argv, "--input-format"),
+            "tty": tty}
+
+
 def is_claude(argv: Sequence[str]) -> bool:
     """`claude` itself, or node running Claude Code's CLI."""
     if not argv:
@@ -114,13 +123,20 @@ def session_process(start: int | None = None,
     return None
 
 
-def scripted(env: Mapping[str, str], start: int | None = None,
-             read: Callable[[int], Process | None] = read_process) -> str | None:
-    """Why the session this hook runs for is a program's, or None. Never raises."""
+def look(env: Mapping[str, str], start: int | None = None,
+         read: Callable[[int], Process | None] = read_process) -> tuple[str | None, dict[str, object] | None]:
+    """(why the session this hook runs for is a program's or None, its launch `shape` or None when
+    it could not be read). Never raises."""
     if "off" in (str(env.get(CHECK, "")).lower(), os.environ.get(CHECK, "").lower()):
-        return None
+        return None, None
     try:
         found = session_process(start, read)
     except Exception:  # a look that fails is no program's session
-        return None
-    return why(*found) if found else None
+        return None, None
+    return (why(*found), shape(*found)) if found else (None, None)
+
+
+def scripted(env: Mapping[str, str], start: int | None = None,
+             read: Callable[[int], Process | None] = read_process) -> str | None:
+    """Why the session this hook runs for is a program's, or None. Never raises."""
+    return look(env, start, read)[0]

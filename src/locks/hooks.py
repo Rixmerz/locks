@@ -377,7 +377,7 @@ def stop(event: Mapping[str, Any], store: Store) -> dict | None:
     _evolve(store, home())
     cwd = event.get("cwd")
     _landed(store, repo.toplevel(Path(cwd)) if cwd and Path(cwd).is_dir() else None, home())
-    _revive(store, home(), os.environ)
+    _revive(store, home(), os.environ, event.get("session_id"))
     from locks import naming
 
     naming.maybe_start(store, session_id, home(), os.environ)
@@ -471,15 +471,17 @@ def _review_habits(store: Store, root: Path, env: Mapping[str, str], session_id:
         note_error(root, "SessionStart (habits)")
 
 
-def _revive(store: Store, root: Path, env: Mapping[str, str]) -> None:
+def _revive(store: Store, root: Path, env: Mapping[str, str], session_id: str | None = None) -> None:
     """A worker that died is noticed and resumed (`dispatch.recover`), and a lane with queued
     work and no dispatcher (one died on a full disk, or was killed) gets one again
     (`dispatch.revive`). Its failure is noted, and never costs the turn."""
     try:
         from locks import dispatch
 
-        dispatch.recover(store, root, env)
-        dispatch.revive(store, root, env)
+        resumed = dispatch.recover(store, root, env)
+        lanes = dispatch.revive(store, root, env)
+        if lanes or resumed:
+            trace.action(env, session_id, "dispatcher_revived", lanes=lanes, resumed=resumed)
     except Exception:  # the turn goes on
         note_error(root, "revive")
 
@@ -518,6 +520,8 @@ def _relay(store: Store, root: Path, session_id: str, cwd: str, transcript: str 
     if state.get("transcript"):
         state = scribe.update(root, source, state["transcript"]) or state
     moved = store.hand_over(source, session_id)
+    trace.action(os.environ, session_id, "relay_taken", source=source, tasks_moved=moved)
+    trace.action(os.environ, source, "relay_given", to=session_id, tasks_moved=moved)
     folder = project.find(cwd)
     if orchestrator.is_it(folder, source):  # the role goes with the thread
         with contextlib.suppress(OSError):
@@ -662,7 +666,7 @@ def session_start(
     if top is not None:
         _landed(store, top, root)
         flow.prune(store, [top])
-    _revive(store, root, {**os.environ, **env})
+    _revive(store, root, {**os.environ, **env}, session_id)
     key = repo.key(cwd) if cwd else None
     shed_line = _shed_when_low(store, root)
     store.touch_session(session_id, cwd, key)
@@ -1481,7 +1485,10 @@ def main(event_name: str, stdin: TextIO, stdout: TextIO, env: Mapping[str, str])
         traced = trace.enabled(env)
         if traced:
             _trace_hook(event_name, event, env)
-        if scripted.scripted(env):
+        why, launch = scripted.look(env)
+        if traced:
+            _trace_launch(event_name, event, env, why, launch)
+        if why:
             # A program's `claude -p` holds no conversation: nothing is injected into it, filed
             # from it or claimed by it (`locks.scripted`). The trace above still keeps the event.
             return 0
@@ -1508,6 +1515,18 @@ def _trace_hook(event_name: str, event: Mapping[str, Any], env: Mapping[str, str
             trace.hook(event_name, event, env)
         if event_name in ("Stop", "SessionEnd", "PreCompact"):
             trace.keep_transcript(event, env)
+
+
+def _trace_launch(event_name: str, event: Mapping[str, Any], env: Mapping[str, str], why: str | None,
+                  launch: Mapping[str, Any] | None) -> None:
+    """The person's trace keeps how a session was launched (at its SessionStart, its flags only) and
+    each hook skipped as a program's, with why: an auditor reads a session with no injection as one
+    locks left alone, never as one locks failed."""
+    session_id = str(event.get("session_id") or "")
+    if event_name == "SessionStart":
+        trace.action(env, session_id, "launch", **(dict(launch) if launch else {"read": False}), scripted=why)
+    if why:
+        trace.action(env, session_id, "scripted", event=event_name, why=why)
 
 
 def note_error(root: Path, event_name: str) -> None:

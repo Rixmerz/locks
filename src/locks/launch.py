@@ -767,6 +767,11 @@ def parse(
                             starved="memory" if killed else "disk" if NO_SPACE.search(proc.stderr or "") else "",
                             **common)
     text = str(envelope.get("result") or "")
+    if never_reached := _never_reached(envelope, text, proc.stderr or ""):
+        # No turn and nothing spent: the brief never reached a model (a hook of the person's turned
+        # the prompt away). Nothing about the work or the cell: no reshape in that session, which never
+        # got the task, no climb, no retry into the same hook.
+        return WorkerResult(False, Failure.ENVIRONMENT, never_reached, raw=text, **common)
     if envelope.get("is_error") and not _answered_anyway(envelope, text):
         subtype = str(envelope.get("subtype") or "")
         if "max_turns" in subtype:
@@ -835,6 +840,28 @@ def parse(
     # (`fetch failed`, a connection error) are not read as the network.
     dropped = network_trouble(summary, evidence) if failure is Failure.ENVIRONMENT else ""
     return WorkerResult(False, failure, summary, evidence, raw=text, verdict=verdict, network=dropped, **common)
+
+
+#: A line that says a hook stopped the session's prompt, in the CLI's result or on its stderr.
+_HOOK_BLOCK = re.compile(r"^.*\bhook\b.*\b(?:block|blocked|blocking|denied|prevented)\b.*$"
+                         r"|^.*\b(?:block|blocked|blocking|denied|prevented)\b.*\bhook\b.*$",
+                         re.IGNORECASE | re.MULTILINE)
+
+
+def _never_reached(envelope: Mapping[str, Any], text: str, stderr: str) -> str:
+    """Why a session ended with no turn and nothing spent, or "": its brief never reached a model.
+    A filter of another plugin's (`UserPromptSubmit`) that took a file id for a secret did so twice
+    in one task, and each empty try was read as the worker's: resumed into a session that never had
+    the task, then climbed two rungs (#158)."""
+    if envelope.get("num_turns") != 0 or envelope.get("total_cost_usd") not in (0, 0.0):
+        return ""  # an envelope that does not say both is no proof of an empty session
+    said = _HOOK_BLOCK.search(f"{text}\n{stderr}")
+    if envelope.get("is_error") and not said:
+        return ""  # an API error before the first turn (a limit, the network) is read as one
+    which = f": {clip(said.group(0).strip(), 200, one_line=True)}" if said else ""
+    return ("the brief never reached the worker (no turn, nothing spent): a hook of this machine turned the "
+            f"prompt away before the model saw it{which}; let locks' briefs through that hook (its plugin's "
+            "allow-list or settings), then resume")
 
 
 #: A check that could not reach the network itself: its package manager or git

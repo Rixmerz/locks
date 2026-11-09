@@ -94,11 +94,21 @@ def test_the_proc_reader_reads_this_process():
 
 
 def test_ps_reader_parses_and_fails_closed(monkeypatch):
+    """macOS has no /proc: the terminal is `ps`'s (`??` none), never left unknown (0 of 4 sessions read)."""
+    said = {"out": ""}
+
     class Done:
-        stdout = "  42 /usr/local/bin/claude -p --json-schema {}\n"
+        @property
+        def stdout(self):
+            return said["out"]
 
     monkeypatch.setattr(scripted.subprocess, "run", lambda *a, **k: Done())
-    assert scripted._ps(7) == (42, ["/usr/local/bin/claude", "-p", "--json-schema", "{}"], None)
+    said["out"] = "  42 ??       /usr/local/bin/claude -p --json-schema {}\n"
+    assert scripted._ps(7) == (42, ["/usr/local/bin/claude", "-p", "--json-schema", "{}"], False)
+    said["out"] = "  42 ttys003  /usr/local/bin/claude -p\n"
+    assert scripted._ps(7) == (42, ["/usr/local/bin/claude", "-p"], True)
+    said["out"] = "  42 ?        claude -p\n"
+    assert scripted._ps(7)[2] is False
 
     def boom(*a, **k):
         raise OSError("no ps")

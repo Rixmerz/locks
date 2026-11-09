@@ -174,6 +174,10 @@ def _programs(command: str, workdir: Path, path: str, asked: str, result: Result
 def _scripts(command: str, workdir: Path, asked: str, result: Result) -> bool:
     """Check every script the command names; return whether it names one."""
     named = False
+    # A request that runs a script (it quotes the check: `npm run build`) is no request that adds it:
+    # only a mention outside an invocation may be the work's to add (#161: a `build` the request only
+    # ran spent a whole attempt before the check said it was missing).
+    asked = ci._DENO_TASK.sub(" ", _RUN.sub(" ", asked))
     npm, deno = ci._package_scripts(workdir), ci._deno_tasks(workdir)
     has_pkg, has_deno = bool(ci._package(workdir)), bool(ci._deno(workdir)[0])
     for text in ci.runs(command, workdir):
@@ -197,7 +201,9 @@ def _scripts(command: str, workdir: Path, asked: str, result: Result) -> bool:
                 if _names(asked, name):
                     result.unknown.append(f"{file} has no `{name}` yet, and the request names it")
                     continue
-                shown = ", ".join(sorted(table)) or "none"
+                # The scripts whose name holds it (`build-qa` for `build`) first: the one meant is likely there.
+                near = sorted(s for s in table if name in s or s in name)
+                shown = ", ".join([*near, *sorted(s for s in table if s not in near)]) or "none"
                 verb = "deno task" if runner == "deno" else f"{runner} run"
                 result.blockers.append(Blocker(
                     f"`{verb} {name}`: {file} has no `{name}` (it has: {shown})",

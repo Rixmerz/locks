@@ -1484,6 +1484,7 @@ def test_run_and_queue_add_ask_a_build_of_many_items_split_and_start_nothing(git
 
 
 def test_with_autosplit_a_request_that_is_several_tasks_is_split_and_queued(git_repo, capsys, monkeypatch):
+    real_split = cli.cmd_split
     big = ("Implement the student side:\n- the opinion form and grade before each quiz opens\n"
            "- a quiz per module and a final exam module\n- submodules the server locks, by 403 or a locked state\n"
            "- the start screen with the calendar the API returns\n- the questions and answers forum\n"
@@ -1497,6 +1498,17 @@ def test_with_autosplit_a_request_that_is_several_tasks_is_split_and_queued(git_
     # nothing proposed: it stops as before and says how to split it
     monkeypatch.setattr(cli, "cmd_split", lambda a: 1)
     assert cli.main(["queue", "add", big, "--repo", str(git_repo)]) == cli.EXIT_SPLIT
+
+    # `--json` (the mod's `queue`): the pieces queued are one JSON line on stdout, the rest on stderr. The mod
+    # read the split's prose as a failure, though its pieces were queued.
+    from locks import split
+
+    monkeypatch.setattr(cli, "cmd_split", real_split)
+    monkeypatch.setattr(split, "propose", lambda text, where, done=(): split.by_items(text, done))
+    capsys.readouterr()
+    assert cli.main(["queue", "add", big, "--repo", str(git_repo), "--json"]) == 0
+    said = json.loads(capsys.readouterr().out)
+    assert said["split"] and len(said["tasks"]) >= 2 and said["id"] == said["tasks"][0]["id"] and said["then"]
 
 
 def test_a_dismissal_or_a_resume_of_a_task_in_another_state_says_what_it_takes(store, capsys, tmp_path):

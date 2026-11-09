@@ -215,7 +215,7 @@ def _split_and_queue(args: argparse.Namespace, text: str, why: str) -> int | Non
     print(f"locks: this request is several tasks ({why}): splitting it and queueing its pieces "
           "(`--whole` runs it as one; `locks config autosplit off` stops doing this)", file=sys.stderr)
     split_args = argparse.Namespace(target=text, repo=getattr(args, "repo", None), verify=getattr(args, "verify", None),
-                                    no_model=False, json=False, queue=True)
+                                    no_model=False, json=bool(getattr(args, "json", False)), queue=True)
     code = cmd_split(split_args)
     return code if code == 0 else None
 
@@ -951,8 +951,11 @@ def cmd_split(args: argparse.Namespace) -> int:
         if args.json and not args.queue:
             print(split.as_json(proposal))
             return 0 if proposal.parts else 1
+        # With `--json` the one line on stdout is the JSON a caller reads (the mod's `queue`): what is
+        # said for a person goes to stderr.
+        out = sys.stderr if args.json else sys.stdout
         for line in split.lines(proposal):
-            print(line)
+            print(line, file=out)
         if not proposal.parts:
             return 1
         if not args.queue:
@@ -960,6 +963,7 @@ def cmd_split(args: argparse.Namespace) -> int:
             print(f"nothing queued: {again} starts them" + (" on what it kept" if base else ""))
             return 0
         ids: dict[str, int] = {}
+        titles: dict[int, str] = {}
         for part in proposal.parts:
             options = {**inherited, **({"surfaces": list(part["surfaces"])} if part.get("surfaces") else {}),
                        **({"base": base} if base else {})}
@@ -969,18 +973,27 @@ def cmd_split(args: argparse.Namespace) -> int:
                                    options=options, session_id=os.environ.get("LOCKS_SESSION_ID"),
                                    author="orchestrator" if os.environ.get("LOCKS_SESSION_ID") else "person")
             ids[part["id"]] = queued["id"]
+            titles[queued["id"]] = queued["title"]
             store.add_event(queued["id"], "split_from", task=task["id"] if task else None, part=part["id"])
         numbers = ", ".join(f"#{n}" for n in ids.values())
-        print(f"queued {numbers}" + (f" on what #{task['id']} kept ({str(base)[:12]})" if task and base else ""))
+        print(f"queued {numbers}" + (f" on what #{task['id']} kept ({str(base)[:12]})" if task and base else ""),
+              file=out)
         if task is not None:
             last = list(ids.values())[-1]
             moved = after.reassign(store, task["id"], last, f"#{task['id']} was split into {numbers}")
             if moved:
-                print(f"{', '.join(f'#{n}' for n in moved)} waited for #{task['id']}: now for #{last}, its last piece")
+                print(f"{', '.join(f'#{n}' for n in moved)} waited for #{task['id']}: now for #{last}, its last piece",
+                      file=out)
             via = "session" if os.environ.get("LOCKS_SESSION_ID") else "cli"
             if stops.dismiss(store, store.get_task(task["id"]), via=via, why=f"split into {numbers}") is not None:
-                print(f"#{task['id']} leaves the board: split into {numbers}")
-        print(dispatch.kick(where, repo.key(where), os.environ))
+                print(f"#{task['id']} leaves the board: split into {numbers}", file=out)
+        then = dispatch.kick(where, repo.key(where), os.environ)
+        if args.json:
+            first = next(iter(titles))
+            print(json.dumps({"id": first, "title": titles[first], "then": then, "split": True,
+                              "tasks": [{"id": n, "title": s} for n, s in titles.items()]}, ensure_ascii=False))
+        else:
+            print(then)
     finally:
         store.close()
     return 0

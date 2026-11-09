@@ -15,8 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_every_hook_registered_is_one_locks_handles():
     registered = json.loads((ROOT / "hooks" / "hooks.json").read_text())["hooks"]
+    from locks import signature
+
     traced_only = {"SubagentStop", "Notification"}  # the opt-in trace's own entries (`locks.trace`)
-    assert set(registered) == {*hooks.WITH_ENV, *hooks.HANDLERS, *traced_only}
+    # A call that failed or was refused: the PostToolUse fast path's alone (`__main__`, `signature.FAILED`).
+    assert set(registered) == {*hooks.WITH_ENV, *hooks.HANDLERS, *traced_only, *signature.FAILED}
     for event, entries in registered.items():
         commands = [h["command"] for e in entries for h in e["hooks"]]
         assert all("${CLAUDE_PLUGIN_ROOT}/bin/locks" in c for c in commands)
@@ -151,3 +154,12 @@ def test_every_skill_meets_the_agent_skills_spec(skill):
     assert 0 < len(meta.get("description", "")) <= 1024
     assert "<" not in meta["description"] and ">" not in meta["description"]
     assert skill.read_text(encoding="utf-8").count("\n") < 500
+
+
+def test_no_test_undoes_the_suite_s_isolation():
+    """`monkeypatch.undo()` undoes every patch of the test, the autouse home and session among them: a
+    test that called it queued real work into the person's store under the session running the suite,
+    and a real dispatcher ran it with real workers. Restore what one test patched by name instead."""
+    used = [str(path.relative_to(ROOT)) for path in sorted((ROOT / "tests").glob("*.py"))
+            if ".undo()" in path.read_text() and path.name != "test_plugin.py"]
+    assert used == []

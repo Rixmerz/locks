@@ -422,13 +422,16 @@ def test_a_habits_review_that_passed_and_nothing_applied_is_suspect(store: Store
     unapplied = review("0.85.0")
     applied = review("0.85.0", "habit_installed")
     refused = review("0.85.0", "habit_refused")
+    skipped = review("0.85.0", "habit_skipped")  # it skipped every habit: applied, nothing to install
+    marked = review("0.85.0")  # skipped before `habit_skipped`: only apply_reviews' mark says so
+    store.set_meta(f"habits.applied:{marked}", "1")
     old = review("0.84.0")
     plain = store.create_task("not a review", status="done", source="locks", repo="r")
     store.add_event(plain["id"], "finished", status="done", version="0.85.0")
     found = rules(store, now=LATER, alive=lambda pid: True)["habit-review-unapplied"]
     assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, unapplied), (doctor.FIXED, old)]
     assert "never applied it" in found[0].what and str(unapplied) in found[0].fix
-    assert {applied, refused} & {f.task_id for f in found} == set()
+    assert {applied, refused, skipped, marked} & {f.task_id for f in found} == set()
 
 
 def test_an_attempt_that_says_nothing_was_logged_while_the_store_holds_its_calls_is_suspect(store: Store):

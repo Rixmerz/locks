@@ -28,7 +28,10 @@ from locks import __version__ as VERSION
 
 #: The folder in the locks home that holds the traces.
 DIR = "traces"
-_SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_\w{8,}|"
+#: A key starts a word, or holds a digit when glued to one: inside a word (`<task-notification>`,
+#: `desk-reference`) `sk-` is no key.
+_SECRET = re.compile(r"((?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}|(?<![A-Za-z0-9])sk-[A-Za-z0-9]{8,}|"
+                     r"sk-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_\w{8,}|"
                      r"xox[abposr]-[\w-]{8,}|AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{30,}|"
                      r"-----BEGIN [A-Z ]*PRIVATE KEY|password\s*[:=]\s*\S+|"
                      r"bearer\s+[A-Za-z0-9._~+/-]{20,})", re.IGNORECASE)
@@ -110,7 +113,10 @@ def hook(event_name: str, event: Mapping[str, Any], env: Mapping[str, str]) -> N
         write(env, sid, f"tool:{tool}", phase=event_name, tool_use_id=event.get("tool_use_id"),
               livespec_tool=livespec.group(1) if livespec else None,
               input=event.get("tool_input"),
-              **({"response": event.get("tool_response")} if "tool_response" in event else {}))
+              **({"response": event.get("tool_response")} if "tool_response" in event else {}),
+              # A call that failed, or a permission refused before it ran, says so and why.
+              **({"failed": True, "error": event.get("error") or event.get("reason")}
+                 if event_name in ("PostToolUseFailure", "PermissionDenied") else {}))
 
 
 def injected(event_name: str, event: Mapping[str, Any], answer: Any, env: Mapping[str, str]) -> None:

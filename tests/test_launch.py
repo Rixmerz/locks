@@ -695,3 +695,29 @@ def test_a_pass_that_leaves_criteria_or_rows_unanswered_failed_only_its_form(tmp
     rows = spec(tmp_path, verdicts=("F1", "F2"), verdict_words=("fixed", "open"))
     undecided = parse(proc(envelope(block(**ok, verdicts=[{"id": "F1", "verdict": "fixed"}]))), rows)
     assert undecided.failure is Failure.INCONCLUSIVE and undecided.shape == f"{launch.VERDICTS_SHAPE}: F2"
+
+
+def test_a_brief_a_hook_turned_away_is_the_environment_never_the_worker(tmp_path):
+    """Another plugin's UserPromptSubmit filter took two file ids for secrets: the CLI ended with no turn
+    and nothing spent, locks resumed into a session that never had the task and climbed two rungs (#158).
+    Such a session is the environment, at once, naming the hook; never a shape to ask again."""
+    from locks.escalate import Attempt, Move, decide
+    from locks.matrix import LADDERS
+
+    empty = {"num_turns": 0, "total_cost_usd": 0, "result": "", "session_id": "w"}
+    said = "UserPromptSubmit operation blocked by hook: secret-guard found 2 secrets"
+    for stdout, stderr in ((json.dumps({**empty, "result": said}), ""), (json.dumps(empty), said),
+                           (json.dumps({**empty, "is_error": True, "result": said}), "")):
+        got = parse(proc(stdout, stderr=stderr), spec(tmp_path))
+        assert got.failure is Failure.ENVIRONMENT and not got.transient and not got.shape
+        assert "never reached the worker" in got.summary and "secret-guard" in got.summary
+    quiet = parse(proc(json.dumps(empty)), spec(tmp_path))
+    assert quiet.failure is Failure.ENVIRONMENT and "hook" in quiet.summary
+    move = decide(LADDERS["implement"], [Attempt(Cell.parse("sonnet/high"), 30, False, Failure.ENVIRONMENT,
+                                                 quiet.summary)])
+    assert move.move is Move.BLOCKED
+    # An API error before the first turn stays an API error, and a session that worked is read as one.
+    limited = {**empty, "is_error": True, "subtype": "success", "result": "Claude AI usage limit reached"}
+    assert parse(proc(json.dumps(limited)), spec(tmp_path)).limited
+    worked = parse(proc(json.dumps({"num_turns": 3, "total_cost_usd": 0.1, "result": "no block"})), spec(tmp_path))
+    assert worked.shape and "never reached" not in worked.summary

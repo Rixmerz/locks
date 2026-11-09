@@ -92,12 +92,18 @@ def _proc(pid: int) -> Process | None:
     return ppid, argv, tty
 
 
+#: What `ps -o tty=` prints for a process with no terminal: `??` on macOS and the BSDs, `?` on Linux.
+NO_TTY = {"?", "??", "-"}
+
+
 def _ps(pid: int) -> Process | None:
+    """Where there is no /proc (macOS): its parent, its command and its controlling terminal, the
+    terminal `ps` names standing for its input's, as /proc's fd 0 does on Linux."""
     try:
-        out = subprocess.run(["ps", "-o", "ppid=", "-o", "command=", "-p", str(pid)], capture_output=True,
-                             text=True, timeout=2, check=False).stdout.strip()
-        ppid, _, command = out.partition(" ")
-        return int(ppid), command.split(), None
+        out = subprocess.run(["ps", "-o", "ppid=", "-o", "tty=", "-o", "command=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=2, check=False).stdout.strip()
+        ppid, tty, command = out.split(None, 2)
+        return int(ppid), command.split(), tty not in NO_TTY
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
 

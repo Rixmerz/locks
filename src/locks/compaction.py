@@ -101,6 +101,10 @@ TAIL_BYTES = 2 * 1024 * 1024
 #: What a compaction locks asked for carries, with its decision's id.
 MARKER = "[locks-compaction #{id}]"
 MARKER_RE = re.compile(rf"\[(?:locks|{legacy.OLD})-compaction #(\d+)\]")  # an old one in a transcript too
+#: How a notice locks puts in the session about a compaction opens (its advice, the continuation it
+#: submits): the hooks read a prompt that opens so as locks' own, never a request (`hooks._ignored`).
+NOTICE = "locks [compaction #{id}]: "
+NOTICE_RE = re.compile(rf"^(?:locks|{legacy.OLD}) \[compaction #\d+\]")  # legacy-name: a notice an old install sent
 #: The most of what the orchestrating session asks the summary to keep, and of its reason.
 KEEP_CHARS = 500
 WHY_CHARS = 200
@@ -592,7 +596,7 @@ def continuation(store: Store, session_id: str, at: datetime) -> dict[str, Any] 
             continue
         store.add_event(decision["task_id"], CONTINUED, decision=decision["id"])
         return {"decision": decision["id"], "text": (
-            f"locks [compaction #{decision['id']}]: this session compacted. Before it, the session left itself "
+            f"{NOTICE.format(id=decision['id'])}this session compacted. Before it, the session left itself "
             f"what to go on with, in its own words: \"{decision['data']['then']}\". Go on with it now.")}
     return {"wait": True} if waiting else None
 
@@ -601,7 +605,7 @@ def advice(found: Mapping[str, Any]) -> str:
     """What the orchestrating session is told when locks sees a moment: the reasons,
     and that the call is its own."""
     because = [r for r in found["data"].get("because") or () if not str(r).startswith("not now")]
-    return (f"locks [compaction #{found['id']}]: this looks like a good moment to compact this session ("
+    return (f"{NOTICE.format(id=found['id'])}this looks like a good moment to compact this session ("
             + "; ".join(because) + "). It is your call. If the work at hand no longer needs this conversation's "
             "detail, call locks' `compact` tool (say in `keep` anything that must survive beyond the person's "
             "requests, the open work and branches, which locks keeps itself); it runs when this turn ends. If "

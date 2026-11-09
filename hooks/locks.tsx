@@ -36,6 +36,9 @@ const POLL_MS = 15_000
 const PULSE_MS = 2_000
 /** How long a toast with a `/compact` line to paste, or a fallback to say, stays: the longest the engine takes. */
 const SUGGEST_MS = 60_000
+// How long `queue` waits for `locks queue add`: a request that is several tasks is split first, and a
+// split Haiku proposes took more than the default minute.
+const QUEUE_MS = 300_000
 const KINDS = ['chat', 'explore', 'docs', 'test', 'refactor', 'implement', 'ui', 'feature', 'debug-repro',
   'debug-unclear', 'review-routine', 'review-critical', 'plan']
 const LINKS = ['depends_on', 'explains', 'replaces', 'contradicts', 'example_of']
@@ -459,13 +462,21 @@ export const register: Register = (on, options) => {
     // task is what matters, and the model hears what it named instead.
     const kind = text(e.kind)
     if (KINDS.includes(kind)) args.push('--kind', kind)
-    const ran = await locks($, args, { session: await $.session.id() })
-    const queued = json<{ id: number; title: string; then: string }>(ran)
+    // A request that is several tasks is split before anything is queued, and the split may ask Haiku:
+    // past the default minute the run was cut off with nothing queued and nothing said of why.
+    const ran = await locks($, args, { session: await $.session.id(), timeoutMs: QUEUE_MS })
+    const queued = json<{ id: number; title: string; then: string; tasks?: { id: number; title: string }[] }>(ran)
     if (!queued) return { deny: ran.err || 'locks queue add failed' }
     void refresh($).catch(ignore)
     const unknown = kind && !KINDS.includes(kind)
       ? ` The kind "${kind}" is not one of locks' (${KINDS.join(', ')}); it classifies the task itself.`
       : ''
+    if (queued.tasks && queued.tasks.length > 1) {
+      const pieces = queued.tasks.map(t => `#${t.id} — ${t.title}`).join('; ')
+      return {
+        result: `split into ${queued.tasks.length} tasks and queued: ${pieces}. ${queued.then} Their endings reach this session on their own.${unknown}`,
+      }
+    }
     return {
       result: `queued #${queued.id} — ${queued.title}. ${queued.then} Its ending reaches this session on its own.${unknown}`,
     }

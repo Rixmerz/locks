@@ -57,8 +57,8 @@ from locks.store import home
 from locks.text import clip, words
 
 MINIMUM_VERSION = (0, 32, 0)
-#: Characters kept free for the line that says what did not fit.
-_TAIL_ROOM = 80
+#: Characters kept free for the two lines that say what did not fit and what the caps left out.
+_TAIL_ROOM = 160
 
 #: What locks runs through `uvx` when no livespec plugin entry and no `livespec` on PATH is used:
 #: the release this adapter was checked against, unless an installed plugin's own manifest names

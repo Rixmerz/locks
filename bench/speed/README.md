@@ -615,3 +615,26 @@ all on the medium one. Each is at the edge of what three runs a cell can tell (a
 own check and missed one hidden test, where no earlier run of locks had: one in six is not a rate, and
 it is the number to watch at the next measure. One medium run started at sonnet/medium instead of
 sonnet/high and was the fastest and cheapest of the six, every hidden test passed.
+
+## Z: livespec on the hard build: the rung it raised, and the dossier (`versus.py`, 0.96.0)
+
+Three runs a row of the hard build, `locks run` with its late check, on one machine. "Handed" is 0.95.0
+(section Y): the worker given livespec's tools. "Dossier" is locks asking the index itself and briefing
+the answers (3,535 characters, 8 symbols for this request), the worker handed nothing. "Off" is
+`LOCKS_LIVESPEC=off`.
+
+| livespec | start | all hidden tests right | wall p50 (range) | $ p50 |
+|---|---|---|---|---|
+| handed, start raised (0.95.0) | sonnet/xhigh | 3/3 | 366 s (340-416) | 1.17 |
+| dossier, start raised | sonnet/xhigh | 3/3 | 361 s (237-393) | 1.20 |
+| off | sonnet/medium once, sonnet/high twice | 3/3 | 83 s (49-91) | 0.43 |
+| dossier, start not raised | sonnet/high | 3/3 | 87 s (80-91) | 0.47 |
+
+What cost the time was never the tools nor the dossier: with an index, the plan started this build one
+rung up because a symbol the request names "has 21 callers", and sonnet/xhigh took four times as long as
+sonnet/high for the same ten hidden tests. The index now raises a reading kind's start only. At the same
+start the dossier neither helped nor hurt here: 87 s against 83 s and $0.47 against $0.43 are inside what
+three runs can tell, and every run passed every hidden test either way. This build is small enough to
+read whole; whether the dossier pays on a repository too large for that is not measured here. The
+"21 callers" is itself doubtful: the dossier lists one caller for the same method, so the count looks
+like every `apply_line` of every rule class added together.

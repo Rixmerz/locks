@@ -119,7 +119,7 @@ index takes part in every step, at no token cost:
 
 | Step | What livespec contributes |
 |---|---|
-| before routing | a task whose code implements a critical spec, or whose symbol is called from everywhere, starts one rung up; a review of such code is reviewed as critical |
+| before routing | a reading task (a review, a plan, an exploration) about code that implements a critical spec, or whose symbol is called from everywhere, starts one rung up, and a review of such code is reviewed as critical; a build never starts higher for it (measured: four times the time for the same result) |
 | before the worker starts | the repository's index is built or refreshed first (incrementally, each repository of a folder of them, never the folder), waiting up to `livespec_wait` seconds (120 by default); past it the task starts without the index, says so, and the index keeps building |
 | in the worker's brief | locks asks the index itself, with no model and no MCP call, and briefs the answers as data: the symbols the request and its files name (where each is, its signature, what it calls, who calls it, the tests that cover it, the specs it implements), the specs the request's words find with their requirement and implementing symbols, helpers named close to what a writing task says to add, and what the named files reach; bounded, the rest said by count |
 | during the work | the worker is handed nothing of livespec: handed its tools, 46 attempts called them in 3, so locks reads the index for it instead; the independent check keeps the index, read-only |

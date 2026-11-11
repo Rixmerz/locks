@@ -362,8 +362,8 @@ def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path, monkeyp
     report = run("charge_card charges twice on retry", git_repo, store, registry={}, launcher=launcher,
                  classifier=kind("implement"), adapters=[_livespec(tmp_path)])
     spec = script.specs[0]
-    # routing: a critical spec moves the start one rung up
-    assert report.cells == ["sonnet/high"]
+    # routing: the index raises a reading kind's start only; a build stays on its ladder's first cell
+    assert report.cells == ["sonnet/medium"]
     assert any("critical spec" in r for r in report.plan.reasons)
     # briefing: the code map opens the worker's prompt
     assert "What livespec's index holds on this request" in spec.prompt and "SPEC-7" in spec.prompt

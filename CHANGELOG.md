@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-11-11
+
 ### Changed
 - livespec is used by locks itself: where a repository has an index, locks asks it (no model, no MCP call)
   and briefs the answers as data (`Livespec.dossier`): the symbols the request and its files name with
@@ -17,6 +19,7 @@
 - livespec's index raises a reading kind's start one rung and never a writing kind's: on the hard build of
   `bench/speed/versus.py` a start raised for a widely called symbol passed the same hidden tests in four
   times the time and almost three times the cost.
+- `bench/speed/README.md`, section Z: the hard build with livespec handed, briefed as a dossier and off.
 - engram is off by default: locks probes, reads and hands nothing of it until the person turns it on.
 
 ## [0.95.1] - 2026-11-11

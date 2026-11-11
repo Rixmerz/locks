@@ -943,3 +943,17 @@ def test_what_the_caps_leave_out_is_said_by_count(tmp_path, git_repo):
     assert f"{cut_symbols} symbol(s), {cut_specs} spec(s)" in d.text
     assert d.omitted >= cut_symbols + cut_specs
     assert (d.symbols, d.specs) == (livespec_mod.DOSSIER_SYMBOLS, livespec_mod.DOSSIER_SPECS)
+
+
+def test_the_dossier_never_passes_its_limit_with_both_closing_lines(tmp_path, git_repo, monkeypatch):
+    from locks.adapters import livespec as module
+
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    # Caps of one leave symbols out, and a tight limit leaves entries out: both closing lines are written.
+    monkeypatch.setattr(module, "DOSSIER_SYMBOLS", 1)
+    for limit in range(500, 900, 7):
+        d = a.dossier("Fix charge_card and checkout in src/billing.py", git_repo, status,
+                      paths=["src/billing.py", "src/api.py"], limit=limit)
+        assert len(d.text) <= limit, limit

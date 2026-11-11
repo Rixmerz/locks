@@ -828,6 +828,7 @@ class Livespec:
             return Dossier()
         symbols: list[str] = []
         spec_rows: dict[str, tuple[str, str, str]] = {}
+        cut_symbols = cut_specs = 0
         implementers: dict[str, list[str]] = {}
         helpers: list[str] = []
         try:
@@ -837,8 +838,9 @@ class Livespec:
                 ids = list(dict.fromkeys([*named, *_file_symbols(conn, project, paths), *picked]))
                 found = [d for sid in ids if (d := _detail(conn, sid)) is not None]
                 symbols = [_symbol_item(d) for d in found[:DOSSIER_SYMBOLS]]
+                cut_symbols = max(0, len(found) - DOSSIER_SYMBOLS)
                 carried = {s["spec_id"] for d in found[:DOSSIER_SYMBOLS] for s in d["specs"]}
-                spec_rows, implementers = _spec_rows(conn, project, text, carried)
+                spec_rows, implementers, cut_specs = _spec_rows(conn, project, text, carried)
                 if kind not in READ_ONLY_KINDS:
                     helpers = _similar_helpers(conn, project, text)
         except (sqlite3.Error, KeyError, ValueError):
@@ -875,7 +877,9 @@ class Livespec:
                 used -= len(title) + 1
         if omitted:
             lines.append(f"({omitted} more entr{'y' if omitted == 1 else 'ies'} did not fit)")
-        return Dossier("\n".join(lines), counts["symbols"], counts["specs"], omitted)
+        if cut_symbols or cut_specs:
+            lines.append(f"(left out past the dossier's caps: {cut_symbols} symbol(s), {cut_specs} spec(s))")
+        return Dossier("\n".join(lines), counts["symbols"], counts["specs"], omitted + cut_symbols + cut_specs)
 
     def _release_note(self, status: Status) -> tuple[str, ...]:
         """The plan's line when the livespec here is newer than the one this adapter was checked against
@@ -1252,15 +1256,16 @@ def _file_symbols(conn: sqlite3.Connection, project: int, paths: Sequence[str]) 
 
 
 def _spec_rows(conn: sqlite3.Connection, project: int, text: str,
-               carried: set[str]) -> tuple[dict[str, tuple[str, str, str]], dict[str, list[str]]]:
+               carried: set[str]) -> tuple[dict[str, tuple[str, str, str]], dict[str, list[str]], int]:
     """The specs a dossier carries, by spec id: those its symbols implement, then those the request's
     words find (at least `SPEC_MIN_TERMS` words in common with the title and text, a word most specs
     use counting for none; a spec id the request writes out counts too), and the symbols that implement
-    each. The index may hold no specs: then nothing."""
+    each, and how many matching specs the cap `DOSSIER_SPECS` left out. The index may hold no specs: then
+    nothing."""
     rows = conn.execute("SELECT id, spec_id, title, description, priority FROM spec WHERE project_id = ? "
                         "AND status != 'deprecated' ORDER BY spec_id LIMIT 2000", (project,)).fetchall()
     if not rows:
-        return {}, {}
+        return {}, {}, 0
     asked = set(words(text))
     held = [set(words(f"{r['title']} {r['description'] or ''}")) for r in rows]
     common = {w for w in asked if len(rows) >= 5 and sum(w in h for h in held) > 0.2 * len(rows)}
@@ -1281,7 +1286,7 @@ def _spec_rows(conn: sqlite3.Connection, project: int, text: str,
             "SELECT s.qualified_name FROM spec_symbol ss JOIN symbol s ON s.id = ss.symbol_id "
             "WHERE ss.spec_id = ? AND ss.relation = 'implements' ORDER BY s.qualified_name LIMIT ?",
             (r["id"], DOSSIER_LINKS + 1))]
-    return out, who
+    return out, who, max(0, len(scored) - DOSSIER_SPECS)
 
 
 def _spec_item(spec_id: str, row: tuple[str, str, str], by: Sequence[str]) -> str:

@@ -880,3 +880,66 @@ def test_the_dossier_takes_the_symbols_of_the_files_the_request_names_most_calle
     text = a.dossier("Tidy things up", git_repo, status, paths=["src/api.py"]).text
     assert "src/api.py" in text and "checkout" in text
     assert "src.parse.parse_amount" not in a.dossier("Tidy things up", git_repo, status).text
+
+
+def _specs(db: Path, rows: list[tuple[int, str, str, str]]) -> None:
+    conn = sqlite3.connect(db)
+    conn.executemany("INSERT INTO spec (id, project_id, spec_id, title, description) VALUES (?, 1, ?, ?, ?)", rows)
+    conn.commit()
+    conn.close()
+
+
+def test_a_spec_id_the_request_writes_out_finds_the_spec_without_shared_words(tmp_path, git_repo):
+    db = build(git_repo)
+    _specs(db, [(20, "SPEC-12", "Zebra quota", "stripes"), (21, "SPEC-1", "Walrus tusks", "ivory")])
+    a = adapter(tmp_path)
+    text = a.dossier("Please look at SPEC-12 before touching anything", git_repo, a.inspect(git_repo)).text
+    assert "SPEC-12 Zebra quota" in text
+    assert "SPEC-1 Walrus" not in text  # SPEC-1 is a prefix of SPEC-12, not a mention of it
+
+
+def test_a_word_most_specs_use_alone_does_not_find_a_spec(tmp_path, git_repo):
+    db = build(git_repo)
+    _specs(db, [(20, "SPEC-20", "Ledger entries posted", "daily"), (21, "SPEC-21", "Ledger rows archived", "x"),
+                (22, "SPEC-22", "Ledger export formats", "y"), (23, "SPEC-23", "Ledger totals shown", "z")])
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    # "ledger" is in four of five specs: it counts for none, so one more shared word is not enough
+    assert "SPEC-20" not in a.dossier("Check ledger entries", git_repo, status).text
+    assert "SPEC-20 Ledger entries posted" in a.dossier("Check ledger entries posted", git_repo, status).text
+
+
+def test_the_files_a_request_names_give_their_most_called_symbols_up_to_the_cap(tmp_path, git_repo):
+    db = build(git_repo)
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO file (id, project_id, path, language, content_hash, line_count, mtime) "
+                 "VALUES (5, 1, 'src/util.py', 'python', 'h', 10, 0)")
+    for i in range(6):  # u5 is called by 5 symbols ... u0 by none
+        conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                     "VALUES (?, 5, ?, ?, 'function', ?, ?)",
+                     (200 + i, f"u{i}", f"src.util.u{i}", i * 10 + 1, i * 10 + 5))
+        for caller in range(i):
+            conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type) "
+                         "VALUES (?, ?, 'calls')", (100 + caller, 200 + i))
+    conn.commit()
+    conn.close()
+    assert livespec_mod.FILE_SYMBOLS == 4
+    a = adapter(tmp_path)
+    text = a.dossier("Tidy things up", git_repo, a.inspect(git_repo), paths=["src/util.py"]).text
+    shown = [n for n in range(6) if f"`src.util.u{n}`" in text]
+    assert shown == [2, 3, 4, 5]  # the cap drops the least called two
+    assert text.index("src.util.u5`") < text.index("src.util.u4`") < text.index("src.util.u3`")
+
+
+def test_what_the_caps_leave_out_is_said_by_count(tmp_path, git_repo):
+    db = build(git_repo)
+    _specs(db, [(30 + i, f"SPEC-{30 + i}", f"Topic{i} alpha", "d") for i in range(8)])
+    a = adapter(tmp_path)
+    names = " ".join(f"handler_{i}" for i in range(12))
+    ids = " ".join(f"SPEC-{30 + i}" for i in range(8))
+    d = a.dossier(f"Change {names} for {ids}", git_repo, a.inspect(git_repo))
+    cut_symbols = 12 - livespec_mod.DOSSIER_SYMBOLS
+    cut_specs = 8 - livespec_mod.DOSSIER_SPECS
+    assert f"{cut_symbols} symbol(s), {cut_specs} spec(s)" in d.text
+    assert d.omitted >= cut_symbols + cut_specs
+    assert (d.symbols, d.specs) == (livespec_mod.DOSSIER_SYMBOLS, livespec_mod.DOSSIER_SPECS)

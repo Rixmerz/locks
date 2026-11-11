@@ -904,3 +904,84 @@ def test_the_sweep_releases_a_claim_nobody_started_and_leaves_a_fresh_one(store:
     kept = store.get_task(fresh["id"])
     assert kept["status"] == "running" and kept["dispatched"]
     assert store.last_event(fresh["id"], "claim_released") is None
+
+
+def _locks_task(store: Store, pid: int = 4242) -> dict:
+    return store.create_task("a run", status="running", source="locks", pid=pid, repo="r", dispatched=1)
+
+
+def test_a_pid_another_process_holds_since_a_reboot_is_no_sign_of_life(store: Store):
+    task = _locks_task(store)
+    store.set_meta(f"{flow.PID_START}{task['id']}", "4242:100")
+    # The pid answers, but the process holding it started at another time than the worker did.
+    assert flow.sweep(store, is_alive=lambda pid: True, started=lambda pid: "999") == [task["id"]]
+    assert "another process" in store.get_task(task["id"])["result"]
+    assert store.last_event(task["id"], "finished")["data"]["stop"]["cause"] == "died"
+
+
+def test_a_pid_that_started_when_the_worker_did_is_alive(store: Store):
+    task = _locks_task(store)
+    store.set_meta(f"{flow.PID_START}{task['id']}", "4242:100")
+    assert flow.sweep(store, is_alive=lambda pid: True, started=lambda pid: "100") == []
+    assert store.get_task(task["id"])["status"] == "running"
+
+
+def test_with_nothing_recorded_or_nothing_readable_the_pid_decides_as_before(store: Store):
+    plain = _locks_task(store, 4242)
+    kept = _locks_task(store, 4343)
+    store.set_meta(f"{flow.PID_START}{kept['id']}", "4343:100")
+    # Nothing readable now (another platform, a process that just left): alive while the pid answers.
+    assert flow.sweep(store, is_alive=lambda pid: True, started=lambda pid: None) == []
+    assert store.meta(f"{flow.PID_START}{plain['id']}") is None  # and nothing is recorded from it
+    # A pid that answers to no one is dead whatever was kept.
+    assert set(flow.sweep(store, is_alive=lambda pid: False, started=lambda pid: "100")) == {plain["id"], kept["id"]}
+
+
+def test_a_start_time_kept_for_an_earlier_pid_of_the_task_says_nothing_of_its_new_one(store: Store):
+    task = _locks_task(store, 5000)  # resumed: its worker is a new process
+    store.set_meta(f"{flow.PID_START}{task['id']}", "4242:100")
+    assert flow.sweep(store, is_alive=lambda pid: True, started=lambda pid: "999") == []
+    assert store.meta(f"{flow.PID_START}{task['id']}") == "5000:999"  # kept from here on
+
+
+def test_the_first_sweep_to_see_a_live_worker_keeps_when_it_started(store: Store):
+    task = _locks_task(store)
+    assert flow.sweep(store, is_alive=lambda pid: True, started=lambda pid: "100") == []
+    assert store.meta(f"{flow.PID_START}{task['id']}") == "4242:100"
+    # A later sweep sees the same process, then another one under that pid.
+    assert flow.sweep(store, is_alive=lambda pid: True, started=lambda pid: "100") == []
+    assert flow.sweep(store, is_alive=lambda pid: True, started=lambda pid: "777") == [task["id"]]
+
+
+def test_the_start_time_is_field_22_of_the_proc_stat_line_whatever_the_command_is_called():
+    rest = " ".join(["S"] + ["0"] * 18 + ["123456"] + ["0"] * 5)  # fields 3..: state, ..., starttime is 22
+    assert flow._stat_start(f"42 (python3) {rest}") == "123456"
+    assert flow._stat_start(f"42 (a b) c) {rest}") == "123456"
+    assert flow._stat_start("42 (short) S 1 2") is None
+    assert flow._stat_start("") is None
+
+
+def test_the_start_time_of_a_process_that_is_gone_or_a_platform_without_proc_is_none():
+    assert flow.start_time(None) is None and flow.start_time(0) is None
+    assert flow.start_time(2 ** 22 + 12345) is None
+
+
+def test_a_dispatched_process_has_its_start_time_kept_beside_its_pid(store: Store, monkeypatch):
+    import os
+    import subprocess
+
+    if flow.start_time(os.getpid()) is None:
+        import pytest
+
+        pytest.skip("this platform does not say when a process started")
+
+    class Popen:
+        pid = os.getpid()
+
+        def __init__(self, argv, **kw):
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", Popen)
+    task = store.enqueue("add a flag", repo="r", cwd="/")
+    flow._Process(task, flow.home(), store, flow.orchestrate.Options())
+    assert store.meta(f"{flow.PID_START}{task['id']}") == f"{os.getpid()}:{flow.start_time(os.getpid())}"

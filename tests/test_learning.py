@@ -330,11 +330,15 @@ def test_a_change_that_passes_as_often_but_slower_loses_its_trial():
     assert found["with"]["pass_p50_s"] == 100.0 and found["without"]["pass_p50_s"] == 60.0
     side, why = arms.pick(found, ("with", "without"), 1, 4, "diagnosis")
     assert side == "without" and "passes took 100s at the median with against 60s without" in why
-    # Within the margin, or untimed, pass-first alone decides; a failed try's time is nobody's.
+    # An equal rate is a tie, and a tie goes to the arm without the change: the change is kept only when it
+    # is timed and faster. A failed try's time is nobody's.
     close = arms.tally([*rows("with", 70.0), *rows("without", 60.0)], ("with", "without"))
-    assert arms.pick(close, ("with", "without"), 1, 4, "diagnosis")[0] == "with"
+    side, why = arms.pick(close, ("with", "without"), 1, 4, "diagnosis")
+    assert side == "without" and why.endswith("a tie goes to the arm without the change")
+    faster = arms.tally([*rows("with", 50.0), *rows("without", 60.0)], ("with", "without"))
+    assert arms.pick(faster, ("with", "without"), 1, 4, "diagnosis")[0] == "with"
     untimed = arms.tally([{"arm": "with", "tries": 1, "passed": 1}] * 4 + rows("without", 60.0), ("with", "without"))
-    assert untimed["with"]["pass_p50_s"] is None and arms.pick(untimed, ("with", "without"), 1, 4, "d")[0] == "with"
+    assert untimed["with"]["pass_p50_s"] is None and arms.pick(untimed, ("with", "without"), 1, 4, "d")[0] == "without"
     failed = arms.tally([{"arm": "with", "tries": 1, "passed": 0, "duration_s": 999.0}] * 4, ("with", "without"))
     assert failed["with"]["pass_p50_s"] is None
 
@@ -455,8 +459,9 @@ def test_a_trial_short_here_takes_the_verdict_of_every_repository_once_those_arm
     short = handing.trial(store, "nowhere", "writing")
     assert "trial here" in arms.pick(here, handing.ARMS, 999, handing.TRIAL, "x", "r", pooled=short)[1]
     # Once the repository's own arms are full, they decide alone, whatever the pool says.
+    # Equal rates now: handing wins only by being faster (a tie goes to withholding), so its passes take 80s.
     for _ in range(handing.TRIAL):
-        task("r", "hand", True, 100)
+        task("r", "hand", True, 80)
         task("r", "withhold", True, 100)
     side, why = handing.arm(store, "r", "implement", 999)
     assert side == "hand" and "won its trial here" in why and "pooled" not in why

@@ -163,6 +163,50 @@ def alive(pid: int | None) -> bool:
     return True
 
 
+#: The store's meta key, with a task id after it, of `<pid>:<start time>` of the process driving it.
+PID_START = "pid-start:"
+
+
+def start_time(pid: int | None) -> str | None:
+    """When a process started, as the kernel counts it (Linux: field 22 of `/proc/<pid>/stat`, in
+    clock ticks since boot); None where the platform does not say it cheaply or the process is gone.
+    Two processes that had one pid at different times never share both the pid and this."""
+    try:
+        raw = Path(f"/proc/{int(pid or 0)}/stat").read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError, OverflowError):
+        return None
+    return _stat_start(raw)
+
+
+def _stat_start(raw: str) -> str | None:
+    """Field 22 of a `/proc/<pid>/stat` line. The command name (field 2) may hold spaces and
+    parentheses, so the fields count from its last ")"."""
+    fields = raw.rpartition(")")[2].split()
+    return fields[19] if len(fields) > 19 and fields[19].isdigit() else None
+
+
+def remember_start(store: Store, task_id: int, pid: int | None,
+                   reader: Callable[[int | None], str | None] = start_time) -> None:
+    """Keep when the process of a task started beside its pid (a meta key, no schema), so a pid the
+    system gives to another process later is told from the worker (`recycled`). Nothing is kept
+    where the start time cannot be read."""
+    if (began := reader(pid)) is not None:
+        store.set_meta(PID_START + str(task_id), f"{pid}:{began}")
+
+
+def recycled(store: Store, task: Mapping[str, Any],
+             reader: Callable[[int | None], str | None] = start_time) -> bool:
+    """Whether the process now holding a task's pid started at another time than the one kept for
+    that pid: after a reboot or a pid wrap an unrelated process answers to it. False when nothing
+    was kept for this pid or the start time cannot be read now: then the pid decides, as it always did."""
+    kept = store.meta(PID_START + str(task["id"]))
+    pid, _, began = (kept or "").partition(":")
+    if not began or pid != str(task.get("pid")):
+        return False
+    now = reader(task.get("pid"))
+    return now is not None and now != began
+
+
 def _lost_cost(store: Store, task: dict) -> None:
     """What an attempt whose worker died spent, read from its worker's transcript
     (`usage.running_cost`) and kept as an `attempt_lost` event and on the task's cost: a worker
@@ -204,8 +248,11 @@ def _keep_lost_transcript(task_id: int, seq: object, env: Mapping[str, str] | No
         pass
 
 
-def sweep(store: Store, *, now: datetime | None = None, is_alive: Callable[[int | None], bool] = alive) -> list[int]:
-    """Mark running tasks with no sign of life as interrupted. Returns their ids."""
+def sweep(store: Store, *, now: datetime | None = None, is_alive: Callable[[int | None], bool] = alive,
+          started: Callable[[int | None], str | None] = start_time) -> list[int]:
+    """Mark running tasks with no sign of life as interrupted. Returns their ids. A pid that answers
+    but started at another time than the worker did (`recycled`) is no sign of life either; a pid
+    seen alive with no start time kept yet has it kept now (`started` reads it)."""
     now = now or datetime.now(UTC)
     swept = []
     for task in store.list_tasks(status=["running"], limit=500):
@@ -217,14 +264,23 @@ def sweep(store: Store, *, now: datetime | None = None, is_alive: Callable[[int 
                 store.update_task(task["id"], status="queued", dispatched=0)
                 store.add_event(task["id"], "claim_released", sat_s=int(sat.total_seconds()))
             continue
+        reused = False
         if task["source"] == "locks":
             dead = not is_alive(task["pid"])
+            if not dead and task["pid"]:
+                if reused := recycled(store, task, started):
+                    dead = True
+                elif not (store.meta(PID_START + str(task["id"])) or "").startswith(f"{task['pid']}:"):
+                    # First sighting of this pid: a run the dispatcher did not start (`_Process` keeps its own).
+                    remember_start(store, task["id"], task["pid"], started)
         else:
             updated = datetime.fromisoformat(task["updated_at"])
             dead = now - updated > (DELEGATION_TIMEOUT if task["source"] == "delegation" else SESSION_TASK_TIMEOUT)
         if not dead:
             continue
-        gone = (f"no sign of life: its process ({task['pid']}) is gone" if task["source"] == "locks" and task["pid"]
+        gone = (f"no sign of life: its process ({task['pid']}) is gone: the pid belongs to another process now"
+                if reused else
+                f"no sign of life: its process ({task['pid']}) is gone" if task["source"] == "locks" and task["pid"]
                 else "no sign of life")
         # A session's turn is no work to resume: the session closed or was cut off
         # before its answer arrived. It keeps the answer it had so far as its result.
@@ -430,15 +486,27 @@ def reads_only(task: dict) -> bool:
     return kind in READ_ONLY_KINDS or orchestrate.declares_read_only(kind, text)
 
 
+@dataclass
+class Undecided:
+    """A queued task that needs the model's call, read under the lock and decided outside it:
+    the writing work it is judged against (git's `changed` read), and why it is judged now."""
+    task: dict
+    writing: list[dict]
+    again: list[int] = field(default_factory=list)
+    moved: list[int] = field(default_factory=list)
+
+
 def _judged(store: Store, task: dict, ahead: list[dict], decide: Decide,
-            read_changes: Callable[[], None]) -> dict:
+            read_changes: Callable[[], None], defer: list[Undecided] | None = None) -> dict | None:
     """The queued task with its dispatch decision made. A task that will not write
     is never put to the model, and a writing one is judged against the writing
     work ahead of it alone: a reader changes no file and holds no checkout, and the
     goal its text carries is not what it does. With no writing work ahead it starts,
     whatever a "no" given against work that has ended once held it behind.
     `read_changes` puts what git shows the running tasks changed into `ahead`,
-    called only when a task is put to a decision."""
+    called only when a task is put to a decision. With `defer`, a task that needs the
+    model is added to it instead (`Undecided`) and None is returned: the caller asks
+    outside the lock the model call would hold."""
     if reads_only(task):
         if not task["parallel"]:  # a "no" given before this rule held a reader behind a build
             store.set_parallel(task["id"], True, READS_ONLY)
@@ -460,16 +528,44 @@ def _judged(store: Store, task: dict, ahead: list[dict], decide: Decide,
     read_changes()
     writing = [t for t in ahead if not reads_only(t)]
     settled = by_surfaces(task, writing)
+    if settled is None and defer is not None:
+        defer.append(Undecided(task, writing, stale, moved))
+        return None
     decision = settled or decide(task, writing)
+    _record(store, task, writing, decision, by="surfaces" if settled else "haiku", again=stale, moved=moved)
+    return {**task, "parallel": int(decision.parallel)}
+
+
+def _record(store: Store, task: dict, writing: list[dict], decision: dispatch.Decision, *, by: str,
+            again: list[int], moved: list[int]) -> None:
+    """A dispatch decision kept on its task, with the work it was made against."""
     store.set_parallel(task["id"], decision.parallel, decision.reason)
     store.add_event(task["id"], "dispatch_decided", parallel=decision.parallel,
                     reason=decision.reason, behind=_behind(decision, writing),
-                    ahead=[t["id"] for t in writing], by="surfaces" if settled else "haiku",
+                    ahead=[t["id"] for t in writing], by=by,
                     seen={str(t["id"]): sorted(t["changed"]) for t in writing if t.get("changed") is not None},
-                    **({"again": stale} if stale else {"moved": moved} if moved else {}))
+                    **({"again": again} if again else {"moved": moved} if moved else {}))
     if decision.cost_usd:
         store.update_task(task["id"], cost_usd=(task["cost_usd"] or 0) + decision.cost_usd)
-    return {**task, "parallel": int(decision.parallel)}
+
+
+#: How many times a pass under the lock hands tasks to the model outside it and looks again before
+#: it leaves the rest for the dispatcher's next pass (work that keeps moving under the judgments).
+DECIDE_ROUNDS = 4
+
+
+def decide_outside(store: Store, undecided: list[Undecided], decide: Decide) -> None:
+    """Ask `decide` for each task read under the lock and keep its answer on the task. No lock of the
+    machine's is held here: the call takes seconds and every other dispatcher waits on that lock.
+    A task that is no longer queued (another dispatcher took it, a person cancelled it) keeps none.
+    The pass that follows reads the answers under the lock again, with the rules that make a kept
+    decision stale (`_judged_against_gone`, `_moved_since_judged`)."""
+    for u in undecided:
+        decision = decide(u.task, u.writing)
+        current = store.get_task(u.task["id"])
+        if current is None or current["status"] != "queued":
+            continue
+        _record(store, u.task, u.writing, decision, by="haiku", again=u.again, moved=u.moved)
 
 
 def _judged_against_gone(store: Store, task: dict, writing: list[dict]) -> list[int]:
@@ -515,11 +611,14 @@ def _moved_since_judged(store: Store, task: dict, writing: list[dict]) -> list[i
             and set(t["changed"]) - set(seen.get(str(t["id"])) or ())]
 
 
-def _walk(store: Store, repo: str | None, *, parallel: bool, decide: Decide) -> Iterator[dict]:
+def _walk(store: Store, repo: str | None, *, parallel: bool, decide: Decide,
+          defer: list[Undecided] | None = None) -> Iterator[dict]:
     """A lane's tasks that may start now, in queue order, each judged only when it is
     reached: the first when nothing runs; after that, tasks that will not write, and
     tasks judged independent of the writing work running and queued ahead. Work held
-    behind other work (`after`) is never picked, and nothing waits behind it."""
+    behind other work (`after`) is never picked, and nothing waits behind it. With `defer`, the walk
+    ends at the first task that needs the model (`_judged`): it is judged outside the lock, and the
+    tasks behind it are reached on the next pass."""
     running = store.dispatched_running(repo)
     ahead, mine, read = list(running), 0, False
 
@@ -536,7 +635,10 @@ def _walk(store: Store, repo: str | None, *, parallel: bool, decide: Decide) -> 
         if running or mine:
             if not parallel:
                 return
-            task = _judged(store, task, ahead, decide, read_changes)
+            judged = _judged(store, task, ahead, decide, read_changes, defer)
+            if judged is None:
+                return
+            task = judged
             if not task["parallel"]:
                 ahead.append(task)
                 continue
@@ -589,11 +691,14 @@ def limited_until(store: Store, *, now: datetime | None = None) -> str | None:
 
 
 def pick(store: Store, repo: str | None, *, parallel: bool, decide: Decide,
-         level: int | None = None) -> tuple[list[dict], dict[str | None, capacity.Share]]:
+         level: int | None = None,
+         defer: list[Undecided] | None = None) -> tuple[list[dict], dict[str | None, capacity.Share]]:
     """What may start now within the machine's level, and each lane's share of it
     (`capacity.allot`): reserves first, in the order each lane's oldest work was queued,
     then what is lent. The lanes of `repo` (every lane, with None) are walked and judged
-    (`_walk`); another dispatcher's are read as they stand, never judged here."""
+    (`_walk`); another dispatcher's are read as they stand, never judged here. With `defer`, no
+    task is put to `decide` here: the ones that need it are added to `defer` and wait for the
+    caller, who asks outside the lock this runs under (`decide_outside`)."""
     level = level if level is not None else capacity.current(home()).value
     if limited_until(store):
         # The account's usage limit turns every session away until it resets: nothing starts,
@@ -605,7 +710,7 @@ def pick(store: Store, repo: str | None, *, parallel: bool, decide: Decide,
     for lane in lanes:
         if lane.waiting and not lane.paused:
             if repo is None or lane.repo == repo:
-                walks[lane.repo] = _walk(store, lane.repo, parallel=parallel, decide=decide)
+                walks[lane.repo] = _walk(store, lane.repo, parallel=parallel, decide=decide, defer=defer)
             else:
                 demand[lane.repo] = _demand(queued[lane.repo], lane.running, parallel=parallel)
     picked: list[dict] = []
@@ -666,6 +771,9 @@ class _Process:
             store.set_meta(LOG_FROM + str(task["id"]), str(self.log_from))
             self.proc = subprocess.Popen(argv, cwd=str(where), env=dispatch.child_env(),
                                          stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT)
+        # The run keeps this pid as its own (`orchestrate.run`): its start time is kept beside it.
+        with contextlib.suppress(Exception):
+            remember_start(store, task["id"], self.proc.pid)
 
     def poll(self) -> str | None:
         if self.proc.poll() is None:
@@ -845,11 +953,20 @@ def work(
             if stopped:
                 _recover(store)
             launched: list[tuple[dict, Path]] = []
-            if started < max_tasks:
+            leftover = False
+            for round_ in range(DECIDE_ROUNDS + 1) if started < max_tasks else ():
+                # The machine's lock is held to settle, allot and claim, never for a model call: what
+                # needs one is read here, decided outside the lock, and the next round reads it again.
+                undecided: list[Undecided] = []
+                claimed: list[tuple[dict, Path]] = []
                 with capacity.held(home()):
-                    report.looked_at = time.time()
-                    level = capacity.settle(store, home(), machine=machine(), ceiling=ceiling, wanting=wanting)
-                    picked, shares = pick(store, repo, parallel=parallel, decide=decide, level=level.value)
+                    if round_ == 0:
+                        report.looked_at = time.time()
+                        level = capacity.settle(store, home(), machine=machine(), ceiling=ceiling, wanting=wanting)
+                    else:
+                        level = capacity.current(home(), ceiling=ceiling)
+                    picked, shares = pick(store, repo, parallel=parallel, decide=decide, level=level.value,
+                                          defer=undecided)
                     wanting = capacity.full(level.value, shares)
                     # Its own work waits for a worker another lane holds: it waits too, rather than stop.
                     waits = wanting and any(s.waiting for k, s in shares.items() if repo is None or k == repo)
@@ -867,19 +984,27 @@ def work(
                         # pickup (from queued) and its spawn (to its plan) from here.
                         store.add_event(task["id"], "dispatched", at=round(time.time(), 3), level=level.value,
                                         **({"ceiling": ceiling} if isinstance(ceiling, int) else {}))
-                        launched.append((task, where))
-            for task, where in launched:
-                try:
-                    out.append(start(task, where))
-                except Exception:
-                    # Whatever raised, a task claimed this round with no process yet would stay
-                    # `running` until the sweep's timeout: it goes back to the queue, with the rest.
-                    for back, _ in launched:
-                        with contextlib.suppress(Exception):
-                            current = store.get_task(back["id"]) or {}
-                            if current.get("status") == "running" and not current.get("pid"):
-                                store.update_task(back["id"], status="queued", dispatched=0)
-                    raise
+                        claimed.append((task, where))
+                launched += claimed
+                for task, where in claimed:
+                    try:
+                        out.append(start(task, where))
+                    except Exception:
+                        # Whatever raised, a task claimed this round with no process yet would stay
+                        # `running` until the sweep's timeout: it goes back to the queue, with the rest.
+                        for back, _ in claimed:
+                            with contextlib.suppress(Exception):
+                                current = store.get_task(back["id"]) or {}
+                                if current.get("status") == "running" and not current.get("pid"):
+                                    store.update_task(back["id"], status="queued", dispatched=0)
+                        raise
+                if not undecided or started >= max_tasks:
+                    break
+                if round_ == DECIDE_ROUNDS:
+                    leftover = True  # work kept moving under the judgments: the next pass goes on
+                    break
+                decide_outside(store, undecided, decide)
+            waits = waits or leftover
             through()
             if launched:
                 continue  # look again at once: a finished run may have opened a lane

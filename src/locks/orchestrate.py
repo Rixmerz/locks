@@ -977,14 +977,14 @@ RACED_OUT = racing.RACED_OUT
 
 
 def _record_raced(store: Store, task_id: int, raced: Raced, turns: int, capabilities: Sequence[str],
-                  report: Report, *, first: bool) -> int:
+                  report: Report, *, first: bool, ran_as: int) -> int:
     """Keep the try a race did not go on with, as an attempt of its own: its cost, its cell
     and what it said. When it is the start's (`first`), the rung's that goes on follows it as
     a new start (`race`); a try stopped because the other passed first teaches no cell."""
     o = raced.other
     stopped = o.summary.startswith("stopped:")
     seq = store.add_attempt(
-        task_id, cell=raced.other_cell.label, max_turns=turns, passed=0,
+        task_id, seq=ran_as, cell=raced.other_cell.label, max_turns=turns, passed=0,
         failure=(o.failure or Failure.INCONCLUSIVE).value, summary=o.summary, evidence=kept_evidence(o.evidence),
         cost_usd=o.cost_usd, input_tokens=o.input_tokens, output_tokens=o.output_tokens, turns=o.turns,
         duration_s=o.duration_s, changed_paths=o.changed_paths, served_model=o.served_model or None,
@@ -1755,7 +1755,7 @@ def run(
                                            permission_mode=raced.spec.permission_mode)
                 if raced.cell != cell:
                     # The higher rung's try goes on: the start's is recorded before it.
-                    _record_raced(store, task["id"], raced, turns, selection.names, report, first=True)
+                    _record_raced(store, task["id"], raced, turns, selection.names, report, first=True, ran_as=nth)
                     attempts.append(_raced_attempt(raced, turns))
                     nth, raced_first = nth + 1, True
                 cell = raced.cell
@@ -2043,7 +2043,7 @@ def run(
             if raced is not None and not raced_first:
                 # The start's try went on: the rung's, stopped or failed, is recorded after it.
                 store.set_move(task["id"], seq, "race", f"raced {raced.other_cell.label} beside it")
-                _record_raced(store, task["id"], raced, turns, selection.names, report, first=False)
+                _record_raced(store, task["id"], raced, turns, selection.names, report, first=False, ran_as=nth + 1)
                 if not result.passed:
                     # Kept in the history before the start's, which goes on: the move is read from
                     # the last attempt, and the rung's (only the environment stopped it) is not it.

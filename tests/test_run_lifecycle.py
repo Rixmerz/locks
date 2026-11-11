@@ -1,13 +1,17 @@
 """A run's lifecycle: it ends whatever fails on the way, and leaves no stray process or number behind."""
 from __future__ import annotations
 
+import signal
 import subprocess
 import time
+import types
 from pathlib import Path
 
 import pytest
 
-from locks import isolate, orchestrate
+from locks import isolate, launch, orchestrate
+from locks.escalate import Failure
+from locks.matrix import Cell
 from locks.orchestrate import Options, run
 
 from .test_orchestrate import Script, kind, ok
@@ -66,3 +70,48 @@ def test_a_check_that_times_out_is_stopped_with_its_children(tmp_path: Path):
     time.sleep(0.3)
     alive = subprocess.run(["pgrep", "-f", marker], capture_output=True, text=True)
     assert alive.stdout.strip() == ""
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_the_close_out_ignores_sigterm_and_the_handler_comes_back(git_repo, store, monkeypatch):
+    seen = []
+    real = isolate.finish
+
+    def watching(*a, **kw):
+        seen.append(signal.getsignal(signal.SIGTERM))
+        return real(*a, **kw)
+
+    before = signal.getsignal(signal.SIGTERM)
+    monkeypatch.setattr(isolate, "finish", watching)
+    run("add the export", git_repo, store, registry={}, launcher=Script(ok(), write="app.py"),
+        classifier=kind("implement"))
+    assert seen and all(h == signal.SIG_IGN for h in seen)
+    assert signal.getsignal(signal.SIGTERM) == before
+
+
+def test_launch_run_uses_a_stoppable_runner_by_default(tmp_path: Path, monkeypatch):
+    made = []
+
+    class Fake(launch.Stoppable):
+        def __init__(self):
+            super().__init__()
+            made.append(self)
+
+        def __call__(self, argv, **kw):
+            return subprocess.CompletedProcess(list(argv), 0, "", "")
+
+    monkeypatch.setattr(launch, "Stoppable", Fake)
+    spec = launch.LaunchSpec(prompt="do it", cell=Cell("sonnet", "high"), launch_dir=tmp_path)
+    launch.run(spec)
+    launch.run(spec)
+    assert len(made) == 2 and made[0] is not made[1]
+
+
+def test_a_raced_try_is_kept_under_the_number_its_worker_ran_as(store):
+    task = store.create_task("add the export", status="queued", source="locks")
+    other = launch.WorkerResult(False, Failure.CODE_BUG, "no", cost_usd=0.1)
+    raced = orchestrate.Raced(other, Cell("opus", "high"), None, other, Cell("sonnet", "high"), False)
+    report = types.SimpleNamespace(cells=[], served=[], cost_usd=0.0)
+    # Attempt 1 died before it was kept; the race's other try ran as 2.
+    orchestrate._record_raced(store, task["id"], raced, 10, [], report, first=False, ran_as=2)
+    assert [r["seq"] for r in store.attempts(task["id"])] == [2]

@@ -141,3 +141,48 @@ def test_a_second_fix_round_is_queued_with_git_read_before_the_transaction(git_r
               if e["data"].get("round")]
     assert len(rounds) == 1
     assert [call for call, inside in git_calls if inside] == []
+
+
+SKIPPED = {"name": "skipped", "inputs": ["goal"], "steps": [
+    {"id": "build", "prompt": "Build {goal}", "kind": "implement"},
+    {"id": "fix", "prompt": "Fix what the review found in {goal}", "kind": "implement",
+     "when": {"build": "findings"}},
+    {"id": "again", "prompt": "Fix {goal} again", "kind": "implement", "needs": ["fix", "build"],
+     "when": {"build": "findings"}},
+    {"id": "check", "prompt": "Review, without changing any file, {goal}", "kind": "review-routine",
+     "needs": ["again"]},
+]}
+
+
+def test_steps_made_ready_by_skipped_ones_may_need_more_unread_calls_than_the_retries(
+        git_repo, store: Store, kicks, git_calls):
+    """Two steps skipped in one pass make the review ready inside the transaction: its calls (the tip it starts
+    from, the diff, the generated files, the links) are more than `READ_RETRIES`, and each is progress."""
+    _save(SKIPPED, git_repo)
+    started = workflows.start(store, "skipped", git_repo, {"goal": "the export"})
+    seen: list[dict] = []
+    flow.work(store, runner=_runner([ok("built it"), ok("no problems")], seen))
+    assert len(seen) == 2 and workflows.status(store, started["id"])["state"] == "done"
+    assert not store.events_of(store.run_tasks(started["id"])[0]["id"], "workflow_error")
+    assert [call for call, inside in git_calls if inside] == []
+
+
+def test_a_step_that_will_be_skipped_restores_no_branch(git_repo, store: Store, kicks, git_calls, monkeypatch):
+    skipped = {"name": "two", "inputs": ["goal"], "steps": [
+        {"id": "build", "prompt": "Build {goal}", "kind": "implement"},
+        {"id": "polish", "prompt": "Polish {goal}", "kind": "implement", "when": {"build": "findings"}}]}
+    _save(skipped, git_repo)
+    started = workflows.start(store, "two", git_repo, {"goal": "the export"})
+    real = workflows.advance
+
+    def advance(st, task, env=None, kick=None):
+        if task and task.get("workflow_step") == "build" and task["status"] == "done":
+            git(git_repo, "branch", "-D", f"locks/task-{task['id']}")
+        return real(st, task, env, kick)
+
+    monkeypatch.setattr(workflows, "advance", advance)
+    flow.work(store, runner=_runner([ok("built it")], []))
+    build = store.run_tasks(started["id"])[0]
+    assert workflows.status(store, started["id"])["state"] == "done"
+    assert not store.events_of(build["id"], "branch_restored")
+    assert not any(call.startswith("git branch locks/task-") for call, _ in git_calls)

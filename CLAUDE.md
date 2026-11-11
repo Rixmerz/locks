@@ -17,7 +17,8 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/escalate.py` | failure kind → move (retry, more effort, next model, more turns, replan) |
 | `src/locks/launch.py` | one attempt as `claude -p`: argv, the result contract, parsing, git-read changes |
 | `src/locks/capabilities.py` | which MCP servers a worker gets, from the user-level registry |
-| `src/locks/mcp_guard.py` | a JSON-RPC guard between a worker and an MCP server: the calls a policy refuses never reach the server; stdlib, imports nothing of locks |
+| `src/locks/mcp_guard.py` | a JSON-RPC guard between a worker and an MCP server: the calls a policy refuses never reach the server, a line it cannot parse or whose keys collide by case is answered and never forwarded, and what it forwards is rebuilt from the protocol's keys; stdlib, imports nothing of locks |
+| `src/locks/masking.py` | the one pattern locks masks secrets with: `SECRET` for the trace and kept transcripts (git commit ids stay), `SECRET_STRICT` for the notes (long hex runs too); linear on any input; stdlib, imports nothing of locks |
 | `src/locks/plugins.py` | neighbours the person installed as Claude Code plugins (layout-inspector, rastro), read from the plugin cache or PATH and handed over as capabilities with their skill; `versions` is the one reader of the cache (folders only, never a `temp_*` clone `/plugin` left half done) |
 | `src/locks/manifests.py` | what a neighbour says of itself: the `locks` block of its newest installed plugin manifest (or `locks.json` beside it), read at plan time and cached per file state; words only (hint, hints per kind, tool descriptions, what tools measure), ignored whole when malformed (`docs/neighbours.md`) |
 | `src/locks/roles.py` | what a worker is: role files (bundled `roles/`, the person's in their locks home), `extends` and `match`, skills found by name and put into the worker's system prompt; a bundled skill with an upstream plugin (`UPSTREAM`) read from that installed plugin, the vendored copy the fallback |
@@ -1090,6 +1091,12 @@ yields the default kind, not a guess.
 - Forensics, the footprint and skill use read a copy of the store, never the live file, and say what
   they observed, never a modeled figure; a dormant skill is said, never archived by locks. The notes
   fork is judged by facts kept per filing, never by its cost, which is shown beside it.
+- The locks home is the person's alone: the folder 0700, the store and what the scribe and the trace
+  keep 0600. Secrets are masked by `locks.masking` only; a new format goes there, with a timing test.
+- A git call locks makes has a timeout (`isolate.GIT_TIMEOUT_S`) and never prompts; a write
+  transaction of the store never spans a git call or a model call (`tests/test_workflow_lock.py`).
+- A claim is never left without a process: `flow.work` puts it back when `start` raises, and the sweep
+  after `flow.CLAIM_STALE_S` (`claim_released`). A habit's command sets only `habits.ENV_ALLOWED`.
 - A signature never holds an argument. The final `[a-z0-9:._-]` filter stays
   last, after the semantic scrubbing.
 - A compaction digest is read from the transcript and git, never written by

@@ -95,13 +95,23 @@ def load(root: Path, session_id: str) -> dict[str, Any] | None:
     return state if isinstance(state, dict) and state.get("version") == VERSION else None
 
 
+def _write_private(target: Path, text: str) -> None:
+    """Write a file only its owner reads: the scribe keeps the person's words."""
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)  # a file that already existed keeps its old mode otherwise
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
 def save(root: Path, state: Mapping[str, Any]) -> Path | None:
     target = path(root, str(state.get("session") or ""))
     if target is None:
         return None
-    target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    _write_private(tmp, json.dumps(state, ensure_ascii=False))
     tmp.replace(target)
     return target
 
@@ -343,8 +353,7 @@ def _place(cwd: str | Path) -> str:
 def mark_relay(root: Path, session_id: str, cwd: str | Path) -> Path:
     """The next session that starts in this place continues this one's thread."""
     target = root / "relay" / f"{_place(cwd)}.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps({"session": session_id, "cwd": str(cwd), "at": _now()}), encoding="utf-8")
+    _write_private(target, json.dumps({"session": session_id, "cwd": str(cwd), "at": _now()}))
     return target
 
 

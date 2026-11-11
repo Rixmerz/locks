@@ -131,3 +131,39 @@ def test_merge_with_pr_goes_onto_its_own_branch_and_opens_one_draft(git_repo, ca
     real_open_pr(git_repo, "b", "t", "x", run=lambda argv, **kw: calls.append(argv) or sp.CompletedProcess(
         argv, 0, "ok", ""))
     assert calls[1][calls[1].index("--head") + 1] == "Owner:b" and calls[1][-2:] == ["--repo", "Owner/project"]
+
+
+def test_a_git_that_outlasts_its_timeout_is_a_failed_call_not_a_hang(git_repo, monkeypatch):
+    import subprocess as sp
+
+    def hang(argv, **kw):
+        raise sp.TimeoutExpired(argv, kw["timeout"])
+
+    monkeypatch.setattr(merging.subprocess, "run", hang)
+    done = merging._git(git_repo, "status")
+    assert done.returncode == 124 and done.stdout == "" and "git status timed out after 120s" in done.stderr
+    assert merging.github_repo(git_repo) is None
+
+
+def test_git_calls_of_merging_and_the_push_are_bounded_and_never_prompt(git_repo, monkeypatch):
+    import subprocess as sp
+
+    seen = []
+    real = merging.subprocess.run
+
+    def spy(argv, **kw):
+        seen.append(kw)
+        return real(argv, **kw)
+
+    monkeypatch.setattr(merging.subprocess, "run", spy)
+    merging._git(git_repo, "status")
+    assert seen[0]["timeout"] == 120 and seen[0]["env"]["GIT_TERMINAL_PROMPT"] == "0"
+
+    pushes = []
+
+    def run(argv, **kw):
+        pushes.append(kw)
+        raise sp.TimeoutExpired(argv, kw["timeout"])
+
+    assert merging.open_pr(git_repo, "b", "t", "x", run=run) == (False, "git push timed out after 120s")
+    assert pushes[0]["timeout"] == 120 and pushes[0]["env"]["GIT_TERMINAL_PROMPT"] == "0"

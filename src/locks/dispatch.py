@@ -599,6 +599,8 @@ def recover(store: Store, root: Path, env: Mapping[str, str], *, popen: Callable
     start = popen or subprocess.Popen
     resumed: list[int] = []
     for task in store.list_tasks(status=["interrupted", "replan", "blocked"], limit=100, source=("locks",)):
+        if store.cancel_requested(task["id"]):
+            continue  # a person asked to stop it (a cancel that landed as its run was starting): no resume
         stop = stops.of(store, task)
         ended = store.final_event(task["id"])
         if stop is None or stop.cause not in MECHANICAL or not task.get("cwd") or not Path(task["cwd"]).is_dir():

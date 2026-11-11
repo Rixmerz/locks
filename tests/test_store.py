@@ -261,3 +261,17 @@ def test_an_ending_touches_the_pulse_the_mod_looks_at(store: Store):
     os.utime(store.pulse_path, ns=(first - 10**9, first - 10**9))
     store.add_event(t["id"], "finished", status="done")
     assert store.pulse_path.stat().st_mtime_ns > first - 10**9
+
+
+def test_events_by_kind_use_their_index(store):
+    plan = " ".join(str(r[3]) for r in store._conn.execute(
+        "EXPLAIN QUERY PLAN SELECT id FROM events WHERE kind = 'finished' ORDER BY id"))
+    assert "events_kind" in plan
+
+
+def test_releasing_a_lane_inside_a_transaction_does_not_end_it(store):
+    store.pause_lane("r", "task #24: its process exited unexpectedly")
+    with store.immediate():
+        assert store.release_lane("r", 24)
+        store.pause_lane("r", "task #5: x")  # still inside the transaction
+    assert store._conn.in_transaction is False

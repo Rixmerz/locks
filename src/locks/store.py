@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS tasks_session ON tasks (session_id, status);
 CREATE INDEX IF NOT EXISTS tasks_kind ON tasks (kind, status);
+CREATE INDEX IF NOT EXISTS tasks_status ON tasks (status, repo);
+CREATE INDEX IF NOT EXISTS tasks_repo ON tasks (repo, source);
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, role TEXT NOT NULL,
   text TEXT NOT NULL, ts TEXT NOT NULL
@@ -119,6 +121,8 @@ CREATE TABLE IF NOT EXISTS events (
   kind TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS events_task ON events (task_id, id);
+CREATE INDEX IF NOT EXISTS events_kind ON events (kind, id);
+CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL, topic TEXT NOT NULL,
   title TEXT NOT NULL, text TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'current', state_reason TEXT,
@@ -342,6 +346,7 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = path
         self._conn = sqlite3.connect(str(path), timeout=10, isolation_level=None)
+        self._make_private()
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         try:
@@ -349,6 +354,21 @@ class Store:
         except BaseException:
             self._conn.close()
             raise
+        self._make_private()
+
+    def _make_private(self) -> None:
+        """The home is the person's alone (0700) and so is every file of the database (0600).
+
+        The home may have been created first by another writer (a hook's fast path, a
+        scribe) with the process umask, so it is narrowed on every open; SQLite gives the
+        -wal and -shm files the mode of the database file.
+        """
+        targets = [(self.path.parent, 0o700)] + [
+            (self.path.with_name(self.path.name + suffix), 0o600) for suffix in ("", "-wal", "-shm")]
+        for target, mode in targets:
+            # A missing -wal/-shm, or a folder that is not ours to narrow, is no failure.
+            with contextlib.suppress(OSError):
+                os.chmod(target, mode)
 
     def _setup(self) -> None:
         """WAL, the schema and the added columns, one opener at a time.
@@ -362,6 +382,7 @@ class Store:
             for attempt in range(SETUP_RETRIES):
                 try:
                     self._conn.execute("PRAGMA journal_mode=WAL")
+                    self._conn.execute("PRAGMA synchronous=NORMAL")
                     self._conn.executescript(SCHEMA + _APPEND_ONLY_TRIGGERS)
                     self._migrate()
                     return
@@ -878,7 +899,6 @@ class Store:
         cur = self._conn.execute(
             "UPDATE lanes SET paused = 0, reason = NULL, updated_at = ? WHERE repo IS ? AND paused = 1 "
             "AND (reason LIKE ? OR reason LIKE ?)", (now(), repo, f"task #{task_id} %", f"task #{task_id}:%"))
-        self._conn.commit()
         return cur.rowcount > 0
 
     def lane_paused_on(self, repo: str | None, task_id: int) -> int:

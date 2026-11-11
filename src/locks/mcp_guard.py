@@ -5,9 +5,18 @@ must not make are refused here, not only asked of it in its prompt.
 
 It runs the server as a child and passes JSON-RPC lines both ways (MCP over
 stdio is one JSON message per line). A `tools/call` the policy refuses never
-reaches the server: the worker gets a tool error saying why. Everything else
-passes unchanged. Standard library only, and no import of the rest of locks:
-it starts inside every worker that is handed the server.
+reaches the server: the worker gets a tool error saying why. Standard library
+only, and no import of the rest of locks: it starts inside every worker that is
+handed the server.
+
+Nothing reaches the server as the worker wrote it. A line that is not JSON is
+answered with a parse error and never forwarded. A message is rebuilt from the
+top-level keys the protocol names (a request keeps `jsonrpc`, `id`, `method` and
+`params`, a response `jsonrpc`, `id`, `result` and `error`), and a `tools/call`
+keeps only its params' `name`, `arguments` and `_meta`, so the server reads
+exactly what was screened. Two keys that differ only in case (`method` and
+`Method`) refuse the message: a server that folds case would read one of them
+where the guard read the other. A batch is screened item by item.
 
 The `rastro` policy keeps a worker to the app its task runs:
 
@@ -205,10 +214,34 @@ POLICIES: Mapping[str, Callable[[str, Mapping[str, Any]], tuple[str | None, dict
     "rastro": rastro, "engram": engram, "livespec": livespec, "outbound": outbound}
 
 
+#: JSON-RPC's error codes the guard answers with itself.
+PARSE_ERROR = -32700
+INVALID_REQUEST = -32600
+#: The top-level keys a message keeps on its way to the server: a request or notification has a method and
+#: params, a response a result or an error. Any other key is dropped, never forwarded.
+REQUEST_KEYS = frozenset({"jsonrpc", "id", "method", "params"})
+RESPONSE_KEYS = frozenset({"jsonrpc", "id", "result", "error"})
+#: The keys of a tools/call's params that reach the server.
+CALL_KEYS = frozenset({"name", "arguments", "_meta"})
+
+
+def collides(mapping: Mapping[str, Any]) -> bool:
+    """Whether two keys differ only in case. A server that folds case reads them as one key, while the guard
+    reads only one of them, so such a message is refused rather than guessed at."""
+    folded = [str(key).casefold() for key in mapping]
+    return len(set(folded)) != len(folded)
+
+
+def refusal(message_id: Any, code: int, text: str) -> dict[str, Any]:
+    """The JSON-RPC error object answering a line or a message the guard did not forward."""
+    return {"jsonrpc": "2.0", "id": message_id, "error": {"code": code, "message": text}}
+
+
 def screen(message: Any, policy: Callable[[str, Mapping[str, Any]], tuple[str | None, dict[str, Any]]]
            ) -> tuple[Any, list[dict[str, Any]]]:
     """A message from the worker: what goes on to the server (None for nothing),
-    and the answers to send back for the calls refused."""
+    and the answers to send back for the calls refused. What goes on is rebuilt from the keys the
+    protocol names, so the server reads exactly what was screened."""
     if isinstance(message, list):
         onward, answers = [], []
         for item in message:
@@ -217,14 +250,23 @@ def screen(message: Any, policy: Callable[[str, Mapping[str, Any]], tuple[str | 
                 onward.append(sent)
             answers += refused
         return (onward or None), answers
-    if not isinstance(message, dict) or message.get("method") != "tools/call":
+    if not isinstance(message, dict):
+        return message, []
+    params = message.get("params")
+    if collides(message) or (isinstance(params, dict) and collides(params)):
+        return None, [refusal(message.get("id"), INVALID_REQUEST,
+                              "locks refused this message: two of its keys differ only in case")]
+    keys = REQUEST_KEYS if "method" in message else RESPONSE_KEYS
+    message = {key: value for key, value in message.items() if key in keys}
+    if message.get("method") != "tools/call":
         return message, []
     params = message.get("params") if isinstance(message.get("params"), dict) else {}
     name = params.get("name") if isinstance(params.get("name"), str) else ""
     arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
     why, args = policy(name, arguments)
     if why is None:
-        return {**message, "params": {**params, "arguments": args}}, []
+        kept = {key: value for key, value in params.items() if key in CALL_KEYS}
+        return {**message, "params": {**kept, "arguments": args}}, []
     answer = {"jsonrpc": "2.0", "id": message.get("id"),
               "result": {"content": [{"type": "text", "text": f"locks refused this call: {why}"}], "isError": True}}
     return None, [answer]
@@ -286,22 +328,27 @@ def serve(policy_name: str, command: list[str], stdin: BinaryIO, stdout: BinaryI
     lock = threading.Lock()
     back = threading.Thread(target=relay, args=(child.stdout, stdout, lock, asked, only), daemon=True)
     back.start()
+
+    def reply(answer: dict[str, Any]) -> None:
+        with lock:
+            stdout.write(json.dumps(answer).encode() + b"\n")
+            stdout.flush()
+
     try:
         for line in iter(stdin.readline, b""):
             try:
                 message = json.loads(line)
-            except ValueError:
-                child.stdin.write(line)
-                child.stdin.flush()
+            except (ValueError, RecursionError):
+                # Not JSON (an invalid UTF-8 byte included): the server would read it as it pleases, so it is
+                # answered here and never forwarded. RecursionError: nested past the parser's depth.
+                reply(refusal(None, PARSE_ERROR, "locks refused this line: it is not JSON"))
                 continue
             for item in message if isinstance(message, list) else [message]:
                 if isinstance(item, dict) and item.get("method") == "tools/list":
                     asked.add(item.get("id"))
             onward, answers = screen(message, policy)
             for answer in answers:
-                with lock:
-                    stdout.write(json.dumps(answer).encode() + b"\n")
-                    stdout.flush()
+                reply(answer)
             if onward is not None:
                 child.stdin.write(json.dumps(onward).encode() + b"\n")
                 child.stdin.flush()

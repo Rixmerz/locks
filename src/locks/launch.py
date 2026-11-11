@@ -622,10 +622,12 @@ class Stoppable:
 def run(
     spec: LaunchSpec,
     *,
-    runner: Runner = subprocess.run,
+    runner: Runner | None = None,
     claude_bin: str = "claude",
 ) -> WorkerResult:
     """Run one attempt. Raises only when the CLI itself cannot start."""
+    if runner is None:
+        runner = Stoppable()  # its own process group: a timeout stops the servers the CLI started too
     mcp_path = None
     if spec.mcp_servers:
         # Outside the repository: a config file the worker could commit is a

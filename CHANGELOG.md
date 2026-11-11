@@ -4,6 +4,44 @@
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-11-11
+
+### Security
+- The MCP guard forwards nothing it did not read. A line that is no JSON object was passed to the server
+  as it came; it is now answered with a parse error (-32700) and never forwarded. Keys that differ only
+  by case (`Method` beside `method`) are refused (-32600), and every forwarded message is rebuilt from
+  the keys the protocol names, so a policy and the server always read the same call.
+- One secret pattern (`locks.masking`), used by the notes, the trace and the kept transcripts. It now
+  catches AWS, Google, Stripe, npm and GitLab keys, JWTs, `Basic` headers, credentials in a URL, Slack
+  webhooks and assignments to a name that says secret. The trace keeps git commit ids (`SECRET`); the
+  notes also refuse long hex runs (`SECRET_STRICT`). A transcript kept beside a trace is masked and 0600.
+- A habit's command may set only the variables `habits.ENV_ALLOWED` names: `shaped()` stripped every
+  `VAR=value` word before it looked at the program, so `LD_PRELOAD=… ruff` read as ruff.
+- The locks home is private: the folder 0700, the store, its WAL files and the scribe's files 0600.
+- The board's server refuses a `Content-Length` that is missing, not a number, negative or over its
+  bound (413) before it reads a body, repairs a token file whose mode was widened, and checks the
+  headers of `/api/token`.
+
+### Fixed
+- A run that is cancelled, or whose cleanup fails, still ends: `orchestrate.run` opens its `try` right
+  after it marks the task running, each close-out step is guarded on its own, and a SIGTERM that lands
+  during the close-out no longer cuts it short. An attempt's number is the one the run chose
+  (`add_attempt(seq=…)`), never one the store counts by itself. locks' own check runs in its own
+  process group, so a timeout ends what it started too.
+- No git call in `isolate` or `merging` hangs forever: each has `isolate.GIT_TIMEOUT_S` and runs with
+  `GIT_TERMINAL_PROMPT=0`, so a credential prompt is an error, not a wait.
+- `workflows.advance` reads git before it opens the write transaction. It held the store's write lock
+  across every `git` call of a run's steps; it now reads them into a memo first and retries the
+  transaction when it meets one it had not read.
+- A task a dispatcher claimed and never started goes back to the queue: at once when `start` raises,
+  whatever raised, and after `flow.CLAIM_STALE_S` when the dispatcher itself died (`claim_released`).
+  `dispatch.recover` never resumes a task a cancel was asked for.
+- Loading the tool-call log into the store is one transaction, so a second loader never doubles it.
+
+### Changed
+- The store has indexes on events by kind and time and on tasks by status and repository, and runs
+  with `synchronous=NORMAL` under WAL.
+
 ## [0.93.0] - 2026-11-09
 
 ### Added

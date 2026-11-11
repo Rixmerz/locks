@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 from collections import Counter
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -25,16 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from locks import __version__ as VERSION
+from locks.masking import SECRET as _SECRET  # noqa: F401 - the name notes and tests import
+from locks.masking import mask as _mask_text
 
 #: The folder in the locks home that holds the traces.
 DIR = "traces"
-#: A key starts a word, or holds a digit when glued to one: inside a word (`<task-notification>`,
-#: `desk-reference`) `sk-` is no key.
-_SECRET = re.compile(r"((?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}|(?<![A-Za-z0-9])sk-[A-Za-z0-9]{8,}|"
-                     r"sk-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_\w{8,}|"
-                     r"xox[abposr]-[\w-]{8,}|AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{30,}|"
-                     r"-----BEGIN [A-Z ]*PRIVATE KEY|password\s*[:=]\s*\S+|"
-                     r"bearer\s+[A-Za-z0-9._~+/-]{20,})", re.IGNORECASE)
 _TRUE = {"1", "true", "on", "yes"}
 _FALSE = {"0", "false", "off", "no"}
 #: A livespec tool as Claude Code names it: `mcp__<server with livespec>__<tool>`.
@@ -66,7 +60,7 @@ def enabled(env: Mapping[str, str]) -> bool:
 def mask(value: Any) -> Any:
     """`value` with every string's secrets masked, its shape kept."""
     if isinstance(value, str):
-        return _SECRET.sub("[secret]", value)
+        return _mask_text(value)
     if isinstance(value, Mapping):
         return {str(k): mask(v) for k, v in value.items()}
     if isinstance(value, list | tuple):
@@ -156,9 +150,33 @@ def keep_transcript(event: Mapping[str, Any], env: Mapping[str, str]) -> Path | 
         return None
     target = path(env, sid).with_suffix(".transcript.jsonl")
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(str(source), target)
+    # Created owner-only, and every line is masked on its way: the copy is the one place a raw
+    # transcript (with whatever a tool printed) would otherwise sit in the open.
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="") as out, \
+            open(str(source), encoding="utf-8", errors="replace", newline="") as lines:
+        for line in lines:
+            out.write(_masked_line(line))
     target.chmod(0o600)
     return target
+
+
+def _masked_line(line: str) -> str:
+    """One transcript line with its secrets masked. A JSON line is masked inside its strings, so it
+    stays JSON (`tokens` skips a line it cannot parse); a secret only the line's syntax shows
+    (`"api_key":"…"`) is masked in the text instead."""
+    masked = _mask_text(line)
+    if masked == line:
+        return line
+    try:
+        item = json.loads(line)
+    except ValueError:
+        return masked
+    inside = mask(item)
+    if inside == item:
+        return masked
+    kept = json.dumps(inside, ensure_ascii=False, separators=(",", ":")) + ("\n" if line.endswith("\n") else "")
+    return _mask_text(kept)  # whatever only the syntax showed goes too, even if the line stops being JSON
 
 
 # --- reading ---------------------------------------------------------------

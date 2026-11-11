@@ -670,3 +670,17 @@ def test_a_path_in_a_negated_sentence_is_no_named_surface():
     assert named("Edit src/new.py. Do not edit docs/CHANGELOG.md or CLAUDE.md; also change src/other.py") == (
         "src/new.py", "src/other.py")
     assert named("Leave docs/q.md alone, add src/w.py") == ("src/w.py",)
+
+
+def test_a_died_task_a_person_asked_to_cancel_is_never_resumed_on_its_own(store: Store, tmp_path, monkeypatch):
+    from locks import stops
+
+    monkeypatch.setenv("LOCKS_AUTOWORK", "on")
+    started: list[list[str]] = []
+    task = store.create_task("build the export", status="interrupted", source="locks", cwd=str(tmp_path))
+    stops.record(store, task["id"], stops.Stop("died", "no sign of life"))
+    store.request_cancel(task["id"])
+    before = store.last_event(task["id"], "reported")
+    assert dispatch.recover(store, tmp_path, os.environ, popen=lambda argv, **kw: started.append(argv)) == []
+    assert started == [] and store.events_of(task["id"], "auto_resumed") == []
+    assert store.last_event(task["id"], "reported") == before

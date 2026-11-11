@@ -78,8 +78,15 @@ def load_events(store: Store, env: Mapping[str, str] | None = None) -> int:
     directory = sig.log_dir(dict(os.environ) if env is None else env)
     if not directory.is_dir():
         return 0
+    return sum(_load_file(store, path) for path in sorted(directory.glob("*.ndjson")))
+
+
+def _load_file(store: Store, path: Path) -> int:
+    """One log file's new lines: the offset read, the inserts and the offset write are one write
+    transaction, so a loader running at the same time finds the offset already moved and inserts
+    nothing twice."""
     count = 0
-    for path in sorted(directory.glob("*.ndjson")):
+    with store.immediate():
         offset = store.transcript_offset(str(path))
         with path.open("rb") as fh:
             fh.seek(offset)
@@ -546,6 +553,10 @@ _SHELL = re.compile(rf"[;&|<>`\n\\]|\$\(|\$(?!\{{?(?:LOCKS|{legacy.OLD_ENV[:-1]}
 #: Runners a habit's program may be started through (`uv run pytest`, `npx eslint`).
 _RUNNERS = frozenset({"uv", "npx", "pnpm", "yarn", "bunx", "poetry", "python", "python3", "-m", "run", "exec",
                       "dlx"})
+#: The only variables a reviewed command may set before its program: they change how a tool prints,
+#: never what it loads or finds (`LD_PRELOAD`, `PATH` and the like run what the person did not read).
+ENV_ALLOWED = frozenset({"NO_COLOR", "CI", "FORCE_COLOR", "TERM"})
+_ENV_WORD = re.compile(r"([A-Z_][A-Z0-9_]*)=\S*")
 #: A run of an installed habit over this many seconds counts toward turning it off.
 SLOW_SECONDS = 2 * REVIEW_SECONDS
 #: The setting that has locks install a review's vetted habits itself.
@@ -555,7 +566,7 @@ AUTO = "habit_auto"
 def shaped(command: str, candidate: Candidate) -> str | None:
     """Why a review's command cannot be installed without a person, or None: it must be one
     simple command (`_SHELL`) that runs the habit's own program (`deno-fmt` → `deno fmt`),
-    after any `VAR=value` and a runner."""
+    after any `VAR=value` of `ENV_ALLOWED` and a runner."""
     if len(command) > REVIEW_COMMAND_CHARS:
         return f"it is over {REVIEW_COMMAND_CHARS} characters"
     if _SHELL.search(command):
@@ -564,7 +575,10 @@ def shaped(command: str, candidate: Candidate) -> str | None:
         words = shlex.split(command)
     except ValueError:
         return "it does not parse as a command"
-    words = [w for w in words if not re.fullmatch(r"[A-Z_][A-Z0-9_]*=\S*", w)]
+    while words and (assignment := _ENV_WORD.fullmatch(words[0])):
+        if assignment.group(1) not in ENV_ALLOWED:
+            return f"it sets the environment variable {assignment.group(1)}, which only a person may add"
+        words = words[1:]
     program = candidate.steps[-1].removeprefix("bash:").split("-")
     # A runner by its name wherever it is (`.venv/bin/python -m ruff`, as a project's own docs run it).
     while words and Path(words[0]).name in _RUNNERS and Path(words[0]).name != program[0]:

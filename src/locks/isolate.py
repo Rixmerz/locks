@@ -78,8 +78,31 @@ class Workspace:
     stray: Path | None = None
 
 
+#: Seconds any git call of locks may run: a git stuck on a lock, a dead network mount or a prompt
+#: nobody can answer would otherwise hold a hook, a dispatcher or a run forever.
+GIT_TIMEOUT_S = 120
+
+
+def git_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment a git call runs in: `base` (default: this process's) with git told never to
+    ask a question on a terminal nobody is at."""
+    return {**(os.environ if base is None else base), "GIT_TERMINAL_PROMPT": "0"}
+
+
+def _run_git(args: Sequence[str], cwd: Path, *, env: Mapping[str, str] | None = None,
+             **kwargs: Any) -> subprocess.CompletedProcess:
+    """`git <args>` in `cwd`, output captured, bounded by `GIT_TIMEOUT_S`, never prompting.
+    A call that outlasts the timeout raises `IsolationError`; the caller decides what a git
+    that could not answer means for it. Never checks the exit code."""
+    try:
+        return subprocess.run(["git", *args], cwd=str(cwd), env=git_env(env), capture_output=True, check=False,
+                              timeout=GIT_TIMEOUT_S, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        raise IsolationError(f"git {' '.join(args)} timed out after {GIT_TIMEOUT_S}s") from exc
+
+
 def _git(cwd: Path, *args: str, check: bool = True, strip: bool = True) -> str:
-    proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=False)
+    proc = _run_git(args, cwd, text=True)
     if check and proc.returncode != 0:
         raise IsolationError(f"git {' '.join(args)} failed: {proc.stderr.strip()[:300]}")
     return proc.stdout.strip() if strip else proc.stdout
@@ -100,28 +123,28 @@ def adopt_legacy(repo_dir: Path) -> list[tuple[str, str]]:
     already taken under the new prefix is left as it is. Never raises."""
     try:
         common = _git(repo_dir, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
-    except OSError:
+    except (OSError, IsolationError):
         return []
     if not common or common in _ADOPTED:
         return []
     _ADOPTED.add(common)
-    listing = _git(repo_dir, "for-each-ref", "--format=%(refname)", *(old for old, _ in legacy.REF_PREFIXES),
-                   "refs/heads/locks/", "refs/locks/", check=False)
-    moved = []
-    for old, new in legacy.old_refs(listing):
-        if old.startswith("refs/heads/"):
-            # `branch -m` carries the reflog and a worktree checked out on it.
-            ok = subprocess.run(["git", "branch", "-m", old.removeprefix("refs/heads/"),
-                                 new.removeprefix("refs/heads/")], cwd=str(repo_dir), capture_output=True,
-                                check=False).returncode == 0
-        else:
-            sha = _git(repo_dir, "rev-parse", "--verify", "--quiet", old, check=False)
-            ok = bool(sha) and subprocess.run(["git", "update-ref", new, sha], cwd=str(repo_dir),
-                                              capture_output=True, check=False).returncode == 0
-            ok = ok and subprocess.run(["git", "update-ref", "-d", old, sha], cwd=str(repo_dir),
-                                       capture_output=True, check=False).returncode == 0
-        if ok:
-            moved.append((old, new))
+    moved: list[tuple[str, str]] = []
+    try:
+        listing = _git(repo_dir, "for-each-ref", "--format=%(refname)", *(old for old, _ in legacy.REF_PREFIXES),
+                       "refs/heads/locks/", "refs/locks/", check=False)
+        for old, new in legacy.old_refs(listing):
+            if old.startswith("refs/heads/"):
+                # `branch -m` carries the reflog and a worktree checked out on it.
+                ok = _run_git(["branch", "-m", old.removeprefix("refs/heads/"), new.removeprefix("refs/heads/")],
+                              repo_dir).returncode == 0
+            else:
+                sha = _git(repo_dir, "rev-parse", "--verify", "--quiet", old, check=False)
+                ok = bool(sha) and _run_git(["update-ref", new, sha], repo_dir).returncode == 0
+                ok = ok and _run_git(["update-ref", "-d", old, sha], repo_dir).returncode == 0
+            if ok:
+                moved.append((old, new))
+    except (OSError, IsolationError):
+        pass  # a git that hangs moves nothing more: what was renamed so far stands, the rest is tried next process
     return moved
 
 
@@ -253,8 +276,7 @@ def _fork_point(top: Path, head: str, branch: str, path: Path) -> str:
     lost commit held stays in the worktree's files, as changes not committed). When none
     can be read, the resume stops with the cause in a line, the branch and its worktree
     kept as they are."""
-    proc = subprocess.run(["git", "merge-base", head, branch], cwd=str(top), capture_output=True, text=True,
-                          check=False)
+    proc = _run_git(["merge-base", head, branch], top, text=True)
     if proc.returncode == 0 and proc.stdout.strip():
         return proc.stdout.strip()
     cause = " ".join((proc.stderr or "no common commit").split())[:200]
@@ -268,8 +290,7 @@ def _fork_point(top: Path, head: str, branch: str, path: Path) -> str:
         sha = line.split(" ", 2)[1] if len(line.split(" ", 2)) > 1 else ""
         if not re.fullmatch(r"[0-9a-f]{40,64}", sha) or sha == tip:
             continue
-        found = subprocess.run(["git", "merge-base", head, sha], cwd=str(top), capture_output=True, text=True,
-                               check=False)
+        found = _run_git(["merge-base", head, sha], top, text=True)
         if found.returncode == 0 and found.stdout.strip():
             _git(top, "update-ref", "-m", f"locks: {tip or 'its tip'} cannot be read ({cause})",
                  f"refs/heads/{branch}", sha)
@@ -427,7 +448,11 @@ def ignored_named(ws: Workspace, text: str) -> list[str]:
         rel = word.strip("/").removeprefix("./")
         if not rel or ".." in rel.split("/") or not (ws.repo_dir / rel).exists() or (ws.path / rel).exists():
             continue
-        if subprocess.run(["git", "check-ignore", "-q", rel], cwd=str(ws.repo_dir), check=False).returncode == 0:
+        try:
+            ignored = _run_git(["check-ignore", "-q", rel], ws.repo_dir).returncode == 0
+        except IsolationError:
+            continue  # a git that cannot say names nothing as ignored
+        if ignored:
             out.append(rel)
     return out
 
@@ -533,8 +558,7 @@ def adopt(src: Workspace, dst: Workspace) -> tuple[str, ...]:
     patch = _git(src.path, "diff", "--cached", "--binary", src.base, strip=False)
     reset(dst)
     if patch.strip():
-        proc = subprocess.run(["git", "apply", "--binary", "--whitespace=nowarn"], cwd=str(dst.path), input=patch,
-                              capture_output=True, text=True, check=False)
+        proc = _run_git(["apply", "--binary", "--whitespace=nowarn"], dst.path, input=patch, text=True)
         if proc.returncode != 0:
             raise IsolationError(f"the race's work could not be carried over: {proc.stderr.strip()[:300]}")
     return changed(dst)
@@ -591,8 +615,7 @@ def snapshot(path: Path) -> str | None:
                    "GIT_COMMITTER_EMAIL": "locks@localhost"}
 
             def git(*args: str) -> str:
-                proc = subprocess.run(["git", *args], cwd=str(path), env=env, capture_output=True, text=True,
-                                      check=False)
+                proc = _run_git(args, path, env=env, text=True)
                 if proc.returncode != 0:
                     raise IsolationError(f"git {args[0]} failed: {proc.stderr.strip()[:300]}")
                 return proc.stdout.strip()
@@ -623,18 +646,19 @@ def put_back(path: Path, commit: str, paths: Sequence[str]) -> list[str]:
     one it did not is removed. What could not be put back is returned."""
     left: list[str] = []
     for name in paths:
-        held = subprocess.run(["git", "cat-file", "-e", f"{commit}:{name}"], cwd=str(path),
-                              capture_output=True, check=False).returncode == 0
         target = path / name
         try:
+            held = _run_git(["cat-file", "-e", f"{commit}:{name}"], path).returncode == 0
             if held:
-                blob = subprocess.run(["git", "show", f"{commit}:{name}"], cwd=str(path), capture_output=True,
-                                      check=True).stdout
+                shown = _run_git(["show", f"{commit}:{name}"], path)
+                if shown.returncode != 0:
+                    raise subprocess.CalledProcessError(shown.returncode, shown.args)
+                blob = shown.stdout
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(blob)
             elif target.is_file() or target.is_symlink():
                 target.unlink()
-        except (OSError, subprocess.CalledProcessError):
+        except (OSError, subprocess.CalledProcessError, IsolationError):
             left.append(name)
     return left
 
@@ -658,8 +682,11 @@ def fingerprint(path: Path) -> dict[str, str] | None:
             paths.append(entry[3:])
             skip = entry[0] in "RC"
     present = [p for p in paths if (path / p).is_file() and not (path / p).is_symlink()]
-    proc = subprocess.run(["git", "hash-object", "--stdin-paths"], cwd=str(path), input="\n".join(present),
-                          capture_output=True, text=True, check=False) if present else None
+    try:
+        proc = _run_git(["hash-object", "--stdin-paths"], path, input="\n".join(present),
+                        text=True) if present else None
+    except IsolationError:
+        return None
     if proc is not None and proc.returncode != 0:
         return None
     blobs = dict(zip(present, proc.stdout.split(), strict=False)) if proc is not None else {}
@@ -745,8 +772,7 @@ def undo(ws: Workspace, paths: Sequence[str]) -> None:
     """Put these paths back as they were at the base, in the task's worktree only:
     a file the base had is restored, one it did not have is removed."""
     for path in paths:
-        known = subprocess.run(["git", "cat-file", "-e", f"{ws.base}:{path}"], cwd=str(ws.path),
-                               capture_output=True, check=False).returncode == 0
+        known = _run_git(["cat-file", "-e", f"{ws.base}:{path}"], ws.path).returncode == 0
         if known:
             _git(ws.path, "checkout", ws.base, "--", path)
         else:
@@ -896,9 +922,8 @@ def join(ws: Workspace, branches: Sequence[str], *, message: Callable[[str], str
     conflicted. Raises when a merge fails for another reason (a branch that is gone)."""
     merged: list[str] = []
     for n, branch in enumerate(branches):
-        proc = subprocess.run(["git", *_identity(ws.path), "merge", "--no-ff", "--no-verify", "--no-edit", "-m",
-                               message(branch), f"refs/heads/{branch}"],
-                              cwd=str(ws.path), capture_output=True, text=True, check=False)
+        proc = _run_git([*_identity(ws.path), "merge", "--no-ff", "--no-verify", "--no-edit", "-m",
+                         message(branch), f"refs/heads/{branch}"], ws.path, text=True)
         if proc.returncode == 0:
             merged.append(branch)
             continue
@@ -914,8 +939,10 @@ def join(ws: Workspace, branches: Sequence[str], *, message: Callable[[str], str
 def numstat(repo_dir: Path, start: str, end: str) -> list[tuple[int, str]] | None:
     """Each file changed from `start` to `end` with its changed lines (added and removed; a
     binary file counts none), tool artifacts aside. None when git cannot say."""
-    proc = subprocess.run(["git", "diff", "--numstat", "--no-renames", start, end, "--"], cwd=str(repo_dir),
-                          capture_output=True, text=True, check=False)
+    try:
+        proc = _run_git(["diff", "--numstat", "--no-renames", start, end, "--"], repo_dir, text=True)
+    except IsolationError:
+        return None
     if proc.returncode != 0:
         return None
     rows = []
@@ -931,8 +958,11 @@ def generated(repo_dir: Path, paths: Sequence[str]) -> set[str]:
     `linguist-generated`, or `-diff`. Empty when git cannot say."""
     if not paths:
         return set()
-    proc = subprocess.run(["git", "check-attr", "-z", "--stdin", "linguist-generated", "diff"], cwd=str(repo_dir),
-                          input="\0".join(paths), capture_output=True, text=True, check=False)
+    try:
+        proc = _run_git(["check-attr", "-z", "--stdin", "linguist-generated", "diff"], repo_dir,
+                        input="\0".join(paths), text=True)
+    except IsolationError:
+        return set()
     if proc.returncode != 0:
         return set()
     fields = proc.stdout.split("\0")
@@ -1037,15 +1067,15 @@ def landed(repo_dir: Path, branch: str, paths: Sequence[str] = ()) -> bool:
     history, or (a squash merge) HEAD holds what it changed, file for file."""
     if not _git(repo_dir, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False):
         return True
-    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", f"refs/heads/{branch}", "HEAD"],
-                              cwd=str(repo_dir), capture_output=True, check=False)
-    if ancestor.returncode == 0:
-        return True
-    if not paths:
-        return False
-    same = subprocess.run(["git", "diff", "--quiet", "HEAD", f"refs/heads/{branch}", "--", *paths],
-                          cwd=str(repo_dir), capture_output=True, check=False)
-    return same.returncode == 0
+    try:
+        if _run_git(["merge-base", "--is-ancestor", f"refs/heads/{branch}", "HEAD"], repo_dir).returncode == 0:
+            return True
+        if not paths:
+            return False
+        return _run_git(["diff", "--quiet", "HEAD", f"refs/heads/{branch}", "--", *paths],
+                        repo_dir).returncode == 0
+    except IsolationError:
+        return False  # a git that cannot say leaves the branch to review
 
 
 
@@ -1070,8 +1100,10 @@ def restore(repo_dir: Path, branch: str, tip: str) -> bool:
         return False
     if not _git(repo_dir, "rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}", check=False):
         return False
-    return subprocess.run(["git", "branch", branch, tip], cwd=str(repo_dir), capture_output=True,
-                          check=False).returncode == 0
+    try:
+        return _run_git(["branch", branch, tip], repo_dir).returncode == 0
+    except IsolationError:
+        return False
 
 
 def tree_of(repo_dir: Path, ref: str) -> str:
@@ -1101,14 +1133,18 @@ def prunable(repo_dir: Path, branch: str) -> str | None:
     paths = _git(repo_dir, "diff", "--name-only", base, tip, check=False).splitlines()
     if paths and all(is_artifact(path) for path in paths):
         return "artifacts only"
-    same = subprocess.run(["git", "diff", "--quiet", "HEAD", tip, "--", *paths], cwd=str(repo_dir),
-                          capture_output=True, check=False)
+    try:
+        same = _run_git(["diff", "--quiet", "HEAD", tip, "--", *paths], repo_dir)
+    except IsolationError:
+        return None
     return "squash-merged" if paths and same.returncode == 0 else None
 
 
 def delete_branch(repo_dir: Path, branch: str) -> bool:
-    return subprocess.run(["git", "branch", "-D", branch], cwd=str(repo_dir), capture_output=True,
-                          check=False).returncode == 0
+    try:
+        return _run_git(["branch", "-D", branch], repo_dir).returncode == 0
+    except IsolationError:
+        return False
 
 
 # --- one run at a time in a checkout ----------------------------------------
@@ -1260,8 +1296,10 @@ def shed(root: Path, idle: Callable[[int], bool]) -> tuple[int, list[str]]:
             folder = path / name
             if folder.is_symlink() or not folder.is_dir():
                 continue
-            ignored = subprocess.run(["git", "-C", str(path), "check-ignore", "-q", name],
-                                     capture_output=True, check=False)
+            try:
+                ignored = _run_git(["check-ignore", "-q", name], path)
+            except IsolationError:
+                continue  # a git that cannot say frees nothing here
             if ignored.returncode != 0:
                 continue
             size = _size(folder)

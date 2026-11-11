@@ -594,8 +594,8 @@ def test_flow_work_raises_a_start_that_failed_for_another_reason_than_space(stor
 
     with pytest.raises(RuntimeError, match="spawn broke"):
         flow.work(store, start=start, pause=lambda: None, backoff=lambda s: None)
-    # not put back on the queue: only a full disk sends its work back
-    assert store.get_task(task["id"])["status"] != "queued"
+    # a claim with no process goes back to the queue whatever raised: nobody holds it
+    assert store.get_task(task["id"])["status"] == "queued"
 
 
 # --- launch ------------------------------------------------------------------------------------

@@ -22,9 +22,10 @@ does not call them, it gives them to the worker (`--mcp-config`,
 A capability is a server handed to a worker; the core knows nothing of what it
 says. An adapter is a neighbour the core *understands*: it reads the
 neighbour's data and uses it where the core decides — routing, the brief, the
-report — and still hands the worker the server. livespec is the first, and it
-is on by default: a code index consulted at every step is the difference
-between a worker that starts by searching and one that starts by working.
+report. livespec is the first, and it is on by default: locks asks its index itself and
+briefs the answers (a dossier: symbols, callers, tests, specs, close helpers) as data, so a
+worker starts by working, not by searching. Workers are not handed livespec's tools (handed
+to 46 attempts, called in 3); only the independent check keeps the server, behind a read-only guard.
 
 Its code is not copied into locks. livespec is AGPL-3.0 and depends on
 tree-sitter, fastmcp and networkx; locks' hooks run on every prompt and must

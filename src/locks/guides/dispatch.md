@@ -85,11 +85,13 @@ for it up to `livespec_wait` seconds: 120 by default, `locks config livespec_wai
 it, 0 never waits. In a folder that holds several repositories it does each repository, never
 the folder. Past the wait the task starts without the index: its plan says `still indexing …
 this task runs without it` (`uses the index as it is` where a stale one exists), and the
-index keeps building for the next task. With an index, the
-worker's brief opens with how to find its way: the spec for the request (`list_specs`,
-`search`), the code it names (`get_spec_implementation`), one symbol at a time (`quick_orient`,
-`read_unit`), a whole file last; `search_similar` before it writes a helper and
-`git_diff_impact` before it finishes. A task that writes or changes an OpenSpec spec must put
+index keeps building for the next task. With an index, locks reads it itself (no model, no tool for
+the worker) and the worker's brief carries the answers as data, a dossier: the symbols the request
+names and those of the files it names (where, signature, calls, callers, tests, specs), the specs its
+words find with their requirement text, and for writing work the helpers whose names are close to
+one it says to add. Bounded; what does not fit is said by count. The worker is not handed livespec's
+server; only the independent check keeps it, read-only.
+A task that writes or changes an OpenSpec spec must put
 `@spec:<capability>-<requirement-name>` on the functions that implement it: the report and the
 independent check name the specs it touched that no code names (a block for a spec the change
 wrote, which also raises its risk to high so that check runs; a warning for one that was already

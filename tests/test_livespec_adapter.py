@@ -829,3 +829,54 @@ def test_the_dossier_holds_where_calls_callers_specs_reach_and_is_bounded(tmp_pa
     assert d.symbols >= 1 and d.specs == 1 and d.chars == len(d.text)
     tight = a.dossier("Fix charge_card in src/billing.py", git_repo, status, paths=["src/billing.py"], limit=700)
     assert len(tight.text) <= 700 and tight.omitted > 0 and "did not fit" in tight.text
+
+
+@pytest.mark.parametrize("request_text, found", [
+    ("Add a helper parse_duration to the api", ["parse_duration"]),
+    ("Add a function RetryBudget", ["RetryBudget"]),
+    ("implement the new retry_budget function", ["retry_budget"]),
+    ("Create `AuthClient` for the service", ["AuthClient"]),
+    ("add `parse_duration_amount` helper", ["parse_duration_amount"]),
+    ("Add tests for the parser", []),
+    ("add a new option", []),
+])
+def test_the_identifier_a_request_adds_is_found_past_articles_and_adjectives(request_text, found):
+    assert livespec_mod._to_add(request_text) == found
+
+
+def test_the_dossier_lists_helpers_close_to_a_name_the_request_adds_for_writing_kinds_only(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    d = a.dossier("Add a helper parse_amount_cents", git_repo, status, kind="implement")
+    assert "for `parse_amount_cents`: `src.parse.parse_amount` (src/parse.py:10)" in d.text
+    assert "Helpers with names close" in d.text
+    assert "Helpers with names close" not in a.dossier("Add a helper parse_amount_cents", git_repo, status,
+                                                       kind="explore").text
+    # a name the index already holds is no helper to hint at
+    assert "Helpers with names close" not in a.dossier("Add a helper parse_amount", git_repo, status).text
+
+
+def test_the_dossier_carries_the_specs_the_requests_words_find_and_not_one_common_word(tmp_path, git_repo):
+    db = build(git_repo)
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO spec (id, project_id, spec_id, title, description, priority) VALUES "
+                 "(2, 1, 'SPEC-9', 'Refunds are rounded', 'A refund rounds half up to whole cents', 'high')")
+    conn.commit()
+    conn.close()
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    found = a.dossier("Refunds must be rounded half up", git_repo, status)
+    assert "SPEC-9 Refunds are rounded [high]: A refund rounds half up" in found.text
+    assert "no symbol implements it yet" in found.text and found.specs >= 1
+    assert "SPEC-9" not in a.dossier("Refunds are slow", git_repo, status).text
+
+
+def test_the_dossier_takes_the_symbols_of_the_files_the_request_names_most_called_first(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    text = a.dossier("Tidy things up", git_repo, status, paths=["src/api.py"]).text
+    assert "src/api.py" in text and "checkout" in text
+    assert "src.parse.parse_amount" not in a.dossier("Tidy things up", git_repo, status).text

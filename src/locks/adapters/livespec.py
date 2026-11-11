@@ -112,8 +112,32 @@ SIMILAR_HELPERS = 3
 INDEX_TIMEOUT_S = 600
 
 _IDENT = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\b")
-#: An identifier the request says to add: `add a helper parse_duration`, "create `AuthClient`".
-_TO_ADD = re.compile(r"\b(?:add|create|write|introduce|implement|extract)\b[^.\n`]{0,40}?`?([A-Za-z_][A-Za-z0-9_]*)`?")
+#: The verbs that say a request adds something; case-insensitive, then the words up to the name.
+_TO_ADD = re.compile(r"\b(?:add|create|write|introduce|implement|extract)\b([^.\n`]{0,60}`[^`\n]+`|[^.\n`]{0,60})",
+                     re.IGNORECASE)
+#: Words between the verb and the name that are never the name: `add a new helper parse_duration`.
+_FILLER = frozenset({
+    "a", "an", "the", "new", "small", "simple", "basic", "helper", "helpers", "function", "functions",
+    "method", "methods", "class", "classes", "utility", "util", "to", "for", "that", "which", "called",
+    "named", "in", "into", "of", "some", "another", "one", "our",
+})
+
+
+def _to_add(text: str) -> list[str]:
+    """The identifiers the request says to add: after the verb, the first word that looks like code,
+    skipping articles and adjectives (`Add a helper parse_duration`, `implement the new retry_budget
+    function`, "create `AuthClient`")."""
+    found: list[str] = []
+    for m in _TO_ADD.finditer(text):
+        for word in re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", m.group(1)):
+            if word.lower() in _FILLER:
+                continue
+            if _looks_like_code(word):
+                found.append(word)
+            break
+    return list(dict.fromkeys(found))
+
+
 _NAME_PART = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
 _TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$")
 
@@ -1277,7 +1301,7 @@ def _similar_helpers(conn: sqlite3.Connection, project: int, text: str) -> list[
     """For each identifier the request says to add that the index does not hold, the production symbols
     whose names share at least two of its parts (one, when it has one): no embeddings, only names."""
     out: list[str] = []
-    for token in dict.fromkeys(m.group(1) for m in _TO_ADD.finditer(text)):
+    for token in _to_add(text):
         if len(token) < 4 or not _looks_like_code(token) or "." in token:
             continue
         parts = {p.lower() for p in _NAME_PART.findall(token) if len(p) >= 3}

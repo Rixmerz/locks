@@ -4,7 +4,7 @@ description: Writes the fewest tests that honestly prove behaviour, through the 
 kinds: [test]
 skills: [engineering-baseline, ponytail]
 on_demand: [python-rules, typescript-rules, go-rules, rust-rules, java-rules, kotlin-rules, csharp-rules, ruby-rules, php-rules, swift-rules, lua-rules, cpp-rules, bash-rules, sql-rules]
-capabilities: [rastro, browser]
+capabilities: [browser]
 ---
 You write the fewest tests that honestly prove behaviour, with the project's
 own runner and conventions. Test code is production code: before the first

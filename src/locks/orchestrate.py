@@ -868,7 +868,8 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                                "(data; probe what matters):\n" + "\n".join(f"- {line}" for line in found))
                 neighbour_notes.append(f"{adapter.name}: what {len(named)} named file(s) reach is in the brief")
     selected = _with_role(caps.select(registry, kind, workdir=repo_dir, paths=touched_paths(text, options),
-                                      reading=kind in READ_ONLY_KINDS), role, registry, repo_dir)
+                                      reading=kind in READ_ONLY_KINDS,
+                                      asked=asks_to_browse(text, options)), role, registry, repo_dir)
     names = tuple(dict.fromkeys([*selected.names, *(a.name for a, _ in active)]))
     # A cheaper cell below the ladder, on trial where the first rung already passes here
     # (`trust.probation_arm`); one a standard made the start (`standards.rungs_of`) climbs into the ladder.
@@ -1646,7 +1647,8 @@ def run(
             selection = _equip(_with_role(caps.select(
                 registry, the_plan.kind, failed_before=bool(attempts), workdir=workdir,
                 paths=touched_paths(text, options, [*changed, *(isolate.changed(workspace) if workspace else ())]),
-                reading=not writes or declared_read_only), the_plan.role, registry, workdir), the_plan, repo_dir,
+                reading=not writes or declared_read_only,
+                asked=asks_to_browse(text, options)), the_plan.role, registry, workdir), the_plan, repo_dir,
                 workdir, withheld=withheld_tools)
             # A tool that acts answers to the loop the task is a round of, or to none.
             selection = caps.for_loop(selection, options.loop, home())
@@ -2481,9 +2483,20 @@ def _integrate(store: Store, task_id: int, workspace: isolate.Workspace | None, 
 #: Words that say a task needs a browser, or servers that keep running.
 _BROWSER = re.compile(r"\b(browser|navegador|navigate|navega\w*|abr[ie]\w* (?:el )?navegador|screenshot|"
                       r"captura de pantalla|playwright|puppeteer|e2e)\b", re.IGNORECASE)
+#: A request that asks to browse: navigate or use a page, a site, a URL or a running app.
+_BROWSE = re.compile(
+    r"\b(?:browse|navigate|navega\w*|visit|visita\w*|(?:open|abre|abrir|use|usa|usar|explore|explora)\s+"
+    r"(?:the\s+|el\s+|la\s+|this\s+|that\s+|your\s+)?(?:running\s+|local\s+)?(?:page|site|website|url|app|"
+    r"p[aá]gina|sitio|aplicaci[oó]n)|https?://\S+|localhost:\d+)", re.IGNORECASE)
 _SERVER = re.compile(r"(\bdev servers?\b|\blevanta\w*\b|\bstart (?:both |the )?(?:dev )?servers?\b|"
                      r"\bng serve\b|\bnpm (?:run )?(?:start|dev)\b|localhost:\d+)", re.IGNORECASE)
 _BROWSER_CAPS = ("browser", "playwright", "chrome", "puppeteer", "rastro")
+
+
+def asks_to_browse(text: str, options: Options) -> bool:
+    """Whether the task's own request asks to browse (`_BROWSE`), or it was sent with a --service:
+    the only ways rastro, a cheap headless browser, is handed (`Capability.on_request`)."""
+    return bool(options.services) or bool(_BROWSE.search(_QUOTED.sub(" ", text)))
 #: A task that tells the worker to start its servers: it needs them, whatever its check, and
 #: its worker starts them itself.
 _START_SERVERS = re.compile(

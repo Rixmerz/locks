@@ -65,8 +65,8 @@ DEFAULTS: dict[str, Any] = {
     # with the first rung where that rung already passes here, and starts there only if it passes
     # as often; a start there that costs more per point is reverted (`trust.probation_arm`).
     "probation": True,
-    # A worker handed layout-inspector for a UI change, or rastro, is held to what they measure: a pass
-    # with no call of theirs that went through goes back to it once, then to the orchestrator. Tried in
+    # A worker handed layout-inspector for a UI change is held to what it measures: a pass
+    # with no call of its that went through goes back to it once, then to the orchestrator. Tried in
     # arms per repository and kept only where the passes it held drew fewer verifier blockers (`locks.evidence`).
     "evidence": True,
     # A start that rarely passes its first try here races the next rung on that try, each in
@@ -135,7 +135,7 @@ DEFAULTS: dict[str, Any] = {
     "habit_auto": True,
     # engram (the team's memory, when its server runs): searched into the brief,
     # and handed to workers read-only. See `locks.adapters.engram`.
-    "engram": True,
+    "engram": False,
     # What a passing worker learned is also saved in engram, for the team. Off
     # unless the person turns it on: it writes to a store that is not locks'.
     "engram_write": False,

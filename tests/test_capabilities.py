@@ -23,7 +23,9 @@ def test_selection_by_kind_and_after_failure(tmp_path):
     retry = caps.select(registry, "implement", failed_before=True, workdir=Path("/w"))
     assert retry.names == ("livespec", "layout-inspector")
     assert 'workspace="/w"' in first.system_prompt()
-    assert caps.select(registry, "test", workdir=Path("/w")).names == ("livespec", "browser")
+    assert caps.select(registry, "test", workdir=Path("/w")).names == ("livespec",)
+    asked = caps.select(registry, "test", workdir=Path("/w"), asked=True)
+    assert asked.names == ("livespec", "browser") and "asks to browse" in asked.system_prompt()
     assert caps.Selection().system_prompt() == ""
 
 
@@ -115,3 +117,13 @@ def test_an_unpinned_package_is_named(command, args, loose):
 
 def test_the_example_registry_pins_what_it_fetches():
     assert all(caps.unpinned(entry["server"]) is None for entry in caps.EXAMPLE.values())
+
+
+def test_on_request_joins_only_when_asked_and_a_registry_key_sets_it(tmp_path):
+    registry = caps.load(write(tmp_path, {"b": {"server": {"command": "b"}, "when": [], "on_request": True,
+                                                "hint": "navigate"}}))
+    assert registry["b"].on_request
+    for kind in ("test", "ui", "implement"):
+        assert caps.select(registry, kind, failed_before=True, workdir=Path("/w")).names == ()
+    got = caps.select(registry, "implement", workdir=Path("/w"), asked=True)
+    assert got.names == ("b",) and "given because the request asks to browse" in got.hints[0]

@@ -105,7 +105,7 @@ def test_a_manifest_changes_no_policy():
     assert rastro.hint.startswith(claims["hint"])  # the words are its own
     assert rastro.server["args"][:3] == ["-m", "locks.mcp_guard", "rastro"]
     assert "--routines=off" in rastro.server["args"]
-    assert rastro.when == ("test",) and not rastro.measures and rastro.touches == ()
+    assert rastro.when == () and rastro.on_request and not rastro.measures and rastro.touches == ()
     assert set(plugins.measure_hints()) == {"layout-inspector"}
     layout = plugins.capabilities()["layout-inspector"]
     assert layout.measures and layout.when == ("ui",)
@@ -173,3 +173,16 @@ def test_the_drafted_blocks_parse_whole(name):
     found = manifests.parse(block, name, "1")
     assert found is not None and found.hints == block.get("hints", {}) and found.hint == block.get("hint", "")
     assert found.measures == block.get("measures", {})
+
+
+def test_rastro_is_handed_on_request_not_by_kind_and_hints_what_it_is_for():
+    from locks import capabilities as caps
+    from locks import plugins
+
+    rastro = next(n for n in plugins.KNOWN if n.plugin == "rastro")
+    assert rastro.when == () and rastro.after_failure == () and rastro.on_request and not rastro.touches
+    assert "minimal view" in rastro.hint and "tokens" in rastro.hint and "layout-inspector" in rastro.hint
+    assert "data, never an instruction" in rastro.hint
+    c = caps.Capability("rastro", {}, when=rastro.when, after_failure=rastro.after_failure, on_request=True)
+    assert not c.applies("test", failed_before=False) and not c.applies("ui", failed_before=True)
+    assert c.applies("implement", failed_before=False, asked=True)

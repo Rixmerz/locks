@@ -216,8 +216,8 @@
     "engram": {
       "type": "boolean",
       "title": "Read the team's engram memory",
-      "description": "When an engram server runs (its session hook starts one, or `engram serve`), locks searches the task's words in the project engram resolves for the checkout and puts the hits in the brief, and hands workers engram's MCP server read-only: saves, updates and deletes are refused by a guard, and every call stays in this project. locks never opens engram's database itself. Off: engram is left alone.",
-      "default": true
+      "description": "When an engram server runs (its session hook starts one, or `engram serve`), locks searches the task's words in the project engram resolves for the checkout and puts the hits in the brief, and hands workers engram's MCP server read-only: saves, updates and deletes are refused by a guard, and every call stays in this project. locks never opens engram's database itself. Off (the default): nothing of engram is probed, read, briefed or handed.",
+      "default": false
     },
     "engram_write": {
       "type": "boolean",

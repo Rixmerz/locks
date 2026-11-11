@@ -89,6 +89,9 @@ class Capability:
     touches: tuple[str, ...] = ()
     #: It only measures, never changes anything: reading work may have it too.
     measures: bool = False
+    #: It joins work whose own request asks to browse (a page, a site, a URL, a running app) or that
+    #: was sent with a `--service`, whatever the kind (`locks.orchestrate.asks_to_browse`).
+    on_request: bool = False
     #: Its tools that act on the world (send, post, reply): run behind the `outbound`
     #: guard, refused outside a loop the person set to act (`locks.loops`).
     outbound: tuple[str, ...] = ()
@@ -100,8 +103,11 @@ class Capability:
         """The first of `paths` this capability is about, or None."""
         return next((p for p in paths if self.touches and matches(p, self.touches)), None)
 
-    def applies(self, kind: str, *, failed_before: bool, paths: Sequence[str] = (), reading: bool = False) -> bool:
+    def applies(self, kind: str, *, failed_before: bool, paths: Sequence[str] = (), reading: bool = False,
+                asked: bool = False) -> bool:
         if self.when == "always":
+            return True
+        if self.on_request and asked:
             return True
         if isinstance(self.when, tuple) and kind in self.when:
             return True
@@ -164,6 +170,7 @@ def load(path: Path) -> dict[str, Capability]:
             hint=str(entry.get("hint", "")),
             touches=tuple(str(t) for t in touches),
             measures=bool(entry.get("measures", False)),
+            on_request=bool(entry.get("on_request", False)),
             outbound=_outbound(name, entry),
             declared=frozenset(entry),
         )
@@ -230,7 +237,8 @@ def _inherit(registry: Mapping[str, Capability]) -> dict[str, Capability]:
     for name, c in registry.items():
         n = known.get(name)
         if n is not None and not ({"touches", "measures"} & c.declared):
-            out[name] = replace(c, touches=tuple(n.touches), measures=n.measures)
+            out[name] = replace(c, touches=tuple(n.touches), measures=n.measures,
+                                on_request=c.on_request or n.on_request)
     return out
 
 
@@ -290,23 +298,26 @@ def select(
     every: bool = False,
     paths: Sequence[str] = (),
     reading: bool = False,
+    asked: bool = False,
 ) -> Selection:
     """The capabilities a task of `kind` gets; `every` takes all of `registry`,
     for the ones a worker's role names whatever their `when`. `paths` are the files
     the work names or changed (a review's: the diff it reads); `reading` work gets
-    by them only what measures."""
+    by them only what measures. `asked`: the request asks to browse, or was sent with a service."""
     chosen = [c for c in registry.values()
-              if every or c.applies(kind, failed_before=failed_before, paths=paths, reading=reading)]
+              if every or c.applies(kind, failed_before=failed_before, paths=paths, reading=reading, asked=asked)]
     values = {"workdir": str(workdir) if workdir else ""}
     servers = {c.name: _fill(c.server, values) for c in chosen}
-    hints = tuple(f"{c.name}: {_fill(c.hint, values)}" + _why_touched(c, kind, paths) for c in chosen if c.hint)
+    hints = tuple(f"{c.name}: {_fill(c.hint, values)}" + _why_touched(c, kind, paths, asked) for c in chosen if c.hint)
     return Selection(servers, hints, tuple(c.name for c in chosen), tuple(c.read_dir for c in chosen if c.read_dir))
 
 
-def _why_touched(c: Capability, kind: str, paths: Sequence[str]) -> str:
-    """Said when a capability came by what the work touches, not by its kind."""
+def _why_touched(c: Capability, kind: str, paths: Sequence[str], asked: bool = False) -> str:
+    """Said when a capability came by what the work touches or asks, not by its kind."""
     if c.when == "always" or (isinstance(c.when, tuple) and kind in c.when):
         return ""
+    if c.on_request and asked:
+        return " (given because the request asks to browse)"
     hit = c.touched(paths)
     return f" (given because this work touches {hit})" if hit else ""
 
@@ -349,8 +360,8 @@ EXAMPLE = {
     "browser": {
         # Pinned: `@latest` is fetched again by each worker, and two may run different releases.
         "server": {"command": "npx", "args": ["@playwright/mcp@0.0.83"]},
-        "when": ["test"],
-        "after_failure": ["ui"],
+        "when": [],
+        "on_request": True,
         "hint": "open the running app with browser_navigate and read it with browser_snapshot; report what "
         "the page shows, never what it should show",
     },

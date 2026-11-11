@@ -240,7 +240,7 @@ def test_the_evidence_arm_a_brief_keeps_is_the_one_its_trial_reads_back(git_repo
 
     monkeypatch.setenv("LOCKS_EVIDENCE", "on")
     monkeypatch.setattr(evidence, "arm", lambda store, repo, task_id: ("free", "free for the test"))
-    registry = {"rastro": caps.Capability("rastro", {"command": "rastro"}, hint="drive the app")}
+    registry = {"layout-inspector": caps.Capability("layout-inspector", {"command": "li"}, hint="measure the page")}
     report = run("Rename the helper in notes", git_repo, store, registry=registry,
                  launcher=Script(passing(), write="notes.txt"), classifier=kind("implement"))
     task = store.get_task(report.task_id)

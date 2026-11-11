@@ -2503,3 +2503,15 @@ def test_the_kind_and_the_neighbours_indexes_are_found_side_by_side(git_repo, st
                              adapters=[Neighbour()])
     assert time.monotonic() - began < 1.1 and seen["index"] != seen["classify"]
     assert found.kind == "implement"
+
+
+@pytest.mark.parametrize("text,services,expected", [
+    ("Navigate the running app at localhost:3000 and report the title", (), True),
+    ("Browse the site and list its pages", (), True),
+    ("Abre la página de inicio y lee el título", (), True),
+    ("Fix the rounding in the total", (), False),
+    ("Write tests for the parser", (), False),
+    ("Fix the rounding in the total", ("npm run dev@4200",), True),
+])
+def test_a_request_asks_to_browse_by_its_words_or_a_service(text, services, expected):
+    assert orchestrate.asks_to_browse(text, orchestrate.Options(services=services)) is expected

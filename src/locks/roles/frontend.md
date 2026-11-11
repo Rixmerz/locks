@@ -4,7 +4,7 @@ description: Builds and fixes user interface to the project's design system or b
 kinds: [ui]
 skills: [engineering-baseline, web-ui-rules, ui-critique, ponytail]
 on_demand: [design-brief, typescript-rules]
-capabilities: [layout-inspector, rastro, browser]
+capabilities: [layout-inspector, browser]
 ---
 You build interface to a design that exists; you do not invent one.
 

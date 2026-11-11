@@ -77,8 +77,8 @@ def test_what_is_owed_is_read_from_the_calls_that_went_through(store: Store):
     names = ["layout-inspector", "rastro", "other"]
     ui, plain = ["components/Card.tsx"], ["src/db.py"]
     assert [r.capability for r in evidence.owed(store, task, 1, names, ui, "implement")] == [
-        "layout-inspector", "rastro"]
-    assert [r.capability for r in evidence.owed(store, task, 1, names, plain, "implement")] == ["rastro"]
+        "layout-inspector"]
+    assert evidence.owed(store, task, 1, names, plain, "implement") == []  # rastro browses, it owes nothing
     assert evidence.owed(store, task, 1, names, ui, "explore") == []
     _call(store, task, 1, "mcp__layout-inspector__detect_issues", ok=0)  # refused: it showed nothing
     assert "layout-inspector" in [r.capability for r in evidence.owed(store, task, 1, names, ui, "implement")]
@@ -88,7 +88,9 @@ def test_what_is_owed_is_read_from_the_calls_that_went_through(store: Store):
     assert evidence.calls(store, task, 1, names) == {
         "layout-inspector": {"calls": 2, "ok": 1}, "rastro": {"calls": 0, "ok": 0}, "other": {"calls": 0, "ok": 0}}
     assert "detect_issues" in evidence.brief_line(evidence.handed(names))
-    assert evidence.shape(evidence.handed(["rastro"])).startswith("evidence: no call of rastro went through")
+    assert evidence.shape(evidence.handed(["layout-inspector"])).startswith(
+        "evidence: no call of layout-inspector went through")
+    assert evidence.handed(["rastro"]) == []
 
 
 def test_a_change_with_nothing_to_render_owes_no_measurement(store: Store):
@@ -306,3 +308,7 @@ def test_stats_say_when_a_worker_s_calls_were_never_logged(store: Store):
     store.add_event(t["id"], "finished", status="done", wall_s=60.0)
     said = analysis.text(analysis.compute(store, days=0))
     assert "rastro" in said and "1 attempt(s) not recorded: their worker's hooks logged no call" in said
+
+
+def test_rastro_is_no_requirement_and_layout_inspector_still_is():
+    assert [r.capability for r in evidence.REQUIRED] == ["layout-inspector"]

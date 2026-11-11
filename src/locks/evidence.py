@@ -5,7 +5,7 @@ A hint in a worker's system prompt is the weakest way to have a tool used: a wor
 it and never call the tool. A requirement (`REQUIRED`) names a neighbour and when its use is
 owed: layout-inspector on writing work whose change touches rendered UI (`capabilities.renders`: a
 `UI_FILES` path that is no test, fixture, example, documentation or tool output),
-rastro on writing work it was handed for. A passing attempt that owes one is held back when no
+A passing attempt that owes one is held back when no
 call of that neighbour's tools went through in the task's attempts so far (`owed`, from
 `tool_events`, its `ok`): the first time the same cell goes on in its own session, told what to
 measure (`PROMPT`, as a reshape); the second it stands as work with one point, a `decision` for
@@ -61,9 +61,6 @@ REQUIRED: tuple[Requirement, ...] = (
     Requirement("layout-inspector", True,
                 "a measurement of the rendered page by layout-inspector (detect_issues, or compare_viewports for "
                 "every breakpoint), taken after your last change"),
-    Requirement("rastro", False,
-                "what the running app did when you used it through rastro (rastro_open, then rastro_act and "
-                "rastro_effects or rastro_trace)"),
 )
 
 

@@ -295,8 +295,9 @@ def test_the_critique_arm_a_brief_keeps_is_the_one_its_trial_reads_back_and_its_
 
 
 #: Keys read with `.get` from data that comes from outside locks, never from its own events: a
-#: neighbour's manifest (`format`, `hints`) and a request's body to the UI (`note`).
-OUTSIDE_KEYS = {"format", "hints", "note"}
+#: neighbour's manifest (`format`, `hints`), a request's body to the UI (`note`) and a project's
+#: `package-lock.json` (`packages`).
+OUTSIDE_KEYS = {"format", "hints", "note", "packages"}
 
 
 def test_every_field_read_from_an_event_is_one_some_place_writes():

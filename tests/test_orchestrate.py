@@ -2332,6 +2332,11 @@ def test_a_task_its_surfaces_kept_from_the_cause_offers_a_resume_with_them_widen
                                                                                     capsys):
     from locks import cli, stops
 
+    # Widening offers only paths the work directory has: the file the worker names is there.
+    (git_repo / "src" / "sync").mkdir(parents=True)
+    (git_repo / "src" / "sync" / "clock.ts").write_text("export const now = () => Date.now()\n")
+    git(git_repo, "add", "-A")
+    git(git_repo, "commit", "-q", "-m", "add the clock")
     wrong = WorkerResult(False, Failure.SPEC_BUG, "the root cause is in src/sync/clock.ts, outside my surfaces "
                          "(src/radio/**): I may not change it", verdict="fail",
                          evidence="src/radio/mac.ts:40 reads clock.now() from src/sync/clock.ts")

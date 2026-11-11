@@ -1291,7 +1291,13 @@ def _overlaps(store: Store, ended: Mapping) -> list[str]:
             tries = store.attempts(other["id"])
             paths = json.loads(tries[-1]["changed_paths"] or "[]") if tries else []
         elif other["id"] in kept:
-            paths = (((store.final_event(other["id"]) or {}).get("data")) or {}).get("changed") or []
+            data = ((store.final_event(other["id"]) or {}).get("data")) or {}
+            try:
+                if isolate.already_in_head(top, str(data.get("base") or ""), kept[other["id"]]):
+                    continue  # HEAD holds every file it changed: merged already
+            except Exception:  # noqa: S110 - an ending never fails on what git could not say
+                pass
+            paths = data.get("changed") or []
         else:
             continue
         both = sorted(mine & set(paths))

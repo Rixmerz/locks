@@ -440,3 +440,60 @@ def test_no_git_subprocess_call_in_isolate_or_merging_lacks_a_timeout():
             checked += 1
             assert "timeout" in {k.arg for k in node.keywords}, f"{name}:{node.lineno} runs git with no timeout"
     assert checked >= 3  # isolate._run_git, merging._git and merging.open_pr's push
+
+
+def test_a_release_bump_of_only_the_projects_own_version_leaves_dependencies_linked(git_repo, tmp_path):
+    lock = ('version = 1\n\n[[package]]\nname = "dep"\nversion = "1.0"\n\n[[package]]\nname = "me"\n'
+            'version = "%s"\nsource = { editable = "." }\n')
+    (git_repo / ".venv").mkdir()
+    (git_repo / ".venv" / "x").write_text("x")
+    (git_repo / "uv.lock").write_text(lock % "1.0")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / "uv.lock").write_text(lock % "1.1")
+    assert not isolate._stale(git_repo, wt, ".venv")
+    (wt / "uv.lock").write_text((lock % "1.1").replace('version = "1.0"', 'version = "2.0"'))
+    assert isolate._stale(git_repo, wt, ".venv")
+
+
+def test_package_lock_ignores_only_the_top_level_version(tmp_path):
+    def lock(version: str, dep: str) -> str:
+        return ('{"version": "' + version + '", "packages": {"": {"version": "' + version
+                + '"}, "node_modules/a": {"version": "' + dep + '"}}}')
+
+    mine, theirs = tmp_path / "w", tmp_path / "c"
+    for d in (mine, theirs):
+        (d / "node_modules").mkdir(parents=True)
+    (theirs / "package-lock.json").write_text(lock("1.0.0", "3.0.0"))
+    (mine / "package-lock.json").write_text(lock("1.1.0", "3.0.0"))
+    assert not isolate._stale(theirs, mine, "node_modules")
+    (mine / "package-lock.json").write_text(lock("1.1.0", "3.1.0"))
+    assert isolate._stale(theirs, mine, "node_modules")
+
+
+def test_files_that_differ_only_because_head_moved_are_not_the_runs_changes(git_repo):
+    place = isolate.stand(git_repo, [git_repo])[0]
+    git(git_repo, "checkout", "-q", "-b", "side")
+    (git_repo / "merged.txt").write_text("m\n")
+    git(git_repo, "add", "merged.txt")
+    git(git_repo, "commit", "-q", "-m", "side work")
+    git(git_repo, "checkout", "-q", "main")
+    git(git_repo, "merge", "-q", "--no-ff", "-m", "merged by the session", "side")
+    assert isolate.moved_in_place(place) == ()
+    (git_repo / "wrote.txt").write_text("w\n")
+    assert isolate.moved_in_place(place) == ("wrote.txt",)
+
+
+def test_a_merge_commit_that_moved_head_is_not_the_runs_but_a_commit_on_the_branch_is(git_repo):
+    place = isolate.stand(git_repo, [git_repo])[0]
+    git(git_repo, "checkout", "-q", "-b", "side")
+    (git_repo / "from_side.txt").write_text("s\n")
+    git(git_repo, "add", "from_side.txt")
+    git(git_repo, "commit", "-q", "-m", "side")
+    git(git_repo, "checkout", "-q", "main")
+    git(git_repo, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+    assert isolate.moved_in_place(place) == ()
+    (git_repo / "own.txt").write_text("o\n")
+    git(git_repo, "add", "own.txt")
+    git(git_repo, "commit", "-q", "-m", "worker")
+    assert isolate.moved_in_place(place) == ("own.txt",)

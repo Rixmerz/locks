@@ -1647,3 +1647,24 @@ def test_progress_changes_leave_the_checkout_s_linked_dependencies_out(git_repo,
     (path / "new.py").write_text("print('hi')\n")
     assert progress.changes(9, base)["paths"] == [".venv", "new.py"]
     assert progress.changes(9, base, links=(".venv",)) == {"files": 1, "added": 1, "removed": 0, "paths": ["new.py"]}
+
+
+def test_orchestrate_an_index_raises_a_reading_start_and_never_a_writing_one(git_repo, store, monkeypatch):
+    from locks import orchestrate
+    from locks.classify import Classification
+    from locks.matrix import LADDERS
+    from locks.orchestrate import Options
+
+    _adopt_all(monkeypatch)
+
+    def planned(text, kind):
+        return orchestrate.plan(text, git_repo, store, Options(), {},
+                                classifier=lambda t: Classification(kind, "medium", "rule", "t"),
+                                adapters=[_Index(raise_rungs=1)])
+
+    build = planned("add a retry to the parser", "implement")
+    assert build.start == LADDERS["implement"][0]
+    assert not any("one rung up for what the code index found" in r for r in build.reasons)
+    review = planned("review the parser's last change", "review-routine")
+    assert review.start == LADDERS["review-routine"][1]
+    assert any("one rung up for what the code index found" in r for r in review.reasons)

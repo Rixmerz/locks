@@ -730,7 +730,10 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 store.landings(kind, climbs=kind not in READ_ONLY_KINDS),
                 writes=kind not in READ_ONLY_KINDS, kind=kind,
             )
-        if raise_rungs:
+        # The index raises a reading kind's start only, as a high complexity does: a build whose named
+        # symbol had many callers started a rung up and passed the same hidden tests in four times the
+        # time (`bench/speed/versus.py`, Z). The reasons stay in the plan either way.
+        if raise_rungs and kind in READ_ONLY_KINDS:
             raised = min(_index_of(ladder, start) + raise_rungs, len(ladder) - 1)
             if ladder[raised] != start:
                 start = ladder[raised]

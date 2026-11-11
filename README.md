@@ -121,11 +121,11 @@ index takes part in every step, at no token cost:
 |---|---|
 | before routing | a task whose code implements a critical spec, or whose symbol is called from everywhere, starts one rung up; a review of such code is reviewed as critical |
 | before the worker starts | the repository's index is built or refreshed first (incrementally, each repository of a folder of them, never the folder), waiting up to `livespec_wait` seconds (120 by default); past it the task starts without the index, says so, and the index keeps building |
-| in the worker's brief | how to find its way, spec first: `list_specs`/`search` for the request's spec, `get_spec_implementation` for its code, `quick_orient`/`read_unit` per symbol, a whole file last; `search_similar` before a new helper, `git_diff_impact` before it finishes; then a code map: the symbols the request is about, where they are, how many callers, the specs they implement, the tests that exercise them |
-| during the work | the worker gets livespec's tools, with a hint for its kind of work and the `workspace` every call needs; whether handing them pays is tried in turns against withholding them, per repository and nature of work (reading, writing), and they stay handed only where the handed workers passed their first tries no less often and no slower (`livespec_trial`); the code map in the brief stays either way |
+| in the worker's brief | locks asks the index itself, with no model and no MCP call, and briefs the answers as data: the symbols the request and its files name (where each is, its signature, what it calls, who calls it, the tests that cover it, the specs it implements), the specs the request's words find with their requirement and implementing symbols, helpers named close to what a writing task says to add, and what the named files reach; bounded, the rest said by count |
+| during the work | the worker is handed nothing of livespec: handed its tools, 46 attempts called them in 3, so locks reads the index for it instead; the independent check keeps the index, read-only |
 | a spec the work writes | the worker puts `@spec:<capability>-<requirement-name>` on the functions that implement it; the report and the independent check name the specs the change touched that no code names (a block for a spec it wrote, which raises its risk to high so the check runs; a warning for one already there) |
 | after a pass | the specs the change touched, and the files outside the change that call what it changed, in the report and in the independent check's brief, as where to probe |
-| in `locks stats` | how many attempts handed livespec called it and how those attempts went, and the tokens a run spent per kind with livespec called against not called (both observed, not a trial); each attempt keeps which calls its worker made; the handing trial's arms per repository and nature, and whether a verdict was pooled from every repository while this one's arms were short |
+| in `locks stats` | the briefs that carried livespec's answers against those that did not: first tries passed and a pass's median time (observed, not a trial) |
 | in `locks doctor` | repositories whose index is missing, unreadable or older than the last commit, and specs in the index that no code implements |
 | between sessions | an index missing or older than the last commit is (re)built in the background when a session starts in an enrolled project |
 
@@ -174,7 +174,7 @@ session, with its own plugin. The `tracer` setting turns it off.
 
 If your team keeps its agents' memory in
 [engram](https://github.com/Gentleman-Programming/engram), locks works with it
-as it is. With the `engram` setting on (the default), whenever an engram
+as it is. With the `engram` setting on (`locks config engram on`; it is off by default), whenever an engram
 server answers (its Claude Code hook starts one, or `engram serve`):
 
 - **The brief recalls it.** The task's words are searched in the project engram
@@ -484,8 +484,7 @@ starts, and what the files a request names reach (the specs they implement,
 who calls them, the tests) is in its brief. Notes are found by the code the
 task touches as well as by its words. Where the worker must do it, the pass
 is gated on evidence locks reads from its own log of the worker's calls,
-never from what the worker writes. A UI change handed layout-inspector, or
-work handed rastro, does not pass without a call of that tool that went
+never from what the worker writes. A UI change handed layout-inspector does not pass without a call of that tool that went
 through. The first time, the worker goes on to measure; the second time, the
 work waits on the orchestrator. Each repository tries that gate in turns with
 free work and keeps it only where it caught more. Each TRACER CORRECT line is
@@ -1167,7 +1166,7 @@ registry entry, each with its own skill to read first:
 | Plugin | When | What the worker does with it |
 |---|---|---|
 | [layout-inspector](https://github.com/Rixmerz/layout-inspector-mcp) | `ui`; any work, review or verifier whose files are rendered UI; after a failed `implement` or `feature` | measures the rendered page instead of judging it by eye, and measures again after the fix |
-| [rastro](https://github.com/Rixmerz/rastro) | `test`; after a failed `ui` | browses the running app with a minimal view and a trace of every effect |
+| [rastro](https://github.com/Rixmerz/rastro) | when the request asks to browse a page, a site or a running app, or the task has a `--service` | browses headless with a minimal view, cheap in tokens, and a trace of every effect; it does not judge layout |
 
 ```bash
 claude plugin marketplace add Rixmerz/claude-plugins
@@ -1248,7 +1247,7 @@ worktree, and usually in the same session:
 | `implementer`, `feature-builder` | tester: the tests of its change | in its brief: the one that builds writes its tests, and runs the tests near its change as it goes (`ci.related`) |
 | `debugger` | implementer: the fix | the one that reproduces fixes, and leaves the reproduction as a regression test |
 | any writing role, in a spec-first repository | spec writer | a pass whose change holds no spec goes back once to the same cell, in its own session, told to write it (`spec_owed`) |
-| any writing role | measurer | a pass that owes a neighbour's evidence (layout-inspector, rastro) goes back once, in its own session, told what to measure (`evidence_owed`) |
+| any writing role | measurer | a pass that owes a neighbour's evidence (layout-inspector) goes back once, in its own session, told what to measure (`evidence_owed`) |
 | any writing role | its own continuation | more turns resume its session; more effort forks it (`--fork-session`), so the deeper look keeps what it already found |
 | a reading step (`explore`, `plan`) | the step after it | the next step's first try may fork the reading step's session (`trunk`) and is told the role it takes from there |
 

@@ -40,8 +40,12 @@ TIERS = ("passive", "medium", "high")
 _TEXT = (
     ("data", re.compile(r"\b(migrat\w*|schema|drop\s+(table|column)|backfill|delete\s+from|truncate|data ?loss|"
                         r"base de datos|database)\b", re.I)),
-    ("security", re.compile(r"\b(auth\w*|login|password|secret|token|credential|crypt\w*|permission\w*|oauth|jwt|"
-                            r"session cookie|csrf|xss|injection|vulnerab\w*|segurid\w*|contraseñ\w*)\b", re.I)),
+    ("security", re.compile(r"\b(auth\w*|login|password|secret|token|credential|crypt\w*|oauth|jwt|"
+                            r"session cookie|csrf|xss|injection|vulnerab\w*|segurid\w*|contraseñ\w*|"
+                            # Enforcement: the first four say it alone, the last three only beside
+                            # their own sense (`_SENSES`).
+                            r"bypass\w*|sandbox\w*|allow-?list\w*|allow list\w*|deny-?list\w*|"
+                            r"permissions?|polic(?:y|ies)|guards?)\b", re.I)),
     ("money", re.compile(r"\b(payment\w*|billing|invoice\w*|checkout|refund\w*|pago\w*|factur\w*|cobro\w*)\b", re.I)),
     ("concurrency", re.compile(r"\b(race|deadlock|concurren\w*|thread\w*|mutex|lock(ing)?|async|parallel\w*)\b",
                                re.I)),
@@ -108,6 +112,7 @@ def _a_name(text: str, found: re.Match[str]) -> bool:
 
 #: Words read in another sense when the words around them say so, and none of the
 #: area's own: (area, the word's start, its other sense, its own sense nearby).
+_ANYWHERE = re.compile(r"")
 _SENSES = (
     ("security", "token",
      re.compile(r"\b(design|css|colou?rs?|themes?|styles?|styling|palettes?|tailwind|typograph\w*|spacing|"
@@ -131,6 +136,14 @@ _SENSES = (
      re.compile(r"\b(pipelines?|ci|cd|docker\w*|kubernetes|k8s|helm|terraform|infra\w*|rollouts?|rollbacks?|"
                 r"github actions|workflows?|render\.yaml|vercel|netlify|heroku|fly\.io|servers?|hosting)\b",
                 re.I)),
+    # Words of enforcement that are security only beside another: "permission to merge",
+    # "the retry policy" and "a guard clause" are none. The other sense is anywhere.
+    ("security", "permission", _ANYWHERE,
+     re.compile(r"\b(grant\w*|refus\w*|den(?:y|ies|ied|ying)|polic(?:y|ies))\b", re.I)),
+    ("security", "polic", _ANYWHERE,
+     re.compile(r"\b(enforc\w*|guard\w*|refus\w*|bypass\w*)\b", re.I)),
+    ("security", "guard", _ANYWHERE,
+     re.compile(r"\b(polic(?:y|ies)|refus\w*|bypass\w*)\b", re.I)),
     ("data", "truncat",
      re.compile(r"\b(text|labels?|ellipsis|strings?|titles?|names?|characters?|chars|lines?|words?|axis|"
                 r"captions?|overflow)\b", re.I),

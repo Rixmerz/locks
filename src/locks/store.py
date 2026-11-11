@@ -276,7 +276,6 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     },
 }
 FIX_OUTCOMES = ("worked", "failed", "partial", "pending")
-PROBLEM_STATES = ("open", "solved", "recurring")
 
 
 def now() -> str:
@@ -299,6 +298,12 @@ def home(env: dict[str, str] | None = None) -> Path:
 
 
 SETUP_RETRIES = 100
+
+# Bump SCHEMA_VERSION by hand, and SCHEMA_HASH with it, whenever SCHEMA, the append-only
+# triggers, _ADDED_COLUMNS or a migration changes: an open whose file carries this
+# `user_version` runs none of them. tests/test_store_open.py fails on a stale hash.
+SCHEMA_VERSION = 1
+SCHEMA_HASH = "ad51750d0b432871ed85cd42aa5dbb23bea65aea701a5edc3d1f86ef87c41c09"
 
 
 @contextlib.contextmanager
@@ -378,18 +383,31 @@ class Store:
         open the file in the same instant). A lock file beside the database
         queues the openers; a refusal that still gets through is retried.
         """
-        with _setup_lock(self.path):
-            for attempt in range(SETUP_RETRIES):
-                try:
-                    self._conn.execute("PRAGMA journal_mode=WAL")
-                    self._conn.execute("PRAGMA synchronous=NORMAL")
+        for attempt in range(SETUP_RETRIES):
+            try:
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.execute("PRAGMA synchronous=NORMAL")
+                if self._stamped():
+                    # Rows are data, not schema: an old install still running may write its name
+                    # again at any time, so they are read on every open, stamped or not.
+                    legacy.upgrade_store(self._conn)
+                    return
+                with _setup_lock(self.path):
+                    # Another opener may have finished the schema while this one waited.
+                    if self._stamped():
+                        legacy.upgrade_store(self._conn)
+                        return
                     self._conn.executescript(SCHEMA + _APPEND_ONLY_TRIGGERS)
                     self._migrate()
-                    return
-                except sqlite3.OperationalError as exc:
-                    if "locked" not in str(exc) or attempt == SETUP_RETRIES - 1:
-                        raise
-                    time.sleep(0.02 + random.random() * 0.05)  # noqa: S311 - jitter, not security
+                    self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) or attempt == SETUP_RETRIES - 1:
+                    raise
+                time.sleep(0.02 + random.random() * 0.05)  # noqa: S311 - jitter, not security
+
+    def _stamped(self) -> bool:
+        return self._conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
     def _migrate(self) -> None:
         for table, columns in _ADDED_COLUMNS.items():

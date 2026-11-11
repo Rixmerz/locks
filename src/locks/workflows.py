@@ -1071,7 +1071,8 @@ def _tasks_of(entry: Mapping[str, Any] | None) -> list[dict]:
     return list(entry.get("parts") or [entry])
 
 
-#: How many times `advance` leaves its transaction to read git again before it gives up.
+#: How many rounds in a row `advance` may leave its transaction without reading anything new from
+#: git before it gives up: a round that read a new call is progress and costs none of them.
 READ_RETRIES = 3
 
 
@@ -1143,8 +1144,8 @@ def _read_step(store: Store, run: Mapping[str, Any], defn: Mapping[str, Any], st
                latest: Mapping[str, dict], options: Mapping[str, Any], reads: Reads) -> None:
     """The git reads `_queue_step` (and `_fan`) make for a step, made on `reads`. What goes wrong here
     is kept in `reads` and raised where the call is made, not here."""
-    if step.get("ask") is not None:
-        return
+    if step.get("ask") is not None or not _holds(store, step, latest)[0]:
+        return  # a question runs no git, and a step that will be skipped must not restore a branch
     kind = str(step.get("kind") or "")
     with contextlib.suppress(Exception):
         base = _base(store, run, defn, step["id"], latest, reads)
@@ -2128,10 +2129,11 @@ def _transaction(store: Store, run: Mapping[str, Any], read_ahead: Callable[[Rea
     """`write` in one write transaction, with git read before it opens (`read_ahead`, on a `Reads`):
     every other writer waits while the transaction is open, and a git command is the slowest thing
     it could hold them for. A call `write` makes that was not read ahead (another process advanced
-    the run since) leaves the transaction, is read, and the whole is tried again, at most
-    `READ_RETRIES` more times."""
+    the run since) leaves the transaction, is read, and the whole is tried again; it gives up
+    when `READ_RETRIES` rounds in a row read nothing new."""
     reads = Reads()
-    for _ in range(READ_RETRIES + 1):
+    stalled = 0
+    while True:
         reads.frozen = False
         read_ahead(reads)
         reads.frozen = True
@@ -2140,9 +2142,14 @@ def _transaction(store: Store, run: Mapping[str, Any], read_ahead: Callable[[Rea
                 return write(reads)
         except _Reread as missing:
             reads.frozen = False
+            known = len(reads.memo)
             reads.fill(missing.key, missing.thunk)
-    raise WorkflowError(f"run #{run['id']} kept changing while its next steps were being queued: "
-                        "nothing was queued, advance it again")
+            # Steps made ready in the same pass (by a skipped one) each ask for calls nobody could
+            # read ahead: a round that read something new is progress, one that read nothing is stuck.
+            stalled = 0 if len(reads.memo) > known else stalled + 1
+            if stalled > READ_RETRIES:
+                raise WorkflowError(f"run #{run['id']} kept changing while its next steps were being queued: "
+                                    "nothing was queued, advance it again") from None
 
 
 def _advanced(store: Store, task: Mapping[str, Any], queued: list[int]) -> None:

@@ -685,6 +685,8 @@ def session_start(
                       f"could go on; details in {root / ERROR_LOG}.")
     if shed_line:
         blocks.append(shed_line)
+    if pruned := _prune_traces(env, root, str(session_id)):
+        blocks.append(pruned)
     registry = _registry_notices(root)
     if registry:
         blocks.append(registry)
@@ -1532,11 +1534,52 @@ def _trace_launch(event_name: str, event: Mapping[str, Any], env: Mapping[str, s
         trace.action(env, session_id, "scripted", event=event_name, why=why)
 
 
+def _prune_traces(env: Mapping[str, str], root: Path, session_id: str) -> str | None:
+    """Trace retention, at most once a day and only with the trace on; the line SessionStart says."""
+    try:
+        if not trace.enabled({**os.environ, **env}):
+            return None
+        marker = root / trace.DIR / trace.PRUNE_MARKER
+        today = datetime.now(UTC).date().isoformat()
+        try:
+            if marker.read_text(encoding="utf-8").strip() == today:
+                return None
+        except OSError:
+            pass  # no marker yet: retention has not run
+        removed = trace.prune(root, keep=session_id)
+        if marker.parent.is_dir():
+            marker.write_text(today, encoding="utf-8")
+        if not removed["sessions"]:
+            return None
+        return (f"locks: removed the traces of {removed['sessions']} session(s), "
+                f"{removed['bytes'] / (1024 * 1024):.1f} MB; trace.KEEP_DAYS ({trace.KEEP_DAYS}) and "
+                f"trace.KEEP_MB ({trace.KEEP_MB}) set how much is kept.")
+    except Exception:  # retention never costs a session its start
+        return None
+
+
+#: The error log is cut to its last `ERROR_LOG_KEEP` bytes once it passes `ERROR_LOG_MAX`.
+ERROR_LOG_MAX = 1024 * 1024
+ERROR_LOG_KEEP = 256 * 1024
+
+
+def _cut_error_log(log: Path) -> None:
+    try:
+        if log.stat().st_size <= ERROR_LOG_MAX:
+            return
+        data = log.read_bytes()[-ERROR_LOG_KEEP:]
+        start = data.find(b"\n")
+        log.write_bytes(data[start + 1:] if start >= 0 else b"")
+    except OSError:
+        pass  # a log that cannot be cut is appended to as it is
+
+
 def note_error(root: Path, event_name: str) -> None:
     """Append the exception being handled to the error log the next SessionStart reports."""
     try:
         root.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).isoformat(timespec="seconds")
+        _cut_error_log(root / ERROR_LOG)
         with (root / ERROR_LOG).open("a", encoding="utf-8") as fh:
             fh.write(f"--- {stamp} {event_name}\n{traceback.format_exc()}\n")
     except Exception:  # noqa: S110 - losing a note is acceptable, raising from here is not

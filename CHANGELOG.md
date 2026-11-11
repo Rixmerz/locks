@@ -4,6 +4,36 @@
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-11-11
+
+### Changed
+- A tie in a trial goes to the arm without the change (`arms.verdict`). A change (a server handed, extra
+  brief lines, a reader) stays only where its first tries passed more often, or as often and faster.
+  livespec was handed to 40 attempts and called in 3, and its trial still said hand.
+- Opening the store runs the schema and its migrations only when the file's `user_version` differs from
+  `store.SCHEMA_VERSION`; every hook of every prompt opened it and ran them all. Rows an old install wrote
+  under the old name are still read on every open. A test fails when the schema changes without the
+  version and `SCHEMA_HASH`. <!-- legacy-name: the rows -->
+- The dispatcher asks Haiku whether a task may run beside running work outside the machine-wide lock
+  (`capacity.held`), then takes it again to allot and claim: other repositories' dispatchers no longer
+  wait on a model call.
+- A request about enforcement is a security change: bypass, sandbox, an allow-list or deny-list, and
+  `policy`, `guard` or `permission` near a word of that sense. A hardening of the MCP guard was read as
+  medium risk and ran on the cheapest trial cell.
+
+### Added
+- The trace is bounded (`trace.prune`, `KEEP_DAYS` 14, `KEEP_MB` 500): with the trace on, SessionStart
+  removes the oldest sessions' traces once a day and says how much. `hook-errors.log` keeps its last
+  256 KB once it passes 1 MB.
+
+### Fixed
+- `workflows.advance` no longer fails when a chain of skipped steps needs more git reads than its retries:
+  it goes on while each round reads something new, and reads no base for a step that will be skipped.
+- A raced start's attempt keeps the number its worker ran as (`_record_raced`), and the close-out's
+  SIGTERM ignore and `launch.run`'s default runner have tests.
+- A worker whose pid was recycled by another process is seen as dead (Linux: the process start time is
+  kept beside the pid).
+
 ## [0.94.0] - 2026-11-11
 
 ### Security

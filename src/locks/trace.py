@@ -35,6 +35,13 @@ _FALSE = {"0", "false", "off", "no"}
 _LIVESPEC = re.compile(r"^mcp__(?:[^_]|_(?!_))*livespec(?:[^_]|_(?!_))*__(.+)$", re.IGNORECASE)
 
 
+#: How long a session's trace is kept, and the size of the traces folder it is cut to.
+KEEP_DAYS = 14
+KEEP_MB = 500
+#: The day retention last ran, kept beside the traces so the store is not involved.
+PRUNE_MARKER = ".pruned"
+
+
 def home(env: Mapping[str, str]) -> Path:
     from locks import legacy
 
@@ -321,3 +328,59 @@ def worker_calls(env: Mapping[str, str], session_id: str | None, task_id: int, *
                     "input": clip(_said(r.get("input")), SHOWN_INPUT),
                     "output": clip(_said(r.get("response")), SHOWN_OUTPUT)})
     return out[-limit:]
+
+
+def _session_of(name: str) -> str | None:
+    for suffix in (".transcript.jsonl", ".jsonl"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return None
+
+
+def prune(home: Path, now: float | None = None, *, keep: str | None = None) -> dict[str, int]:
+    """Retention: delete the sessions whose files were all last written over `KEEP_DAYS` ago, then
+    the oldest more until the folder is under `KEEP_MB`; never the session `keep`. Returns the
+    sessions and bytes removed. Never raises: what cannot be read or removed is skipped."""
+    import time
+
+    removed = {"sessions": 0, "bytes": 0}
+    try:
+        folder = Path(home) / DIR
+        if not folder.is_dir():
+            return removed
+        now = time.time() if now is None else now
+        safe_keep = re.sub(r"[^A-Za-z0-9_.-]", "_", keep) if keep else None
+        sessions: dict[str, list[tuple[Path, float, int]]] = {}
+        for entry in folder.iterdir():
+            sid = _session_of(entry.name)
+            if sid is None:
+                continue
+            try:
+                st = entry.stat()
+            except OSError:
+                continue
+            sessions.setdefault(sid, []).append((entry, st.st_mtime, st.st_size))
+        total = sum(size for files in sessions.values() for _, _, size in files)
+        oldest_first = sorted(sessions, key=lambda sid: max(m for _, m, _ in sessions[sid]))
+        limit = KEEP_MB * 1024 * 1024
+        for sid in oldest_first:
+            if sid == safe_keep:
+                continue
+            files = sessions[sid]
+            expired = max(m for _, m, _ in files) < now - KEEP_DAYS * 86400
+            if not expired and total <= limit:
+                continue
+            gone = 0
+            for entry, _, size in files:
+                try:
+                    entry.unlink()
+                except OSError:
+                    continue
+                gone += size
+            if gone:
+                total -= gone
+                removed["sessions"] += 1
+                removed["bytes"] += gone
+    except OSError:
+        pass
+    return removed

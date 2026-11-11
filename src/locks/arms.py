@@ -3,9 +3,10 @@
 The shape every measured choice in locks shares (a method, the order of a brief's notes): tasks
 alternate between an arm `with` the change and one without it, the arm with fewer tasks next,
 until each holds `trial` first tries; then the change stays only where its arm passed its first
-tries no less often and, once `TIME_SAMPLES` passes each are timed, no slower than `SLOWER` times
-the other arm's median (a change that passes as often but takes longer is no gain). No model, no
-clock: the record of first tries decides.
+tries more often, or as often and, once `TIME_SAMPLES` passes each are timed, faster at the median.
+A tie goes to the arm without the change: a change must earn its place. Once both arms are timed,
+a change whose median is more than `SLOWER` times the other's loses however its rate reads. No
+model, no clock: the record of first tries decides.
 """
 from __future__ import annotations
 
@@ -19,6 +20,9 @@ from typing import Any
 #: often but takes longer is no gain (the person's clock is the point of a first try).
 TIME_SAMPLES = 3
 SLOWER = 1.25
+
+#: Said beside a verdict that goes to the arm without the change on a tie.
+TIE = "; a tie goes to the arm without the change"
 
 #: How far apart two arms' task counts may be before the one with fewer goes next. Under it the
 #: task's hash decides, salted with the trial's name: two trials over the same tasks (the primer and
@@ -81,19 +85,25 @@ def pick(found: Mapping[str, Mapping[str, Any]], arms: Sequence[str], task_id: i
 
 def verdict(found: Mapping[str, Mapping[str, Any]], arms: Sequence[str], name: str, *,
             where: str = "here") -> tuple[str, str]:
-    """A full trial's verdict: the change stays where its arm passed first tries no less often and,
-    both timed, no slower than `SLOWER` times the other's median."""
+    """A full trial's verdict: the change stays where its arm passed first tries more often than the
+    other arm, or as often and, both timed, with a faster median pass; a tie goes to the arm without
+    the change. Both timed and the change's median more than `SLOWER` times the other's loses however
+    its rate reads."""
     on, off = arms
     w, wo = found[on], found[off]
     said = f"first tries passed {w['rate']:.0%} {on} and {wo['rate']:.0%} {off}"
     if w["rate"] < wo["rate"]:
         return off, f"the {name} lost its trial {where}: {said}"
+    tie = w["rate"] == wo["rate"]
     slow, fast = w.get("pass_p50_s"), wo.get("pass_p50_s")
-    if slow is not None and fast is not None and slow > fast * SLOWER:
+    timed = slow is not None and fast is not None
+    if timed and slow > fast * SLOWER:
         return off, (f"the {name} lost its trial {where}: {said}, and the passes took {slow:.0f}s at the median "
-                     f"{on} against {fast:.0f}s {off}")
-    timed = f", passes took {slow:.0f}s {on} and {fast:.0f}s {off}" if slow is not None and fast is not None else ""
-    return on, f"the {name} won its trial {where}: {said}{timed}"
+                     f"{on} against {fast:.0f}s {off}{TIE if tie else ''}")
+    passes = f", passes took {slow:.0f}s {on} and {fast:.0f}s {off}" if timed else ""
+    if tie and not (timed and slow < fast):
+        return off, f"the {name} lost its trial {where}: {said}{passes}{TIE}"
+    return on, f"the {name} won its trial {where}: {said}{passes}"
 
 
 def pooled_why(why: str, here: str) -> str:

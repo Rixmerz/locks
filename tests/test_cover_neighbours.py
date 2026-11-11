@@ -312,7 +312,8 @@ def test_a_map_of_quiet_code_raises_nothing_and_reach_names_the_tests(tmp_path, 
     a = _livespec(tmp_path)
     status = a.inspect(git_repo)
     quiet = a.brief("src.api.checkout", git_repo, status)
-    assert quiet.lines and "`src.api.checkout`" in quiet.lines[1]
+    assert quiet.lines == () and quiet.reached >= 1  # the map is the dossier's; brief() only routes
+    assert "`src.api.checkout`" in a.dossier("src.api.checkout", git_repo, status).text
     assert quiet.raise_rungs == 0 and not quiet.critical and quiet.reasons == ()
     reach = a.reach(["src/parse.py"], git_repo, status)
     assert "livespec: tests that exercise them: tests/test_parse.py" in reach

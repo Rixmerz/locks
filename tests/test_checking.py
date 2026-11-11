@@ -1143,15 +1143,12 @@ def test_the_independent_check_is_handed_the_code_index_read_only_where_the_repo
     from .test_orchestrate import _livespec
 
     build(git_repo)
-    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # the worker handed it, whatever the trial draws
     script = Script(passing(), check("pass"), write="app.py")
     run("fix the cart total", git_repo, store, registry={}, launcher=script, classifier=kind("implement"),
         adapters=[_livespec(tmp_path)])
     worker, verifier = script.specs
-    held = worker.mcp_servers["livespec"]
-    # The worker's is guarded too, held to the tools its brief names.
-    assert held["args"][:4] == ["-m", "locks.mcp_guard", "livespec", "--"] and "uvx" in held["args"]
-    assert "git_diff_impact" not in held["env"]["LOCKS_GUARD_ONLY"].split(",")
+    # The worker is handed no livespec at all: its brief carries what the index says.
+    assert "livespec" not in worker.mcp_servers and "mcp__livespec" not in worker.allowed_tools
     assert "LOCKS_GUARD_ONLY" not in verifier.mcp_servers["livespec"].get("env", {})
     server = verifier.mcp_servers["livespec"]
     assert server["command"] == sys.executable and server["args"][:4] == ["-m", "locks.mcp_guard", "livespec", "--"]

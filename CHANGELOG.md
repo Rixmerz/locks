@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-11-11
+
+### Changed
+- livespec is used by locks itself: where a repository has an index, locks asks it (no model, no MCP call)
+  and briefs the answers as data (`Livespec.dossier`): the symbols the request and its files name with
+  their callers, callees, tests and specs, the specs the request's words find, close-named helpers for
+  writing work, and what the named files reach. Workers are no longer handed livespec's server, hint or
+  orientation (handed to 46 attempts, its tools were called in 3), and the handing trial with its
+  `livespec_trial` setting is gone; a stored value is ignored. The independent check keeps the index.
+- rastro is a way to browse, not a UI check: it is handed when the request asks to browse a page, a site
+  or a running app, or the task has a `--service`, never by kind nor after a failed UI attempt, and no
+  pass owes a rastro call. Judging a rendered layout is layout-inspector's alone.
+- livespec's index raises a reading kind's start one rung and never a writing kind's: on the hard build of
+  `bench/speed/versus.py` a start raised for a widely called symbol passed the same hidden tests in four
+  times the time and almost three times the cost.
+- `bench/speed/README.md`, section Z: the hard build with livespec handed, briefed as a dossier and off.
+- engram is off by default: locks probes, reads and hands nothing of it until the person turns it on.
+
 ## [0.95.1] - 2026-11-11
 
 ### Fixed

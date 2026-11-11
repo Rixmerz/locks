@@ -1699,7 +1699,8 @@ def cmd_neighbours(args: argparse.Namespace) -> int:
     from locks.adapters.engram import Engram
     from locks.adapters.livespec import Livespec
 
-    for adapter in (Livespec(), Engram()):
+    # engram is probed only when the person turned it on (`engram` setting, off by default).
+    for adapter in (Livespec(), *([Engram()] if config.enabled("engram", os.environ) else [])):
         status = adapter.inspect(where)
         print(status.line())
         server = adapter.server()

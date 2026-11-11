@@ -74,7 +74,6 @@ from locks import criteria as criteria_mod
 from locks import critique as critique_mod
 from locks import evidence as evidence_mod
 from locks import findings as findings_mod
-from locks import handing as handing_mod
 from locks import ledger as ledger_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
@@ -289,10 +288,9 @@ class Plan:
     recalled: dict | None = None
     #: Lines of the plan this repository already heard today (`said_today`): kept, not shown again.
     quiet: frozenset[str] = frozenset()
-    #: How a worker finds its way by each neighbour's index (the neighbour's name, the line): briefed
-    #: before the context when that neighbour's tools are handed, left out when they are withheld
-    #: (`handing.arm`).
-    oriented: tuple[tuple[str, str], ...] = ()
+    #: What the neighbours' indexes held on the request, read by locks and briefed as data
+    #: (`Livespec.dossier`): its size in characters, the symbols and the specs it carried.
+    dossier: dict[str, int] | None = None
     #: The start raised one rung on this repository's record of the task's shape (`locks.predict`), with
     #: its evidence; None when the start came from the rules alone.
     predicted: dict[str, Any] | None = None
@@ -401,7 +399,6 @@ class Report:
                          f"`locks show {self.task_id}` keeps them)")
         if self.task_id is None:
             # A dry run shows what the first worker would be handed.
-            lines += [line for _, line in self.plan.oriented]
             lines += self.plan.context
         if self.plan.capabilities:
             lines.append(f"capabilities {', '.join(self.plan.capabilities)}")
@@ -675,7 +672,7 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
     statuses: list[Status] = []
     active: list[tuple[Adapter, Status]] = []
     context: list[str] = []
-    oriented: list[tuple[str, str]] = []
+    dossier_stats: dict[str, int] | None = None
     raise_rungs, critical = 0, False
     # The symbols the request reaches, when an index could say: None when none could.
     reached: int | None = None
@@ -685,9 +682,6 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
         if not status.present:
             continue
         active.append((adapter, status))
-        # How to find its way by this neighbour's index comes before the map the index drew.
-        orient = getattr(adapter, "orient", lambda _kind, _status: ())
-        oriented += [(adapter.name, line) for line in orient(kind, status)]
         briefing = adapter.brief(text, repo_dir, status)
         context += briefing.lines
         raise_rungs = max(raise_rungs, briefing.raise_rungs)
@@ -736,7 +730,10 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 store.landings(kind, climbs=kind not in READ_ONLY_KINDS),
                 writes=kind not in READ_ONLY_KINDS, kind=kind,
             )
-        if raise_rungs:
+        # The index raises a reading kind's start only, as a high complexity does: a build whose named
+        # symbol had many callers started a rung up and passed the same hidden tests in four times the
+        # time (`bench/speed/versus.py`, Z). The reasons stay in the plan either way.
+        if raise_rungs and kind in READ_ONLY_KINDS:
             raised = min(_index_of(ladder, start) + raise_rungs, len(ladder) - 1)
             if ladder[raised] != start:
                 start = ladder[raised]
@@ -855,20 +852,25 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                                    "writes none goes back to its worker once, then to the orchestrator")
         if drifted.behind:
             neighbour_notes.append(f"specs: {drifted.text()}; the worker is told to keep the ones it reaches")
-    if kind not in READ_ONLY_KINDS and (named := [p for p in touched_paths(text, options) if "*" not in p]):
-        # What the code index says the files the request names reach, asked by locks before the worker
-        # starts (data), so the worker knows it whether or not it calls the index itself.
-        for adapter, status in active:
-            try:
-                found = list(getattr(adapter, "reach", lambda _p, _r, _s: ())(named, repo_dir, status))
-            except Exception:  # an index that cannot say costs the plan nothing
-                found = []
-            if found:
-                context.append("What the code index says the files this request names reach, before any change "
-                               "(data; probe what matters):\n" + "\n".join(f"- {line}" for line in found))
-                neighbour_notes.append(f"{adapter.name}: what {len(named)} named file(s) reach is in the brief")
+    # What the neighbours' indexes hold on the request, asked by locks before the worker starts and
+    # briefed as data (`Livespec.dossier`): the worker is not handed the index to ask it itself.
+    named = touched_paths(text, options)
+    for adapter, status in active:
+        make = getattr(adapter, "dossier", None)
+        if make is None:
+            continue
+        try:
+            found = make(text, repo_dir, status, kind=kind, paths=named)
+        except Exception:  # an index that cannot say costs the plan nothing
+            found = None
+        if found is not None and found.text:
+            context.append(found.text)
+            dossier_stats = {"chars": found.chars, "symbols": found.symbols, "specs": found.specs}
+            neighbour_notes.append(f"{adapter.name}: {found.symbols} symbol(s) and {found.specs} spec(s) "
+                                   "from its index are in the brief")
     selected = _with_role(caps.select(registry, kind, workdir=repo_dir, paths=touched_paths(text, options),
-                                      reading=kind in READ_ONLY_KINDS), role, registry, repo_dir)
+                                      reading=kind in READ_ONLY_KINDS,
+                                      asked=asks_to_browse(text, options)), role, registry, repo_dir)
     names = tuple(dict.fromkeys([*selected.names, *(a.name for a, _ in active)]))
     # A cheaper cell below the ladder, on trial where the first rung already passes here
     # (`trust.probation_arm`); one a standard made the start (`standards.rungs_of`) climbs into the ladder.
@@ -898,7 +900,7 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 risk, turns, size, standard.data() if standard is not None else None, race,
                 probation={"arm": arm, "cell": PROBATION[kind].label} if arm else None,
                 withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None,
-                oriented=tuple(oriented), predicted=predicted)
+                dossier=dossier_stats, predicted=predicted)
 
 
 #: A start whose first tries passed less often than this here, over at least `RACE_SAMPLES`
@@ -1499,17 +1501,6 @@ def run(
         if options.parts and critique_mod.enabled() and options.start is None:
             critic_arm, critic_why = critique_mod.arm_for(store, key, task["id"])
             critiqued = {critique_mod.KEY: critic_arm, critique_mod.WHY_KEY: critic_why}
-        # Whether this worker is handed livespec's tools (`locks.handing`): drawn by the trial of its
-        # nature here, kept either way so the arms can be compared; the orientation goes with the tools.
-        # What locks read from the index itself (the code map, the size, the check's impact) stays.
-        handed_arms: dict[str, Any] = {}
-        withheld_tools: frozenset[str] = frozenset()
-        if any(a.name == "livespec" for a, _ in the_plan.active) and handing_mod.enabled():
-            side, side_why = handing_mod.arm(store, key, the_plan.kind, task["id"])
-            handed_arms = {handing_mod.KEY: f"{handing_mod.nature(the_plan.kind)}:{side}", "livespec_why": side_why}
-            if side == "withhold":
-                withheld_tools = frozenset({"livespec"})
-        context[:0] = [line for name, line in the_plan.oriented if name not in withheld_tools]
         # The brief's fixed weight, per kind and release (`locks.footprint`): what a worker reads
         # before its task, so a brief that grows release after release is seen, not guessed.
         worn_brief = roles.brief(the_plan.role, held=held_files) if the_plan.role is not None else None
@@ -1517,19 +1508,20 @@ def run(
                         context_chars=sum(len(line) for line in context), kind=the_plan.kind,
                         system_chars=len(worn_brief.system_prompt) if worn_brief is not None else 0,
                         skills=len(worn_brief.skills) if worn_brief is not None else 0,
+                        # The dossier locks read from the index and briefed (`Livespec.dossier`): its size,
+                        # and how many symbols and specs it carried. Absent: none was briefed.
+                        **({"livespec_chars": the_plan.dossier["chars"],
+                            "livespec_symbols": the_plan.dossier["symbols"],
+                            "livespec_specs": the_plan.dossier["specs"],
+                            # livespec's index describes the person's checkout; a worker in a worktree edits
+                            # a copy of it, so what the index answers is the base, not its own work so far.
+                            "livespec_index_of": "checkout" if workdir.resolve() != repo_dir.resolve() else "workdir"}
+                           if the_plan.dossier else {}),
                         # Each adopted neighbour's state when this brief was written: a brief with no
-                        # livespec orientation says why (absent, stale, unreadable), never left to guess.
-                        **({"livespec_tools": sorted(handed)} if (handed := next(
-                            (a.worker_tools(the_plan.kind, st) for a, st in the_plan.active
-                             if hasattr(a, "worker_tools") and a.name not in withheld_tools), None)) is not None
-                           else {}),
-                        # livespec's index describes the person's checkout; a worker in a worktree edits
-                        # a copy of it, so what the index answers is the base, not its own work so far.
-                        **({"livespec_index_of": "checkout" if workdir.resolve() != repo_dir.resolve() else "workdir"}
-                           if handed is not None else {}),
+                        # dossier says why (absent, stale, unreadable), never left to guess.
                         **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                            for st in the_plan.neighbours}} if the_plan.neighbours else {}),
-                        **primed, **worn, **trunked, **evidenced, **handed_arms,
+                        **primed, **worn, **trunked, **evidenced,
                         **methodical, **critiqued, **(the_plan.recalled or {}),
                         **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
                         **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
@@ -1646,8 +1638,9 @@ def run(
             selection = _equip(_with_role(caps.select(
                 registry, the_plan.kind, failed_before=bool(attempts), workdir=workdir,
                 paths=touched_paths(text, options, [*changed, *(isolate.changed(workspace) if workspace else ())]),
-                reading=not writes or declared_read_only), the_plan.role, registry, workdir), the_plan, repo_dir,
-                workdir, withheld=withheld_tools)
+                reading=not writes or declared_read_only,
+                asked=asks_to_browse(text, options)), the_plan.role, registry, workdir), the_plan, repo_dir,
+                workdir)
             # A tool that acts answers to the loop the task is a round of, or to none.
             selection = caps.for_loop(selection, options.loop, home())
             # Numbered as the store numbers it: a resumed task's attempts go on from its last, and
@@ -2481,9 +2474,20 @@ def _integrate(store: Store, task_id: int, workspace: isolate.Workspace | None, 
 #: Words that say a task needs a browser, or servers that keep running.
 _BROWSER = re.compile(r"\b(browser|navegador|navigate|navega\w*|abr[ie]\w* (?:el )?navegador|screenshot|"
                       r"captura de pantalla|playwright|puppeteer|e2e)\b", re.IGNORECASE)
+#: A request that asks to browse: navigate or use a page, a site, a URL or a running app.
+_BROWSE = re.compile(
+    r"\b(?:browse|navigate|navega\w*|visit|visita\w*|(?:open|abre|abrir|use|usa|usar|explore|explora)\s+"
+    r"(?:the\s+|el\s+|la\s+|this\s+|that\s+|your\s+)?(?:running\s+|local\s+)?(?:page|site|website|url|app|"
+    r"p[aá]gina|sitio|aplicaci[oó]n)|https?://\S+|localhost:\d+)", re.IGNORECASE)
 _SERVER = re.compile(r"(\bdev servers?\b|\blevanta\w*\b|\bstart (?:both |the )?(?:dev )?servers?\b|"
                      r"\bng serve\b|\bnpm (?:run )?(?:start|dev)\b|localhost:\d+)", re.IGNORECASE)
 _BROWSER_CAPS = ("browser", "playwright", "chrome", "puppeteer", "rastro")
+
+
+def asks_to_browse(text: str, options: Options) -> bool:
+    """Whether the task's own request asks to browse (`_BROWSE`), or it was sent with a --service:
+    the only ways rastro, a cheap headless browser, is handed (`Capability.on_request`)."""
+    return bool(options.services) or bool(_BROWSE.search(_QUOTED.sub(" ", text)))
 #: A task that tells the worker to start its servers: it needs them, whatever its check, and
 #: its worker starts them itself.
 _START_SERVERS = re.compile(
@@ -3980,20 +3984,17 @@ def failed_output(last: Attempt) -> str:
     return "The output that failed the last attempt, last lines:\n" + last.evidence.strip()[-1500:]
 
 
-def _equip(selection: caps.Selection, the_plan: Plan, repo_dir: Path, workdir: Path,
-           withheld: frozenset[str] = frozenset()) -> caps.Selection:
-    """The registry's selection plus every adopted neighbour, each with its hint, less the ones a
-    trial withholds from this worker (`locks.handing`). A registry entry of the same name wins: a
-    person who configured it chose it."""
+def _equip(selection: caps.Selection, the_plan: Plan, repo_dir: Path, workdir: Path) -> caps.Selection:
+    """The registry's selection plus every adopted neighbour that is handed to workers, each with its
+    hint. livespec is not one: locks asks its index and briefs the answers (`Livespec.dossier`). A
+    registry entry of the same name wins: a person who configured it chose it."""
     servers = dict(selection.servers)
     hints = list(selection.hints)
     names = list(selection.names)
-    for adapter, status in the_plan.active:
-        if adapter.name in withheld:
+    for adapter, _ in the_plan.active:
+        if adapter.name == "livespec":
             continue
-        # A neighbour that can hold its worker to the tools its brief names hands only those.
-        worker_server = getattr(adapter, "worker_server", None)
-        server = worker_server(the_plan.kind, status) if worker_server else adapter.server()
+        server = adapter.server()
         if server is None or adapter.name in servers:
             continue
         servers[adapter.name] = server

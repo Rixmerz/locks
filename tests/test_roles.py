@@ -316,7 +316,7 @@ def test_copy_writes_the_resolved_role_to_edit_and_refuses_what_it_should():
     path = roles.copy("tester", "my-tester", kinds=["test", "implement"], description="tests my way")
     copied = roles.load().get("my-tester")
     assert copied.scope == "user" and copied.derived_from == "tester" and copied.kinds == ("test", "implement")
-    assert copied.prompt == roles.load().get("tester").prompt and copied.capabilities == ("rastro", "browser")
+    assert copied.prompt == roles.load().get("tester").prompt and copied.capabilities == ("browser",)
     assert "on_demand: [python-rules" in path.read_text()
     with pytest.raises(roles.RoleError, match="already exists"):
         roles.copy("tester", "my-tester")

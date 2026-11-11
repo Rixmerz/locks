@@ -12,14 +12,14 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 |---|---|
 | `src/locks/matrix.py` | models, the five efforts and their purpose, the ladder per kind, and the probation cell below a writing kind's ladder (`PROBATION`, `reach`); a model's default effort reads cells recorded before it had the dial |
 | `src/locks/trust.py` | earned trust, read from the independent check's record per repository, kind and worker cell: skip-lot sampling of the verifier (`sampling`), the probation trial below a ladder (`probation_arm`), and what the record says of learning (`report`, `locks trust`, `locks stats`); no model |
-| `src/locks/evidence.py` | what a neighbour a worker was handed must show before its pass counts (layout-inspector on a UI change, rastro), read from the tool-call log: a pass that owes it goes back once, then to the orchestrator; tried in arms per repository; every handed capability's calls counted per attempt; no model |
+| `src/locks/evidence.py` | what a neighbour a worker was handed must show before its pass counts (layout-inspector on a UI change), read from the tool-call log: a pass that owes it goes back once, then to the orchestrator; tried in arms per repository; every handed capability's calls counted per attempt; no model |
 | `src/locks/classify.py` | rules first, Haiku for the rest; `frontier` only by tag |
 | `src/locks/escalate.py` | failure kind → move (retry, more effort, next model, more turns, replan) |
 | `src/locks/launch.py` | one attempt as `claude -p`: argv, the result contract, parsing, git-read changes |
 | `src/locks/capabilities.py` | which MCP servers a worker gets, from the user-level registry |
 | `src/locks/mcp_guard.py` | a JSON-RPC guard between a worker and an MCP server: the calls a policy refuses never reach the server, a line it cannot parse or whose keys collide by case is answered and never forwarded, and what it forwards is rebuilt from the protocol's keys; stdlib, imports nothing of locks |
 | `src/locks/masking.py` | the one pattern locks masks secrets with: `SECRET` for the trace and kept transcripts (git commit ids stay), `SECRET_STRICT` for the notes (long hex runs too); linear on any input; stdlib, imports nothing of locks |
-| `src/locks/plugins.py` | neighbours the person installed as Claude Code plugins (layout-inspector, rastro), read from the plugin cache or PATH and handed over as capabilities with their skill; `versions` is the one reader of the cache (folders only, never a `temp_*` clone `/plugin` left half done) |
+| `src/locks/plugins.py` | neighbours the person installed as Claude Code plugins (layout-inspector, rastro), read from the plugin cache or PATH and handed over as capabilities with their skill: layout-inspector measures rendered UI, rastro only browses (handed when the request asks to browse or the task has a service, `on_request`); `versions` is the one reader of the cache (folders only, never a `temp_*` clone `/plugin` left half done) |
 | `src/locks/manifests.py` | what a neighbour says of itself: the `locks` block of its newest installed plugin manifest (or `locks.json` beside it), read at plan time and cached per file state; words only (hint, hints per kind, tool descriptions, what tools measure), ignored whole when malformed (`docs/neighbours.md`) |
 | `src/locks/roles.py` | what a worker is: role files (bundled `roles/`, the person's in their locks home), `extends` and `match`, skills found by name and put into the worker's system prompt; a bundled skill with an upstream plugin (`UPSTREAM`) read from that installed plugin, the vendored copy the fallback |
 | `src/locks/teams.py` | the person's teams of roles and which one each project uses (kept in their locks home); a project's team bounds the kinds it is classified into; `team_cli.py` is `locks roles …` and `locks team …` |
@@ -44,7 +44,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/` | the README's screenshots of `locks ui`, taken on demo data with generic project names |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `livespec_trial`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -70,7 +70,6 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/methods.py` | how a kind's workers are briefed to work, tried against its absence: a diagnosis protocol for `debug-unclear`, a pre-mortem for `plan` whose `Risks:` reach the independent check of the steps after it; arms per repository (`method_arm`); no model |
 | `src/locks/critique.py` | a plan a workflow fans out over, read blind before its parts are built (the `critique` setting): a read-only sonnet/low reader given the request, the contract and each part's prompt and surfaces, nothing else, that names the design decisions a part leaves to its worker and the criterion no part answers; the plan goes back once with its findings, its second answer stands; tried in arms per repository (`critique_arm`), judged by the first tries of the parts after the plan as the pre-mortem is; no model of locks' own beyond the reader |
 | `src/locks/predict.py` | where a writing task shaped like ones that failed their first try here starts: one rung up, only where the climbs from that start to the rung above rescued those failures (`shape`: kind, size, risk tier, areas; `start`, the backtest on the repository's record); never a lower, pinned or probation start; kept on `planned.predicted`, shown by `locks stats`; no model |
-| `src/locks/handing.py` | whether a worker is handed livespec's tools (its server, their descriptions, the orientation), tried against withholding them per repository and nature of work (`livespec_arm`, `<nature>:<arm>`): handed afterwards only where handed workers passed their first tries no less often and no slower; what locks reads from the index itself (the code map, the size, the check's impact) is never withheld; no model |
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
 | `src/locks/cells.py` | where a lesson belongs: the area a path or a change is in, the role that met it, or everyone (`scope`); the text a failure is kept and matched by (a workflow step's goal, never its template); the cell's primer (how its workers got oriented) and its trial; no model |
 | `src/locks/cells_by_kind.py` | `locks cells`: per kind, the cell locks starts it on here and each cell's first tries, the cheapest proven one named; for the delegating session's own choices, never a rule; read only, no model |
@@ -605,9 +604,10 @@ yields the default kind, not a guess.
   (`analysis.parts_on_a_point`). Tests run with `LOCKS_CRITIQUE=off`.
 - A high complexity raises a reading kind's start one rung, never a writing kind's: a build
   classified high passed as often at its ladder's first cell, in less than half the time
-  (`bench/speed/versus.py`). livespec's code map raises a start one rung only for a symbol the
-  request names outright (widely used, or implementing a critical spec), never for one its words
-  merely match (`Livespec.brief`, `_matching_symbols`' `named`). History may raise where a task starts, never lower it below its ladder, and only on
+  (`bench/speed/versus.py`). livespec's code map raises a reading kind's start one rung, never a writing kind's (the same
+  bench, Z: a build raised for a 21-caller symbol passed the same hidden tests in four times the time), and
+  only for a symbol the request names outright (widely used, or implementing a critical spec), never for one
+  its words merely match (`Livespec.brief`, `_matching_symbols`' `named`). History may raise where a task starts, never lower it below its ladder, and only on
   climbs: a writing task that passed where it started is no evidence a lower cell fails
   (`Store.landings`, `""`), or a start history raised keeps every later task as high; a
   reading kind's pass is its answer, so its landings count where they passed. So may it
@@ -880,554 +880,31 @@ yields the default kind, not a guess.
   group (`adapters.livespec._run_in_group`), so its timeout ends `uvx` and the `livespec index` under
   it together; a refresh that failed at this commit is not tried
   again until the checkout moves. With an
-  index the brief opens with `Livespec.orient` (spec, code, symbol, file; writers also `search_similar`)
-  before the code map. A worker gets livespec behind `mcp_guard`, held to the tools its orientation and
-  hint name (`Livespec.worker_tools`, `mcp_guard.ONLY`: its `tools/list` shows only them, a call to another
-  is refused, kept on `briefed.livespec_tools`), never one that writes or `git_diff_impact`
-  (`WORKER_WITHHELD`): that reads the diff of the checkout the index describes, not the worktree a worker
-  edits, and what a change reaches is locks' own `assess`, briefed to the check. Where it has one and the repository keeps `openspec/`, a
+  index locks asks it itself and briefs the answers (`Livespec.dossier`, no model and no MCP call, the index
+  opened read-only): the symbols the request names and those of the files it names, each with where it is,
+  its signature, what it calls, who calls it, the tests that cover it and the specs it implements; the specs
+  the request's words find strictly, with their requirement and implementing symbols; for a writing kind the
+  helpers named close to what the request says to add; and what the named files reach. It is data in the
+  brief, bounded by `DOSSIER_CHARS` with the rest said by count, and the `briefed` event keeps its size
+  (`livespec_chars`) and what it carried. A worker is handed nothing of livespec (no server, no hint, no
+  orientation): handed to 46 attempts its tools were called in 3. The independent check keeps the index
+  behind the read-only guard (`_index_servers`), and what a change reaches is locks' own `assess`, briefed
+  to it. Where the repository keeps `openspec/`, a
   writing worker is told to put `@spec:<capability>-<requirement-name>` on the code that implements a
   spec it writes (`spec_links_brief`), and what the change touched that no code names is a line of the
   report and of the independent check's brief (`specs.unlinked`, `LINK_PREFIX`): a spec the change
   wrote blocks, one that was already there is a warning, data and never a verdict of locks' own. A spec
   the change wrote with none raises its tier to high (`orchestrate._risk_of_change`), so the independent
-  check that blocks always runs, a docs task's too; a warning raises nothing. Each
-  attempt keeps the livespec calls its worker made (`attempt_finished.livespec_calls`), and `locks
-  stats` compares tokens per kind with livespec called against not called, and each tool offered
-  (`briefed.livespec_tools`) against called (`analysis.livespec_offer`): observed, never a trial.
+  check that blocks always runs, a docs task's too; a warning raises nothing. `locks stats` compares the
+  briefs that carried a dossier with those that did not (first tries passed, a pass's median time):
+  observed, never a trial. `LOCKS_LIVESPEC=off` reads no index and briefs none.
   Tests run with `LOCKS_LIVESPEC_WAIT=0`.
-- Whether a worker is handed livespec's tools at all is a trial (`locks.handing`, the `livespec_trial`
-  setting): 6 workers in a row were handed it and none called it, and a server started with the worker,
-  nine tools' descriptions in every turn and the orientation lines are a cost on every attempt. A
-  repository's tasks of each nature (reading, writing) alternate `hand` and `withhold` (`briefed.livespec_arm`,
-  `<nature>:<arm>`; a resume keeps the arm its first brief drew) until each arm has `handing.TRIAL` first
-  tries; then livespec is handed only where the handed arm passed its first tries no less often and no
-  slower (`arms.pick`, `locks stats`). A withheld worker gets no server, no hint, no orientation and no
-  `livespec_tools` on its brief; the code map, the size estimate and what the change reaches for the
-  independent check are locks' own reads of the index and stay, and the independent check keeps the index
-  (`_index_servers`) whatever the arm. Tests run with `LOCKS_LIVESPEC_TRIAL=off`.
-- A trial is per repository, and a repository with few tasks would pay for both arms for months (the
-  primer needs 24 tasks, a role's lessons 20, the trunk 20 workflow steps, the evidence gate 16 the
-  check read, livespec 12 per nature, a method 12 of its kind): while its own arms are short of the trial
-  and every repository's are full, the verdict of every repository decides there (`arms.pick`'s `pooled`,
-  `arms.pooled_why`; the primer, the evidence gate and the trunk through their `_verdict`), said in the
-  brief's `*_why` as "pooled from every repository while the trial here has …"; once the repository's own
-  arms are full they decide alone. An early loss is never pooled: only a full trial is. A role's lessons
-  are the repository's own and pool nothing.
-- An adopted neighbour is read, never written: the livespec index is opened
-  `mode=ro`, and the index is built only through livespec's own CLI. Absent
-  and unreadable are different states and neither stops a run. The one
-  exception is engram, and only with `engram_write`, off by default: what a
-  passing worker learned, filtered as a note is (never a secret, never a
-  failed attempt's, never `<private>` text), saved through engram's own
-  server.
-- engram's store is never opened by locks: only its server, once `/health`
-  says engram and `/compatibility` says the running store is verified. What it
-  holds goes in a brief as data, never instructions. A worker gets
-  `engram mcp` behind the `engram` guard: reading tools only, held to the
-  project locks resolved. Tests run with `LOCKS_ENGRAM=off`; a test that wants
-  it passes a fake `http`.
-- An index livespec failed to build is not tried again until the checkout
-  moves (`Livespec.last_failure`); the plan says so once per task. A release
-  a plugin names that uv reports missing from the registry is remembered
-  (`Livespec.unpublished`) and the pinned one runs instead.
-- Every livespec tool a hint names is in `adapters/livespec.TOOLS`, checked
-  against the release in `MINIMUM_VERSION`. Check a name against livespec
-  before adding it, and bump `PINNED` only after checking the new release.
-  livespec's `validate_openspec` has no command line, so `locks specs` asks it over MCP on stdio
-  (`Livespec.call_tools`, a minimal client cut at its timeout) after `sync_openspec`, both on a
-  temporary copy of `openspec/` alone, indexed there by livespec's CLI, with its own `LIVESPEC_HOME`
-  and no `.livespec.toml` (`Livespec.validate_openspec`): nothing is written in the person's
-  checkout, their index or livespec's registry of projects.
-  What `uvx` runs when no plugin entry and no `livespec` on PATH is used is `Livespec.pin()`: the
-  release in the newest installed livespec plugin's own manifest (`.claude-plugin/plugin.json`,
-  never one `unpublished()` holds), else `PINNED`. A release newer than `PINNED` (a plugin's, or one
-  on PATH) is taken, and checked: its own `tools/list` is read once per release and kept in the locks
-  home (`Livespec.missing_tools`); an orientation line naming a tool it does not serve is not told,
-  the hint names it as not served, and the plan says so (`_release_note`, never a raised rung). Tools
-  that cannot be read brief as for `PINNED` and are asked again next time. `PINNED` itself moves by a
-  reviewed pull request the weekly `livespec-pin` workflow opens only after `scripts/livespec_check.py
-  verify` and the suite passed on it: never an unpinned fetch.
-- Tests run with `LOCKS_LIVESPEC=off` and an empty `CLAUDE_CONFIG_DIR`; a
-  test that wants livespec builds the fixture index in `tests/livespec_fixture.py`.
-- A dispatch decision fails closed: no answer from Haiku means the task
-  waits. A wait Haiku gives names a collision (a change the task needs, the same code or
-  behaviour changed), never a guess at a shared helper (`bench/speed/dispatch.py`). It is
-  made once and kept on the task with its reason, until none of the
-  work it was judged against is ahead any more: then it is made again
-  (`flow._judged_against_gone`, the event's `again`); and a wait Haiku gave is asked again,
-  at most every `flow.REJUDGE_S`, once the work ahead changed files it had not when it was
-  judged (the event's `seen` and `moved`). `locks lanes --beside N` is
-  the session's word that a queued task starts beside the work ahead; it never
-  moves work held `--after`. A task that will
-  not write (`matrix.READ_ONLY_KINDS`, or text `orchestrate.declares_read_only`
-  reads as read-only; with no kind yet, the one `classify` gives it without the
-  model, a build when no rule reads it) is never put to Haiku: it runs beside
-  running work, and is no conflict for a writing task, which is judged against
-  the writing work ahead of it alone. A reason is kept as plain text on one
-  line. Tests run with
-  `LOCKS_PARALLEL=off`, `LOCKS_AUTOWORK=off` and `LOCKS_NAMES=off`; a test
-  that wants them passes a fake `decide`, `start` or `popen`.
-- Scaling has two axes, and money moves neither. Horizontal scaling is the
-  number of workers this machine runs at once: the dispatcher's level
-  (`locks.capacity`), kept in the person's locks home, never a fixed number.
-  It starts at what the machine can hold (its CPUs, free memory and the free
-  disk where worktrees live, each worker counted at `WORKER_MEMORY_MB` and
-  `WORKTREE_DISK_MB`, at least 1), rises by one when work waits for a worker
-  and a round of the tasks it started (as many as the level) ended with no
-  limit, and halves, never below 1, on a rate limit or an overloaded API
-  (read from the CLI's own result, `launch.api_limit`, never from a check's
-  output), on a worker the machine starved (a CLI or a `run-queued` process
-  killed, a full disk), on free memory or disk under its constant, or on a
-  load average over `LOAD_PER_CPU_HIGH` per CPU; after a rate limit it does
-  not rise before the retry-after. A level the machine lowered (memory or
-  disk readings, load, a full disk) goes back once the machine is `clear()`
-  for `RECOVER_AFTER_S` and work waits, without waiting for a round. `max_parallel` (`auto`
-  or a number) is the person's ceiling, and the level adapts under it. Each
-  change is a `level_changed` event, on the task that caused it or on task 0
-  when the machine did. The lanes share the level by reserve and lending: with
-  level L and k lanes with work to run, each is reserved max(1, L // k),
-  granted in the order its oldest work was queued while L lasts; what a lane
-  does not use is lent, and a lent worker goes back to its lane as soon as that
-  lane has work and a borrowed task ends. Nothing running is stopped to give
-  it back, and a lane paused on a person reserves nothing. Every dispatcher
-  settles, allots and claims under one lock (`capacity.held`), and judges only
-  its own lane's tasks. Vertical scaling is the cell and the turns each task
-  starts with and climbs by evidence (`matrix`, `escalate`), as above. Neither
-  reads a cost. Tests run on a fake machine of three CPUs (`capacity.machine`,
-  in `tests/conftest.py`); a test that wants another passes `machine`.
-- A session a program runs is no person's (`locks.scripted`): where the nearest `claude` above a hook runs in
-  print mode and asks for structured output (`--json-schema`), writes an output a program reads
-  (`--output-format json|stream-json`) or has no terminal on its input, `hooks.main` answers nothing, opens
-  no store and claims nothing (no injection, no notes filed, no relay, no orchestrator role); the person's
-  trace still keeps the event. Environment variables cannot tell it (a `claude -p` from a session's shell
-  inherits that session's); a person's `claude -p` in a terminal and an app over `--input-format stream-json`
-  keep the hooks, and what cannot be read is no program's. `LOCKS_HOOKS_OFF=1` turns every hook off (locks'
-  workers run so). Tests run with `LOCKS_SCRIPTED_CHECK=off`.
-- A session belongs to the `.locks/` in its own directory or up to the top of
-  its checkout, never above it; outside a checkout, its own directory only.
-  The home directory, `/`, Claude Code's own folder (a plugin's cached copy)
-  and locks' home are never a project, a dotfiles checkout at home
-  included. The one exception is a workspace the person declared.
-- A workspace (`locks workspace add`) is a folder of two or more repositories
-  that is one project: `repo.key` answers with the folder for each of them and
-  their worktrees, and `project.find` for each of them, so notes, tasks, lanes,
-  sessions, the team and the rules kept with `locks allow` are the folder's (a
-  repository keeps its own project-scope workflows). It lives in the person's
-  locks home, never in a repository, and never inside a checkout. Its folder
-  holds only its own repositories, since every one under it belongs to it: the
-  ones named, linked in when elsewhere, or with none named the ones right
-  inside it. Nothing is made before everything is checked. Making one moves
-  what each repository kept where it was done in that checkout (`Store.rekey`;
-  a clone elsewhere with the same key keeps its own, and its notes are copied,
-  not moved), merges a fact two of them kept (a current copy over one to
-  review, with both one's anchors and links), and waits while one of them has
-  work queued or running. A member's file is named with the member in front in
-  the notes (`api/src/x.py`); a member and its worktrees review only its own
-  anchors, and the folder each member's in that member. A task in the folder
-  holds every checkout in it, a linked one included. locks offers a workspace
-  (a task that reaches a sibling with `--add-dir`: their own folder only when
-  it holds exactly them, else a new one beside them) and never makes one for
-  the person.
-- `.locks/sessions.json` belongs to the person as much as to Haiku: a `name`
-  that differs from `haiku_name` is theirs, and nothing in locks overwrites it.
-- The UI shows one project at a time and takes no task: work is asked for in
-  a session. Claude Code's own task files are read, never written.
-- A lane pauses only on a task the dispatcher started, and never on one a
-  person cancelled or on an investigator's; it opens again by itself when that task leaves the board
-  (dismissed, superseded, or resumed to a pass), and the queue starts again. A resume that reopens it, or `locks lanes
-  --unpause`, starts its dispatcher at once (under the one-dispatcher lock), not at the resumed task's end; a person's own `locks run` never blocks the queue. A GET in the UI never starts work or
-  sweeps — housekeeping runs in hooks, the dispatcher and the server thread.
-- Color in the UI carries meaning and never alone: a state, a kind's family
-  and a model's depth each have one tone (`util.js`: `statusBadge`,
-  `kindChip`, `cellChip`), always beside their word. The kind hues keep their
-  fixed order; a change to them is checked for colour-blind separation in
-  both themes. The mod's text carries the same tones as emoji markers.
-- The UI opens no browser tab by itself, and never one per piece of work (`/locks:ui`
-  runs `locks ui`; `--open` once, only when the person asks): a session's tasks are all in
-  its page (`#session=<id>`, the Sessions screen, each task opened inside it). `--tabs` is
-  the person's opt-in and gives a session one tab at most: the server holds the sessions
-  that have it (`UIServer.claim_tab`), a later run asks with the token (`/api/tab`) and is
-  told `claimed: false`, and a server handed over to a newer locks passes the claims on.
-  A GET opens nothing. `locks ui --idle-exit N` is the person's opt-in to stop the board once no
-  tab was open for N seconds (`UIServer.exit_when_idle`: an open stream is a viewer), counted only
-  after one came; without it the board stays up.
-- A task page polls only while it shows a running task (`/api/tasks/N/live`,
-  every 5 s; tool calls write no events), and what it shows of a worker's calls
-  is what `phase.calls` keeps: when, the tool, its signature, whether it went
-  through; never an argument nor its hash. The one exception is the person's own trace: with `trace` on, the board's
-  terminal also shows each call's input and output from it (`trace.worker_calls`, masked as written,
-  clipped by `text.clip`), read from their locks home only. A desktop notification is asked for
-  only from a person's click, kept per viewer in the browser, and never fires
-  for the state a tab opened with.
-- The UI builds every node with `textContent` (`h()` in `static/util.js`,
-  `s()` in `static/svg.js` for SVG), never `innerHTML`, and sets no inline
-  style attribute (the page's policy refuses it; use the CSSOM): task text and worker summaries are untrusted. The token
-  never goes in a URL, and every mutation needs it in a header.
-- `plan()` never waits on a neighbour's index: a refresh starts in the
-  background and the task uses the index as it is. A run says its task number
-  and each attempt on stderr as they happen; stdout stays the report.
-- `PostToolUse` runs on every tool call: its fast path in `__main__.py`
-  imports only `locks.signature` and appends one line. Do not add a database
-  write, a git call or an orchestrator import to it.
-- The trace (`locks.trace`) is the one record that keeps a tool's arguments and output: the person's
-  opt-in (`trace`, off by default), in their locks home only, secrets masked, a worker's own transcript kept
-  beside it when its attempt ends (`launch._keep_worker_transcript`: a `claude -p` worker fires no Stop of the person's), written by its own
-  `hook-trace` entry or the existing fast path, never read by a rule; a trace never fails a hook or a write.
-  The fast path traces a session with the hooks off only when it is a locks worker (`LOCKS_WORKER_TASK`):
-  locks' own Haiku calls are no session of the person's. A call that failed (`PostToolUseFailure`) or a
-  permission refused before it ran (`PermissionDenied`) takes the fast path too (`signature.FAILED`): a failed
-  call in the tool-call log and a `failed` tool record with its error, so friction counts what never reached
-  PostToolUse. `sk-` is a key only at a word's start, or glued with a digit in it: `<task-notification>` is none.
-  Every record names the release that wrote it (`version`), and what a hook does to a session beyond what it
-  injects is a `locks:<action>` record with no task (`trace.action`, `trace.ACTIONS`), written where it
-  happens: the launch at SessionStart (flags only, never a prompt, `scripted.shape`) and each hook skipped as
-  a program's (`hooks._trace_launch`), the orchestrator role taken, lost (in the old holder's trace too) or
-  ended (`orchestrator.claim`, `ended`), a relay taken and given, the notes filed from a conversation
-  (`cli.cmd_extract_notes`), a dispatcher revived or a task resumed by a hook (`hooks._revive`). A new act of
-  a hook on a session gets one, so an audit reads it from the session's own trace.
-- A stray path outside a task's surfaces is a finding of its own: it never rewrites an `environment` failure, nor a `code_bug` with the check's output, as `approach`, and never empties `check_tail`. Surfaces are read from inside the repository as well as from the folder, and a dependency folder is never offered as one. A container stack a worker started in its worktree is stopped when its task ends (`isolate.stop_stacks`).
-- A resume's brief carries the notes filed since its last attempt and the instruction a session passed with `locks resume N -` (`orchestrate.resume_context`), quoted as context, never the task. The independent check gets that instruction too, as the session's later decision: following it is no finding. The late check blocks by the first check's rule (a finding only read from the code goes with the pass). A lockfile that differs only in the project's own version is not stale (`isolate._stale`), and an overlap notice never names a kept branch HEAD already holds (`isolate.already_in_head`).
-- Forensics, the footprint and skill use read a copy of the store, never the live file, and say what
-  they observed, never a modeled figure; a dormant skill is said, never archived by locks. The notes
-  fork is judged by facts kept per filing, never by its cost, which is shown beside it.
-- The locks home is the person's alone: the folder 0700, the store and what the scribe and the trace
-  keep 0600. Secrets are masked by `locks.masking` only; a new format goes there, with a timing test.
-- A git call locks makes has a timeout (`isolate.GIT_TIMEOUT_S`) and never prompts; a write
-  transaction of the store never spans a git call or a model call (`tests/test_workflow_lock.py`).
-- A claim is never left without a process: `flow.work` puts it back when `start` raises, and the sweep
-  after `flow.CLAIM_STALE_S` (`claim_released`). A habit's command sets only `habits.ENV_ALLOWED`.
-- The store's schema and migrations run only when the file's `user_version` differs from
-  `store.SCHEMA_VERSION` (bumped by hand with `SCHEMA_HASH`, `tests/test_store_open.py`); the old name's
-  rows are read on every open. The trace is bounded by `trace.prune` (`KEEP_DAYS`, `KEEP_MB`), run by
-  SessionStart once a day with the trace on, never the session's own; `hook-errors.log` keeps its tail.
-- The dispatcher's model call runs outside `capacity.held`: candidates are read under it, judged
-  without it, then allotted and claimed under it again, each checked as still queued.
-- A signature never holds an argument. The final `[a-z0-9:._-]` filter stays
-  last, after the semantic scrubbing.
-- A compaction digest is read from the transcript and git, never written by
-  a model: it may leave things out to fit, never paraphrase. A person's
-  words are kept as typed; harness text (commands, reminders) is not theirs.
-- Compacting is the orchestrating session's call (`compact orchestrator`, the
-  default): locks' moment reaches it as advice with its reasons, never as a
-  compaction, and it compacts with the mod's `compact` tool
-  (`compaction.request`), on that advice or on its own, run when its turn ends
-  with no check of the cache, the size or the cooldown. What it asks to keep is
-  quoted apart and marked as the session's (`kept_by_session`), never mixed
-  into locks' instructions. What it asks to go on with (`then`) is never told to
-  the summarizer: once the compaction finished (a hook saw it end, the engine
-  answered the mod, or it never ran) and within `compaction.THEN_WITHIN_S`, the
-  mod submits it once (`compaction.continuation`, a `compaction_continued`
-  event) as the session's next prompt, quoted and marked as its own words; a
-  worker never compacts, and with `compact off`
-  the tool is refused. The tool is delegated like `queue` and `resume`. `queue` waits `QUEUE_MS` for `locks queue add`, which splits
-  a request that is several tasks first (Haiku may propose the pieces), and reads the pieces it queued from
-  its one JSON line (`--json` keeps prose on stderr).
-- The scribe reads a session's transcript, never its context, and never with a
-  model: the same rules as a compaction digest, kept as the session goes, in the
-  locks home, secrets masked. Its failure never costs a turn its endings. A
-  task a session sent gets the part of the thread it needs in its brief,
-  verbatim and marked as context, never instructions (the task's text is what
-  to do); an investigation gets none, and reading it never fails a run.
-- A relay is the person's (`locks relay`, `/locks:relay`): taken once, by the
-  next session that starts (or is cleared) in the same place, never by a
-  resume, and dropped after `scribe.RELAY_HOURS`. The work the old session
-  sent that is open, waits on the person or ended unheard reports to the new
-  session from then on, its active workflow runs too; the old session is left
-  as it was.
-- Habits are per project: mined from one repository's events and gated on
-  them alone, and the ones its own tool files declare (`habits.DECLARED`, one per program and
-  tracked file type) offered before any session repeats them, reviewed and vetted as the mined ones; a habit of other repositories is offered apart, never counted as
-  this one's, and only to a checkout that has its tool (`habits.has_tool`). An
-  event's repository is read from its task or session, never written by the
-  PostToolUse fast path. A write is an edit (one hook matcher takes both), a
-  worker's task is a place of its own, the home directory and temporary folders
-  are no repository (`habits._project`), and a command that does not check the
-  edit's file type is no habit (`habits.ECOSYSTEMS`).
-- Nothing in locks writes to a settings file but a habit: `locks habits install`, run by a
-  person, or locks itself installing a reviewed habit (`habits.apply_reviews`, the
-  `habit_auto` setting), and only the repository's `.claude/settings.local.json`. A
-  project's new habits are reviewed once each by a read-only worker (again when that review
-  answered nothing, or once the repository's tool files changed: `habits.reviewed`, `TOOL_FILES`), queued at
-  SessionStart at most once a day (`habits.queue_review`, the `habit_review` setting,
-  with `autowork`): it finds the tool, a command scoped to the edited file
-  (`$LOCKS_EDITED`), runs and times it. Its proposal is never trusted: in
-  `evolution.settle` and in the review's ending before it is told (whichever way it is
-  delivered), never a GET, locks installs only what passes its own check
-  (`habits.vet`): one simple command that runs the habit's own program (`shaped`: no
-  second command, pipe, redirection, substitution or other variable), passing on a
-  tracked file of its type at HEAD in a temporary worktree, within
-  `habits.REVIEW_SECONDS`, writing nothing. Each install, refusal and skip the review chose is an event on the
-  review (`habit_installed`, `habit_refused`, `habit_skipped`) and its ending says it with the line that
-  removes it; with `habit_auto` off the ending gives the install lines for the person. A
-  worker never runs `locks habits install` or `review`. An installed habit whose command breaks
-  three times in a row (cannot start, hangs, or runs past `habits.SLOW_SECONDS`) turns itself off; a
-  check that exits non-zero with output found something (`habits.caught`, shown to the session), which
-  is its job and never a break. Tests run
-  with `LOCKS_HABIT_REVIEW=off` and `LOCKS_HABIT_AUTO=off`.
-- A check whose failures are mostly the test runners' own timeout lines
-  (`launch.check_timed_out`) after a claimed pass, or that ran past its own
-  time as a whole (`VERIFY_TIMEOUT_S`), is `environment` with
-  `load`: the level halves on it, the same cell goes again after each of
-  `escalate.LOAD_WAITS`, and such a try counts toward no attempt ceiling and
-  is no dead end; one that persists stops as `load`, its work kept.
-- A dispatcher never dies on a full disk (`flow.disk_full`): it waits and
-  tries again with its lock and work kept, and first frees what idle worktrees rebuild anyway
-  (`flow.shed`, `isolate.REBUILT_DIRS`: a real folder at a worktree's top that git ignores, never
-  a link, only of a task neither running nor queued; a `shed` event per task). SessionStart does
-  the same under `capacity.LOW_DISK_MB` free and says how much came back. Nothing git keeps is
-  touched: a resume builds them again.
-- A `locks resume` a Claude Code session's shell runs (`CLAUDECODE`, no terminal) runs in a
-  process group of its own and the command follows its log (`cli._shielded`, `LOCKS_SHIELDED`):
-  that shell's timeout sends SIGTERM to its group, which a resume read as `locks cancel` and
-  stopped the task it had just started. Only `locks cancel` stops it now; its ending reaches the
-  session as a detached one's does. The hooks (SessionStart, Stop)
-  start a dispatcher for a lane with startable queued work and none holding
-  its lock (`dispatch.revive`, autowork on), never a GET. A start leaves word
-  before it asks whether a dispatcher runs (`dispatch.wake`), and a dispatcher
-  that read its queue before that word was left starts a fresh one once its lock
-  is let go (`cli.cmd_work`, `WorkReport.looked_at`): work queued while the last
-  one was leaving never waits for the next hook (`doctor`: `pickup-nobody-saw`).
-- A project names one orchestrator (`locks.orchestrator`), in its `.locks/`,
-  never in a repository's files: the first session that sends work, one that
-  claims it, a relay from it, the next session that starts where it ended, or
-  one that sends work after it went quiet (`STALE_HOURS`). The role brings
-  the work the old session sent (`Store.hand_over`), and the orchestrator
-  adopts what quiet sessions left in its own project only. A worker and a
-  terminal never take it. A stop waits on the person only for what only they
-  clear (`stops.PERSON_ONLY`: a refused command's rule, an approval, a gone
-  directory, a workflow's question; or past `stops.UNATTENDED_ATTEMPTS`) and a branch to merge;
-  every other stop is the orchestrator's to decide. Nothing shows as waiting on
-  the person: the status line counts every wait as the orchestrator's (the
-  session's own first, `board --session`, and the rest of the project's apart), the
-  board lists the ones it must ask the person for apart, and the `tasks` tool
-  and the endings tell it to ask in its conversation and run the line on a yes. The orchestrator
-  gains no power: it still resumes `--unattended`, and a dismissal it types is
-  recorded as its call, never as the person's.
-- A start that rarely passes its first try here (under `orchestrate.RACE_BELOW` over at
-  least `RACE_SAMPLES` first tries of its kind in the repository, `standards.rates`)
-  races the next rung that needs no approval on that try (`race_cell`, the `race`
-  setting): each in its own worktree (`isolate.race_lane`), each checked there, the
-  first to pass kept and the other stopped (`launch.Stoppable`, its process group). A start whose failed first
-  tries here mostly ran out of turns (`orchestrate._outgrew`, at least half) never races: another cell gets no more
-  room, and the plan says so.
-  A rung that wins has its work carried into the task's worktree (`isolate.adopt`);
-  when neither passes, the climb goes on from the rung. Both tries are attempts with
-  their cost; one stopped because the other passed first (`RACED_OUT`) teaches its cell
-  nothing, and the rung's is a first try of its own (`standards.samples`); a try so stopped
-  is no failure of the work (`escalate.Attempt.raced`): a pass beside it opens no problem
-  (`doctor`: `problem-opened-by-a-race`), where one that failed its own check first does. Never a
-  pinned start, a reading kind, a ledger, integrate or plan-parts step, a resume, a run
-  in the checkout, or a worktree that brought files in from it. Racing judges itself
-  (`locks.racing`): once `racing.JUDGE_AFTER` races ran among the window of the kind
-  here, each read from its attempts (the rung won, the start won, neither), it stops
-  where the rung won under `racing.WINS_BELOW` of them, or where the races the start did
-  not win took no less wall time to pass, at the median, than the kind's climbs without
-  one (each side over at least `racing.TIME_SAMPLES`); the failed first try then climbs
-  deep, the plan says why, and races that fall out of the window let it be tried again.
-  Money is no brake and never an input: the second worker is the price of the climb's
-  wait, and whether it paid is read from wins and time alone.
-- A workflow step a blind review of its change follows (`workflows.reviewed_next`: a
-  review with no ledger that needs it, or an integrate step that joins its parts and is
-  followed by one) runs no independent verifier of its own (`Options.reviewed_next`):
-  the review reads the request and the diff as the verifier would, and the plan says so.
-- A build (`feature`, `implement`) that lists `route.SPLIT_ITEMS` items or more (in `SPLIT_WORDS`
-  words or more), is the
-  largest size, or names `PARALLEL_PIECES` pieces in folders of their own is several
-  tasks (`route.split_first`, pure): with `autosplit` (on by default) `locks run` and `locks queue
-  add` split it and queue its pieces as `locks split --queue` does (`cli._split_and_queue`); off,
-  or when no piece is proposed, they start nothing and exit `EXIT_SPLIT` with how to split it.
-  `--whole` is the session's word that it is one. A listed item that states a rule (a constraint, a test for
-  the others, what not to do: `route.is_rule`) is no piece and is carried to every piece as context
-  (`split.by_items`), and items that all touch one module of `src/` are one task (`route.one_module`).
-  Tests run with `LOCKS_AUTOSPLIT=off`.
-- An ending names other work in its repository (running, or a kept branch of the last
-  `hooks.OVERLAP_DAYS`) that changed the same files: merging both conflicts there. Said,
-  never acted on; steps of one run are never named.
-- A goal of `workflows.MANY_FEATURES` items or more at the largest size is told,
-  before its run starts, that runs per feature or per phase (`--after run:<N>`)
-  cost less than one plan for all; advice, and the run goes on as asked.
-- `locks workflow run feature` runs as `feature-parallel` when its goal is
-  `workflows.FAN_OUT_POINTS` or more, or touches `FAN_OUT_AREAS` areas, by the plan's
-  pure estimate (`workflows.fanned`), and says so; never a `feature` the person saved,
-  and `--whole` keeps one build.
-- A worker that died is noticed at a turn's end, not at the next session: the hooks
-  sweep a running task whose process is gone, and so do `locks board` and `locks tasks` when one is gone
-  (`cli._notice_deaths`: the mod's status line polls the board, so a death while the orchestrating session
-  waits is swept and resumed within that poll). An automatic resume goes on from its own kept work, never
-  rebased; its `auto_resumed` event says how far that work is behind the trunk (`dispatch._behind_trunk`). A task that stopped for a mechanical
-  cause (`dispatch.MECHANICAL`: died, outgrew its turns, a network or a load that
-  outlasted locks' waits) is resumed once on its own before any session hears of it
-  (`dispatch.recover`, from the hooks and `locks endings`: `locks resume --unattended`
-  in the worktree it left, with more turns for one that outgrew them, within
-  `AUTO_RESUME_WITHIN_S`, or `AUTO_RESUME_ABSENT_S` when no worker started anywhere since (a restart nobody
-  saw), at most `AUTO_RESUMES` that reached an attempt, a resume that died before its first one not counted, up to
-  `AUTO_RESUME_TRIES`, with `autowork` on). Its stop is no
-  ending handed to a session; a second one is the orchestrator's. A death names its crash: the last
-  exception line its run wrote to its log (`flow.died`, `flow.crash_line`, from where that run began in
-  `work/task-N.log`, which the dispatcher's runs and an automatic resume both write, the offset kept in
-  the store's meta), read by the dispatcher and by the sweep alike, kept on its stop with the log's path; one that repeats the crash of its last
-  death says so and is never resumed on its own (`repeated`): it is locks' failure, not the work's,
-  and a resume repeats it. A stop that needs
-  judgment or a person (review, permission, approval, a wrong task) is never resumed so. The analysis reads
-  the time from an attempt that never finished to its run's end as `lost_s`, never
-  as other. What that attempt spent is read from its worker's transcript by the sweep (an
-  `attempt_lost` event, added to the task's cost; unreadable is kept as unknown, never $0), and
-  the next attempt takes a number past every one started (`Store.next_attempt`), so a dead
-  attempt's tool calls are never read as the next one's.
-- Each request is read for its way (`locks.route`, the `route` setting), with no model:
-  the session itself (a turn, reading, what points back into the conversation), parts
-  side by side (`PARALLEL_POINTS`, `PARALLEL_AREAS` or `PARALLEL_PIECES`), else the
-  cheaper reading: the worker's measured turns times the session's context against a
-  worker attempt's measured input (`Store.worker_footprint`); with no measure, size and
-  a full context decide. The prompt hook says it only when it is not the session, keeps
-  every decision as a `routed` event to be measured (`locks stats` says how often the session sent
-  locks work after each advice, `Store.routed_followed`), and never costs the turn. It is
-  advice: the session decides. A turn that read `route.READ_HEAVY_CHARS` or more of tool output
-  with the session's own tools (the scribe's count per turn, `scribe.READ_TOOLS`, `state["read"]`)
-  is said at the next prompt beside the route's advice (`route.read_advice`): what it read stays in
-  the context every later turn re-reads, and what an explore worker here passes at, in time and
-  cost (`Store.kind_record`, observed); kept on the `routed` event (`read_chars`, `read_said`) and
-  measured the same way (`locks stats`, `heavy reads said`). The session's own reading is where
-  its money goes (this session: locks' injections 0.2% of its text, its own tool output 57%). A question about the work (an opening of doubt,
-  `route.asks`: could, should, what if, vale la pena… with a question mark,
-  wherever it falls) stays with the session, and so does a question mark that
-  ends a request; neither when the request opens with a verb of change
-  (`classify.opens_with_change`): that is an order, whatever it asks after.
-- A cell keeps how its workers got oriented (`cells.primer`): a passing worker's
-  `orientation` (what it had to find before its first change, filtered as a
-  note is) is kept as an `oriented` event with its role and the areas of its
-  change, and the next worker of that role, or of a task reaching one of those
-  areas, gets the recent lines in its brief, as data, never instructions; the
-  verifier never does. Whether it earns its place is measured, never assumed:
-  a repository's briefs alternate with and without it until each arm has
-  `cells.PRIMER_TRIAL` first tries, then it stays only where its workers reached
-  their first change in fewer calls and passed their first tries no worse than
-  `PRIMER_MARGIN` below (`primer_arm`); the `briefed` event keeps the arm and
-  why, and `locks stats` shows both arms. The `primer` setting turns it off;
-  tests run with `LOCKS_PRIMER=off`.
-- A role's candidate whose trial has not filled its arms in `revisions.TRIAL_DAYS` is dropped
-  for too few tasks, recorded with the counts it reached. The primer's arms fill by count (the
-  arm with fewer tasks goes next) and its trial ends early, lost, once each arm has
-  `cells.PRIMER_EARLY` first tries and the primed ones pass worse by more than
-  `PRIMER_EARLY_MARGIN`; `locks stats` for a repository says where it stands now.
-- A role's instructions improve by measured trial, never by edit
-  (`locks.revisions`, the `role_trials` setting). Every brief records the role
-  and the version of its text (`roles.version`: a hash of its resolved
-  instructions and its skills' names, plus the plugin and version of a skill
-  read from an installed upstream plugin). Once a role's workers in a repository
-  met `revisions.MIN_EVIDENCE` dead ends or verifier blockers since its last
-  revision, Haiku, as an editor, proposes a short list of lessons for that role
-  there, read strictly (`read_lessons`): no answer or a malformed one proposes
-  nothing, and a line that looks like a secret or is `<private>` is never kept.
-  It runs in `evolution.settle`, never in a GET, outside the write lock and
-  under a claim, with at most one candidate per role and repository on trial.
-  The lessons reach a worker in its brief, marked as this role's lessons here,
-  as data, never instructions; the role's file is never written, and the
-  verifier and the surveyor never get one. The role's tasks alternate between
-  the candidate and the current lessons (a resume keeps its first arm) until
-  each arm has `ROLE_TRIAL` first tries; the candidate is adopted only when its
-  pass-first is no worse than `ROLE_MARGIN` below the current arm's and it is
-  better on pass-first, attempts to pass or verifier blockers, else dropped.
-  Once `REVERT_AFTER` first tries ran under an adopted one outside its trial,
-  it is judged once and reverted, as its own record, when its pass-first is
-  more than `REVERT_MARGIN` worse than its trial's current arm. Every proposal
-  and verdict is appended to `role_revisions`, which refuses an update or a
-  delete. Tests run with `LOCKS_ROLE_TRIALS=off`; a test that wants them
-  passes a fake `ask`.
-- A passing ending keeps its verdict (`orchestrate.verdict_card`): each criterion the
-  worker answered with its evidence, the check locks ran (never the worker's word), the
-  independent check's outcome or why it did not run, and the attempts. The ending notice
-  gives it (`hooks.verdict_lines`) and tells the session not to re-read the code, re-run
-  the check or diff the branch to confirm it: the delegated work is never done twice.
-  The diff is opened only on the person's word, or where the verdict says something was
-  not checked or not met.
-- An ending names the problems the work found that were already there, shown with
-  proof (`hooks._found_before`), and the `bugfix` that would take one on `--after` the
-  work; nothing is started: the orchestrator decides. One its worker marks `fixed`, or in
-  a file the work changed, is counted and never offered: the work most likely fixed it.
-  So is one in a file changed since the work started (`hooks._moved_since`: the checkout's
-  branch since the base its `finished` event keeps, or other work here that passed after it
-  started): it may be fixed already.
-- A worker never inherits the host's session id (`CLAUDE_CODE_SESSION_ID`),
-  and an attempt never keeps the host's session as its own.
-- A problem is solved when the work it is about passes: a task whose attempts left a failed
-  fix, in this run or an earlier one, closes its own problem when it passes, and its pass
-  closes the open problems of its repository its own text matches strictly
-  (`orchestrate._solve_matched`). A failure on work that strictly matches a solved problem
-  of its repository makes that problem `recurring` and disproves its fixes (`Store.regressed`).
-  A problem is one request's text, not its clipped title (`Store.open_problem`). `locks doctor`
-  says a problem still open after its task passed (`problem-open-after-pass`), a flake fix
-  that passed on one run (`flake-fix-checked-once`) and a long attempt that kept few turns
-  (`turns-under-the-wall`).
-- Problems and fixes are kept with their cell (`locks.cells`): the role the
-  worker wore and the areas of what it changed (of its request when it changed
-  nothing; tests and docs name an area only when the change holds nothing
-  else). A worker's brief gets the dead ends of its task's areas, of its role,
-  and the shared ones near its cell (a person wrote it, or one of its fixes was met in the task's areas or by its
-  role, `cells._near`): a shared one met only in other cells stays with the session; a problem is shared when two tasks or more met it with
-  no area in common, or a person wrote it down. The orchestrating session (the
-  prompt hook, SessionStart) hears only the shared ones. A failure is kept and
-  matched by the work's own text, a workflow step's goal and never its
-  template, and a strict match counts only the words fewer than
-  `store.COMMON_SHARE` of the problems hold, at least `STRICT_MIN_TERMS` of
-  them. Fixes recorded before scopes get theirs once, at the first settle
-  (`cells.backfill`). Notes belong to one project and are never
-  read from another (a workspace is one project). A note is written by a passing worker (`learned`), by
-  Haiku from a session's conversation (every few turns, when the scribe finds
-  them due, before a compaction, at its end), or by a person — never by a failed
-  attempt, whose facts no pass confirmed. A worker's note starts as a
-  `candidate`: recalled, marked unproven in a brief, and adopted only on
-  evidence. The `briefed` event keeps the notes each brief carried
-  (`notes.BRIEFED`) and the candidates its trial left out (`notes.WITHHELD`): the tasks
-  a candidate is recalled for alternate between carrying it and going without it
-  (`notes.arms`, the `note_trials` setting; a constraint is never left out) until each
-  side has `notes.NOTE_TRIAL` first tries; then `notes.weigh`, in `evolution.settle` and
-  never in a GET, makes it current where the tasks that carried it passed their first try
-  no less often than the ones without it, and drops it, with both rates, where they did
-  worse; one with no pass after `notes.DISPROVE_AFTER` failed is dropped at once. With
-  the trial off, `notes.PROVE_AFTER` passes make it current. A later attempt's brief
-  also carries the notes anchored to the files the work changed so far
-  (`orchestrate._later_notes`). When the code a task touches and its words find different
-  notes, the brief's order is on trial (`notes.recall_arm`, the `recall_fusion` setting,
-  `briefed.recall_arm`): reciprocal rank fusion of the two lists (`notes.fused`) against
-  anchored first, kept where its arm passed first tries no less often. A worker names the
-  notes it relied on (`notes_used`, always asked; `[]` kept as none relied on, a block that left it
-  out kept as `notes_unsaid`); only notes its brief carried are kept, on
-  `attempt_finished`, and `locks stats` shows them, observed, never a verdict or a trial.
-  A current note a worker or a session filed that the first briefs of `notes.IDLE_AFTER` ended
-  tasks carried since it last changed, none of whose workers named it, is a candidate again
-  (`notes.retry_idle`, `RETRIED`, in `evolution.settle`, only with the trial on): the trial weighs
-  it by the briefs after that alone. Never dropped on those words, never a person's note or a
-  constraint.
-  How each attempt's worker worked is read from its own tool calls (`locks.behavior`, kept on
-  `attempt_finished.behavior`): observed, never a rule's input. The independent check runs with its
-  attempt marked as the check's (`orchestrate._verifier_env`), so the log keeps its calls under no
-  attempt and nothing read as the worker's use (`evidence.owed`, `capability_calls`) holds them. A person's note and
-  Haiku's from a conversation are current as written. Haiku files under topics that
-  exist and never invents a link; without Haiku a fact is kept by its words.
-  A fact that looks like a secret is never kept.
-- A constraint (`notes.CONSTRAINT`) is a note of its own kind: a rule a change must meet (a
-  policy, a limit a check enforces), briefed apart from the notes and as a requirement
-  (`notes.constraint_lines`), every live one of the project that fits in
-  `notes.CONSTRAINT_CHARS` and the rest by count, to every worker and to the independent
-  verifier, where breaking one is a finding. Framing is measured, not taste: a cheap model
-  ignored a policy briefed as a note and met it briefed as a constraint (`bench/memory`). It
-  bounds what the work must be, never what a worker may run or change. It comes from a
-  person (`locks note … --constraint`, current as written) or from a passing worker's
-  `constraints`, kept only when a check of that task (locks' own, or the verifier's) failed
-  before the pass, else filed as a fact; a worker's starts as a candidate and is weighed as
-  any note. It has no anchor: a change to the code it was learned on does not send it to review.
-- A worker's brief recalls notes by the code the task touches (the notes anchored to the files its
-  request names, its surfaces, a step's diff: `touched_paths`) and by its words strictly (several in
-  common, `notes.recall(strict=True)`): one word in common puts no unrelated note in a brief.
 - What a worker must use is made to happen, in this order: locks does it itself where it can (the
-  livespec index built and its orientation briefed; what the files a request names reach,
-  `Livespec.reach`, asked by locks and put in a writing brief as data); else the pass is gated on
+  livespec index built, asked by locks and its answers briefed as data, `Livespec.dossier`); else the pass is gated on
   evidence locks reads (`locks.evidence`); a hint alone is the weakest. A requirement (`evidence.REQUIRED`)
   names a neighbour and when its use is owed: layout-inspector on writing work whose change touches
   rendered UI (`capabilities.renders`: a `UI_FILES` path that is no test, fixture, example, documentation
-  or tool output such as a coverage report), rastro on writing work it was handed for. A worker held to
+  or tool output such as a coverage report); rastro browses and owes nothing. A worker held to
   it is told so in its brief as a requirement (`brief_line`); a pass with no call of that
   neighbour's tools that went through in the task's attempts (`tool_events.ok`, never the worker's
   words) is held back (`evidence_owed`): the first time the same cell goes on in its own session told

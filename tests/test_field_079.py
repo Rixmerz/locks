@@ -6,7 +6,7 @@ import argparse
 import subprocess
 import sys
 
-from locks import analysis, cli, flow, isolate
+from locks import cli, flow, isolate
 from locks.store import Store, home
 
 
@@ -72,13 +72,3 @@ def test_a_shielded_resume_follows_its_run_and_returns_its_exit(monkeypatch, cap
     assert started["start_new_session"] and started["env"][cli.SHIELDED] == "1"
     assert "--no-report" not in started["argv"] and started["argv"][-3:-1] == ["--surface", "src/a"]
     assert "the report" in capsys.readouterr().out
-
-
-def test_stats_set_livespec_tools_offered_beside_called():
-    runs = [{"livespec_offered": ["who_calls", "search_specs"], "livespec_tools": {"who_calls": 2}},
-            {"livespec_offered": ["who_calls"], "livespec_tools": {}},
-            {"livespec_offered": [], "livespec_tools": {}},
-            {"livespec_offered": None, "livespec_tools": {"who_calls": 1}}]
-    offer = analysis.livespec_offer(runs)
-    assert offer["runs"] == 3 and offer["none_offered"] == 1
-    assert offer["tools"] == {"who_calls": {"offered": 2, "called": 1}, "search_specs": {"offered": 1, "called": 0}}

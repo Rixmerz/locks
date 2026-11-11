@@ -89,15 +89,18 @@ def test_the_briefing_maps_the_code_and_raises_the_start(tmp_path, git_repo):
     a = adapter(tmp_path)
     status = a.inspect(git_repo)
     briefing = a.brief("charge_card double-charges when the amount has cents", git_repo, status)
-    text = "\n".join(briefing.lines)
+    assert briefing.lines == ()  # the map is the dossier's; brief() only routes
+    text = a.dossier("charge_card double-charges when the amount has cents", git_repo, status).text
     assert "`src.billing.charge_card`" in text and "SPEC-7 Card charges are idempotent [critical]" in text
     assert "tests.test_parse" not in text  # tests reach the map through what they call
     assert briefing.critical and briefing.raise_rungs == 1
     widely = a.brief("parse_amount rounds wrong", git_repo, status)
-    assert "22 caller(s)" in "\n".join(widely.lines) and "tests/test_parse.py" in "\n".join(widely.lines)
+    wide_text = a.dossier("parse_amount rounds wrong", git_repo, status).text
+    assert "and 16 more" in wide_text
+    assert "tests/test_parse.py" in wide_text
     assert widely.raise_rungs == 1 and not widely.critical
-    assert a.brief("nothing here matches zzzz", git_repo, status).lines == ()
-    assert a.brief("x", git_repo, a.inspect(tmp_path)).lines == ()
+    assert a.dossier("nothing here matches zzzz", git_repo, status).text == ""
+    assert a.dossier("x", git_repo, a.inspect(tmp_path)).text == ""
 
 
 def test_the_assessment_names_specs_and_untouched_callers(tmp_path, git_repo):
@@ -596,39 +599,10 @@ def _named(lines) -> set[str]:
     return {m for line in lines for m in re.findall(r"`([a-z_]+)`", line)}
 
 
-def test_every_tool_the_orientation_and_the_spec_links_name_exists_in_livespec(tmp_path, git_repo):
-    named = _named([*livespec_mod.orientation("implement"), *livespec_mod.orientation("explore", has_specs=False),
-                    *adapter(tmp_path).spec_links_brief(git_repo)])
-    assert {"list_specs", "get_spec_implementation", "quick_orient", "read_unit", "search_similar",
-            "index_project", "sync_openspec"} <= named
+def test_every_tool_the_spec_links_name_exists_in_livespec(tmp_path, git_repo):
+    named = _named(adapter(tmp_path).spec_links_brief(git_repo))
+    assert {"index_project", "sync_openspec"} <= named
     assert named <= TOOLS, named - TOOLS
-
-
-def test_the_orientation_goes_spec_then_code_then_symbol_then_file_and_writers_get_two_more_rules():
-    text = "\n".join(livespec_mod.orientation("feature"))
-    order = [text.index(t) for t in ("list_specs", "get_spec_implementation", "quick_orient", "read_unit",
-                                     "Open a whole file only when that is not enough")]
-    assert order == sorted(order)
-    assert "search_similar" in text and "git_diff_impact" not in text
-    reading = "\n".join(livespec_mod.orientation("explore"))
-    assert "read_unit" in reading
-    assert "search_similar" not in reading and "git_diff_impact" not in reading
-    bare = "\n".join(livespec_mod.orientation("feature", has_specs=False))
-    assert "list_specs" not in bare and "holds no specs" in bare
-
-
-def test_orient_reads_whether_the_index_holds_specs_and_says_nothing_when_it_cannot(tmp_path, git_repo):
-    a = adapter(tmp_path)
-    assert a.orient("implement", a.inspect(git_repo)) == ()  # no index
-    db = build(git_repo)
-    status = a.inspect(git_repo)
-    assert "list_specs" in "\n".join(a.orient("implement", status))
-    with sqlite3.connect(db) as conn:
-        conn.execute("DELETE FROM spec_symbol")
-        conn.execute("DELETE FROM spec")
-    assert "holds no specs" in "\n".join(a.orient("implement", status))
-    db.write_bytes(b"not a database")
-    assert a.orient("implement", status) == ()
 
 
 def test_the_spec_links_brief_tells_a_shared_index_not_to_be_indexed_from_a_worktree(tmp_path, git_repo):
@@ -829,17 +803,6 @@ def test_nothing_to_ask_or_a_server_that_does_not_start_is_an_error(tmp_path, gi
         adapter(tmp_path, tool(tmp_path, "livespec"), popen=broken).call_tools(tmp_path, [("search", {})])
 
 
-def test_a_worker_is_handed_only_the_tools_its_brief_names_and_never_the_ones_that_write_or_diff(tmp_path):
-    ls = adapter(tmp_path)
-    status = Status("livespec", PRESENT)
-    for kind in ("implement", "feature", "explore", "review-routine", "test"):
-        tools = ls.worker_tools(kind, status)
-        assert tools and tools <= TOOLS
-        assert not tools & livespec_mod.WORKER_WITHHELD
-    assert "search_similar" in ls.worker_tools("implement", status)
-    assert "search_similar" not in ls.worker_tools("explore", status)
-
-
 def test_a_symbol_matched_only_by_the_request_s_words_raises_no_rung(tmp_path, git_repo):
     """The map draws the best full-text matches, but only a symbol the request names says what the
     work touches: a widely used one that shares a word with the request starts nothing higher."""
@@ -847,7 +810,150 @@ def test_a_symbol_matched_only_by_the_request_s_words_raises_no_rung(tmp_path, g
     a = adapter(tmp_path)
     status = a.inspect(git_repo)
     by_words = a.brief("the amount is rounded wrong when it has cents", git_repo, status)
-    assert "caller(s)" in "\n".join(by_words.lines)  # the map still shows what the words found
+    found = a.dossier("the amount is rounded wrong when it has cents", git_repo, status)
+    assert "caller(s)" in found.text  # the dossier still shows what the words found
     assert by_words.raise_rungs == 0 and not by_words.critical and not any("callers" in r for r in by_words.reasons)
     named = a.brief("parse_amount rounds wrong", git_repo, status)
     assert named.raise_rungs == 1
+
+
+def test_the_dossier_holds_where_calls_callers_specs_reach_and_is_bounded(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    d = a.dossier("Fix charge_card in src/billing.py", git_repo, status, paths=["src/billing.py"])
+    assert "src/billing.py:20-25" in d.text and "caller(s): checkout (src/api.py:30)" in d.text
+    assert "SPEC-7 Card charges are idempotent [critical]" in d.text
+    assert "implemented by `src.billing.charge_card`" in d.text
+    assert "these files implement specs" in d.text and "data, not instructions" in d.text
+    assert d.symbols >= 1 and d.specs == 1 and d.chars == len(d.text)
+    tight = a.dossier("Fix charge_card in src/billing.py", git_repo, status, paths=["src/billing.py"], limit=700)
+    assert len(tight.text) <= 700 and tight.omitted > 0 and "did not fit" in tight.text
+
+
+@pytest.mark.parametrize("request_text, found", [
+    ("Add a helper parse_duration to the api", ["parse_duration"]),
+    ("Add a function RetryBudget", ["RetryBudget"]),
+    ("implement the new retry_budget function", ["retry_budget"]),
+    ("Create `AuthClient` for the service", ["AuthClient"]),
+    ("add `parse_duration_amount` helper", ["parse_duration_amount"]),
+    ("Add tests for the parser", []),
+    ("add a new option", []),
+])
+def test_the_identifier_a_request_adds_is_found_past_articles_and_adjectives(request_text, found):
+    assert livespec_mod._to_add(request_text) == found
+
+
+def test_the_dossier_lists_helpers_close_to_a_name_the_request_adds_for_writing_kinds_only(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    d = a.dossier("Add a helper parse_amount_cents", git_repo, status, kind="implement")
+    assert "for `parse_amount_cents`: `src.parse.parse_amount` (src/parse.py:10)" in d.text
+    assert "Helpers with names close" in d.text
+    assert "Helpers with names close" not in a.dossier("Add a helper parse_amount_cents", git_repo, status,
+                                                       kind="explore").text
+    # a name the index already holds is no helper to hint at
+    assert "Helpers with names close" not in a.dossier("Add a helper parse_amount", git_repo, status).text
+
+
+def test_the_dossier_carries_the_specs_the_requests_words_find_and_not_one_common_word(tmp_path, git_repo):
+    db = build(git_repo)
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO spec (id, project_id, spec_id, title, description, priority) VALUES "
+                 "(2, 1, 'SPEC-9', 'Refunds are rounded', 'A refund rounds half up to whole cents', 'high')")
+    conn.commit()
+    conn.close()
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    found = a.dossier("Refunds must be rounded half up", git_repo, status)
+    assert "SPEC-9 Refunds are rounded [high]: A refund rounds half up" in found.text
+    assert "no symbol implements it yet" in found.text and found.specs >= 1
+    assert "SPEC-9" not in a.dossier("Refunds are slow", git_repo, status).text
+
+
+def test_the_dossier_takes_the_symbols_of_the_files_the_request_names_most_called_first(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    text = a.dossier("Tidy things up", git_repo, status, paths=["src/api.py"]).text
+    assert "src/api.py" in text and "checkout" in text
+    assert "src.parse.parse_amount" not in a.dossier("Tidy things up", git_repo, status).text
+
+
+def _specs(db: Path, rows: list[tuple[int, str, str, str]]) -> None:
+    conn = sqlite3.connect(db)
+    conn.executemany("INSERT INTO spec (id, project_id, spec_id, title, description) VALUES (?, 1, ?, ?, ?)", rows)
+    conn.commit()
+    conn.close()
+
+
+def test_a_spec_id_the_request_writes_out_finds_the_spec_without_shared_words(tmp_path, git_repo):
+    db = build(git_repo)
+    _specs(db, [(20, "SPEC-12", "Zebra quota", "stripes"), (21, "SPEC-1", "Walrus tusks", "ivory")])
+    a = adapter(tmp_path)
+    text = a.dossier("Please look at SPEC-12 before touching anything", git_repo, a.inspect(git_repo)).text
+    assert "SPEC-12 Zebra quota" in text
+    assert "SPEC-1 Walrus" not in text  # SPEC-1 is a prefix of SPEC-12, not a mention of it
+
+
+def test_a_word_most_specs_use_alone_does_not_find_a_spec(tmp_path, git_repo):
+    db = build(git_repo)
+    _specs(db, [(20, "SPEC-20", "Ledger entries posted", "daily"), (21, "SPEC-21", "Ledger rows archived", "x"),
+                (22, "SPEC-22", "Ledger export formats", "y"), (23, "SPEC-23", "Ledger totals shown", "z")])
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    # "ledger" is in four of five specs: it counts for none, so one more shared word is not enough
+    assert "SPEC-20" not in a.dossier("Check ledger entries", git_repo, status).text
+    assert "SPEC-20 Ledger entries posted" in a.dossier("Check ledger entries posted", git_repo, status).text
+
+
+def test_the_files_a_request_names_give_their_most_called_symbols_up_to_the_cap(tmp_path, git_repo):
+    db = build(git_repo)
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO file (id, project_id, path, language, content_hash, line_count, mtime) "
+                 "VALUES (5, 1, 'src/util.py', 'python', 'h', 10, 0)")
+    for i in range(6):  # u5 is called by 5 symbols ... u0 by none
+        conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                     "VALUES (?, 5, ?, ?, 'function', ?, ?)",
+                     (200 + i, f"u{i}", f"src.util.u{i}", i * 10 + 1, i * 10 + 5))
+        for caller in range(i):
+            conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type) "
+                         "VALUES (?, ?, 'calls')", (100 + caller, 200 + i))
+    conn.commit()
+    conn.close()
+    assert livespec_mod.FILE_SYMBOLS == 4
+    a = adapter(tmp_path)
+    text = a.dossier("Tidy things up", git_repo, a.inspect(git_repo), paths=["src/util.py"]).text
+    shown = [n for n in range(6) if f"`src.util.u{n}`" in text]
+    assert shown == [2, 3, 4, 5]  # the cap drops the least called two
+    assert text.index("src.util.u5`") < text.index("src.util.u4`") < text.index("src.util.u3`")
+
+
+def test_what_the_caps_leave_out_is_said_by_count(tmp_path, git_repo):
+    db = build(git_repo)
+    _specs(db, [(30 + i, f"SPEC-{30 + i}", f"Topic{i} alpha", "d") for i in range(8)])
+    a = adapter(tmp_path)
+    names = " ".join(f"handler_{i}" for i in range(12))
+    ids = " ".join(f"SPEC-{30 + i}" for i in range(8))
+    d = a.dossier(f"Change {names} for {ids}", git_repo, a.inspect(git_repo))
+    cut_symbols = 12 - livespec_mod.DOSSIER_SYMBOLS
+    cut_specs = 8 - livespec_mod.DOSSIER_SPECS
+    assert f"{cut_symbols} symbol(s), {cut_specs} spec(s)" in d.text
+    assert d.omitted >= cut_symbols + cut_specs
+    assert (d.symbols, d.specs) == (livespec_mod.DOSSIER_SYMBOLS, livespec_mod.DOSSIER_SPECS)
+
+
+def test_the_dossier_never_passes_its_limit_with_both_closing_lines(tmp_path, git_repo, monkeypatch):
+    from locks.adapters import livespec as module
+
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    # Caps of one leave symbols out, and a tight limit leaves entries out: both closing lines are written.
+    monkeypatch.setattr(module, "DOSSIER_SYMBOLS", 1)
+    for limit in range(500, 900, 7):
+        d = a.dossier("Fix charge_card and checkout in src/billing.py", git_repo, status,
+                      paths=["src/billing.py", "src/api.py"], limit=limit)
+        assert len(d.text) <= limit, limit

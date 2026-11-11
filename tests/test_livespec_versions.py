@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from locks.adapters import PRESENT, Status
-from locks.adapters.livespec import PINNED, TOOLS, Livespec, orientation
+from locks.adapters.livespec import PINNED, TOOLS, Livespec
 
 from .test_livespec_adapter import adapter, tool
 
@@ -71,10 +71,6 @@ def test_a_newer_release_is_read_once_and_what_it_lacks_is_left_out_and_said(tmp
     assert len(server.asked) == 1  # kept per release in the locks home
     status = _status(tmp_path, NEWER)
     assert "does not serve find_orphan_tests, read_unit" in a._release_note(status)[0]
-    # The orientation step that names read_unit is not told; the others are.
-    full = orientation("implement")
-    kept = tuple(line for line in full if "read_unit" not in line)
-    assert kept != full and all("read_unit" not in line for line in kept)
 
 
 def test_a_newer_release_whose_tools_cannot_be_read_briefs_as_the_checked_one(tmp_path):

@@ -8,9 +8,10 @@ without a token and without an MCP call:
 
 - **routing** — a task whose code is linked to a critical spec, or whose
   symbol is called from everywhere, starts one rung up;
-- **briefing** — the worker's prompt opens with a code map: the symbols the
-  request is about, where they are, how many places call them, the specs they
-  implement and the tests that exercise them;
+- **briefing** — the worker's brief carries a dossier (`Livespec.dossier`): the
+  symbols the request is about, where they are, what they call and who calls them,
+  the specs they implement, the tests that cover them, the specs the request's
+  words find and the helpers with names close to what it says to add;
 - **reporting** — after a pass, which specs the change touched and which
   callers in other files the change did not touch;
 - **freshness** — an index that is missing, or older than the last commit, is built or
@@ -19,8 +20,9 @@ without a token and without an MCP call:
   (`Livespec.ensure_fresh`); never for a folder that is no repository, which is
   indexed through each repository inside it.
 
-The worker also gets livespec's MCP server, with a hint per kind of work that
-names the calls that kind needs and the ``workspace`` every call requires.
+A worker is not handed livespec's MCP server: locks asks the index itself and briefs
+the answers. Only the independent check keeps the server, behind the read-only guard,
+with a hint per kind of work and the ``workspace`` every call requires.
 
 Checked against livespec 0.36.0. Every tool named here exists in that release;
 `TOOLS` is the pinned list, and a test holds every hint to it.
@@ -49,12 +51,14 @@ from pathlib import Path
 from typing import Any
 
 from locks import repo
-from locks.adapters import ABSENT, PRESENT, UNREADABLE, Briefing, Status
+from locks.adapters import ABSENT, PRESENT, UNREADABLE, Briefing, Dossier, Status
 from locks.matrix import READ_ONLY_KINDS
 from locks.store import home
 from locks.text import clip, words
 
 MINIMUM_VERSION = (0, 32, 0)
+#: Characters kept free for the two lines that say what did not fit and what the caps left out.
+_TAIL_ROOM = 160
 
 #: What locks runs through `uvx` when no livespec plugin entry and no `livespec` on PATH is used:
 #: the release this adapter was checked against, unless an installed plugin's own manifest names
@@ -86,25 +90,6 @@ _HINTS: Mapping[str, str] = {
     "plan": "quick_orient, list_specs and analyze_impact on the parts the plan changes",
 }
 
-#: How every worker is told to find its way when livespec is present: the spec of the request
-#: first, the code it names next, one symbol at a time, a whole file last. A symbol read through
-#: `read_unit` costs a fraction of the file it lives in; workers that opened files to orient spent
-#: 300-400k tokens on one UI task. `_SPECS` is the first step only where the index holds specs.
-ORIENTATION = "Orient by livespec before you open files (every call takes the workspace its capability hint names):"
-_SPECS = ("1. `list_specs` (or `search`) finds the spec for this request; `get_spec_implementation` on it reaches "
-          "the code that implements it.")
-_NO_SPECS = "1. This index holds no specs: start from `search` and `find_symbol` for what the request names."
-_SYMBOLS = ("2. `quick_orient` on each symbol, then `read_unit` on the ones you will read closely: its body, what it "
-            "calls and the tests that cover it.")
-_FILES = "3. Open a whole file only when that is not enough."
-#: What a worker that writes is also told: a helper that exists is not written twice, and a change is
-#: measured before it is called done.
-_WRITING = "Before you write a helper, `search_similar` for one that already does it."
-#: The tools a worker never gets: they change the index or the specs (locks builds the index itself),
-#: or they read the diff of the checkout the index describes, which is not the worktree a worker edits
-#: (`git_diff_impact`: what a change reaches is asked by locks, `assess`, and briefed to the check).
-WORKER_WITHHELD = frozenset({"git_diff_impact", "index_project", "sync_openspec", "validate_openspec",
-                             "export_openspec"})
 #: A spec a task writes or changes is linked to its code, so the next task finds the code from the spec.
 SPEC_ID = "<capability>-<requirement-name>"
 
@@ -113,9 +98,47 @@ _CRITICAL_PRIORITIES = frozenset({"critical"})
 #: Callers above which a symbol is load-bearing enough to start one rung up.
 WIDELY_USED = 15
 MAP_SYMBOLS = 6
+#: The dossier's room in a brief, in characters: what does not fit is said by count.
+DOSSIER_CHARS = 6000
+#: Symbols a dossier describes (the ones the request names, then those of the files it names, then the
+#: best full-text matches), what it lists of each, and the symbols of one named file.
+DOSSIER_SYMBOLS, DOSSIER_LINKS, FILE_SYMBOLS = 8, 5, 4
+#: Specs a dossier carries, and the characters of a requirement's text it quotes.
+DOSSIER_SPECS, SPEC_TEXT_CHARS = 6, 300
+#: Words a request must share with a spec's title and text for its words to find it: one is never enough.
+SPEC_MIN_TERMS = 2
+#: Helpers listed beside each identifier the request says to add.
+SIMILAR_HELPERS = 3
 INDEX_TIMEOUT_S = 600
 
 _IDENT = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\b")
+#: The verbs that say a request adds something; case-insensitive, then the words up to the name.
+_TO_ADD = re.compile(r"\b(?:add|create|write|introduce|implement|extract)\b([^.\n`]{0,60}`[^`\n]+`|[^.\n`]{0,60})",
+                     re.IGNORECASE)
+#: Words between the verb and the name that are never the name: `add a new helper parse_duration`.
+_FILLER = frozenset({
+    "a", "an", "the", "new", "small", "simple", "basic", "helper", "helpers", "function", "functions",
+    "method", "methods", "class", "classes", "utility", "util", "to", "for", "that", "which", "called",
+    "named", "in", "into", "of", "some", "another", "one", "our",
+})
+
+
+def _to_add(text: str) -> list[str]:
+    """The identifiers the request says to add: after the verb, the first word that looks like code,
+    skipping articles and adjectives (`Add a helper parse_duration`, `implement the new retry_budget
+    function`, "create `AuthClient`")."""
+    found: list[str] = []
+    for m in _TO_ADD.finditer(text):
+        for word in re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", m.group(1)):
+            if word.lower() in _FILLER:
+                continue
+            if _looks_like_code(word):
+                found.append(word)
+            break
+    return list(dict.fromkeys(found))
+
+
+_NAME_PART = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
 _TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$")
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -312,27 +335,6 @@ class Livespec:
             run = ["tool", "run"] if Path(command).name == "uv" else []
             return {"command": command, "args": [*run, f"livespec@{self.pin()}"]}
         return plugin[0] if plugin else None
-
-    def worker_tools(self, kind: str, status: Status) -> frozenset[str]:
-        """The tools a worker of this kind is handed: the ones its orientation and its hint name, less
-        what it never gets (`WORKER_WITHHELD`) and what this release does not serve. Every other tool's
-        description is context a worker reads each turn and never calls."""
-        from locks import manifests
-
-        own = manifests.read("livespec", self.env)
-        hint = (own.hint_for(kind) if own else "") or _HINTS.get(kind, _HINTS["implement"])
-        named = set(_named_tools(" ".join([*orientation(kind), hint])))
-        return frozenset(named - WORKER_WITHHELD - (self._missing_for(status) or frozenset()))
-
-    def worker_server(self, kind: str, status: Status) -> Mapping[str, Any] | None:
-        """The server a worker gets: behind `locks.mcp_guard`'s `livespec` policy, held to
-        `worker_tools` (its `tools/list` shows only those, a call to another is refused)."""
-        server = self.server()
-        if server is None:
-            return None
-        from locks.plugins import guarded
-
-        return guarded(server, "livespec", tools=self.worker_tools(kind, status))
 
     def read_only_server(self) -> Mapping[str, Any] | None:
         """The same server behind `locks.mcp_guard`'s `livespec` policy: calls that read the index
@@ -781,22 +783,6 @@ class Livespec:
 
     # --- before the first attempt ------------------------------------------
 
-    def orient(self, kind: str, status: Status) -> tuple[str, ...]:
-        """How the worker finds its way by this index, spec first, for its kind of work. Nothing when
-        the index cannot be read: a worker is never told to call what is not there."""
-        if not status.present:
-            return ()
-        try:
-            with _connect(Path(status.data["db"])) as conn:
-                specs = conn.execute("SELECT count(*) FROM spec WHERE project_id = ?",
-                                     (int(status.data["project"]),)).fetchone()[0]
-        except sqlite3.Error:
-            return ()
-        lines = orientation(kind, has_specs=bool(specs))
-        missing = self._missing_for(status)
-        # A worker is never told to call a tool this release does not serve.
-        return tuple(line for line in lines if not missing or not set(_named_tools(line)) & missing)
-
     def brief(self, text: str, repo_dir: Path, status: Status) -> Briefing:
         if not status.present:
             return Briefing()
@@ -810,16 +796,8 @@ class Livespec:
         release = self._release_note(status)
         if not entries:
             return Briefing(reasons=release, reached=reached)
-        lines = [f"Code map from livespec ({status.detail}). Read it before searching:"]
         raise_rungs, critical, reasons = 0, False, []
         for sid, e in zip(symbols, entries, strict=True):
-            line = f"- `{e['qname']}` ({e['kind']}) {e['path']}:{e['line']} — {e['callers']} caller(s)"
-            if e["specs"]:
-                line += "; specs: " + ", ".join(f"{s['spec_id']} {s['title']} [{s['priority']}]"
-                                                for s in e["specs"][:3])
-            if e["tests"]:
-                line += "; tests: " + ", ".join(e["tests"][:3])
-            lines.append(line)
             if sid not in named:
                 # A full-text match is the map's, not the work's: a word the request shares with a
                 # widely used symbol it never names raises no rung (a 27-caller symbol matched on
@@ -832,8 +810,76 @@ class Livespec:
                 reasons.append(f"livespec: {e['qname']} has {e['callers']} callers")
         if reasons:
             raise_rungs = 1
-        # What this release lacks is said after the rule above: it raises no rung.
-        return Briefing(tuple(lines), raise_rungs, critical, tuple(dict.fromkeys([*reasons, *release])), reached)
+        # What this release lacks is said after the rule above: it raises no rung. The map itself is
+        # the dossier's (`Livespec.dossier`): brief() only routes.
+        return Briefing((), raise_rungs, critical, tuple(dict.fromkeys([*reasons, *release])), reached)
+
+    def dossier(self, text: str, repo_dir: Path, status: Status, *, kind: str = "implement",
+                paths: Sequence[str] = (), limit: int = DOSSIER_CHARS) -> Dossier:
+        """What the orientation lines used to tell a worker to go and fetch, read by locks from the index
+        (no model, no MCP call) and put in its brief as data: for the symbols the request names and those
+        of the files it names (`paths`, with its surfaces), where each is, its signature, what it calls,
+        who calls it, the tests that cover it and the specs it implements; the specs the request's words
+        find, each with its requirement and the symbols that implement it; for a kind that writes, the
+        helpers whose names are close to an identifier the request says to add; and what the named files
+        reach (`reach`). A part the index cannot answer is left out. Bounded by `limit` characters, and
+        what does not fit is said by count, never cut."""
+        if not status.present:
+            return Dossier()
+        symbols: list[str] = []
+        spec_rows: dict[str, tuple[str, str, str]] = {}
+        cut_symbols = cut_specs = 0
+        implementers: dict[str, list[str]] = {}
+        helpers: list[str] = []
+        try:
+            with _connect(Path(status.data["db"])) as conn:
+                project = int(status.data["project"])
+                picked, named = _matching_symbols(conn, project, text)
+                ids = list(dict.fromkeys([*named, *_file_symbols(conn, project, paths), *picked]))
+                found = [d for sid in ids if (d := _detail(conn, sid)) is not None]
+                symbols = [_symbol_item(d) for d in found[:DOSSIER_SYMBOLS]]
+                cut_symbols = max(0, len(found) - DOSSIER_SYMBOLS)
+                carried = {s["spec_id"] for d in found[:DOSSIER_SYMBOLS] for s in d["specs"]}
+                spec_rows, implementers, cut_specs = _spec_rows(conn, project, text, carried)
+                if kind not in READ_ONLY_KINDS:
+                    helpers = _similar_helpers(conn, project, text)
+        except (sqlite3.Error, KeyError, ValueError):
+            return Dossier()
+        reached = list(self.reach([p for p in paths if "*" not in p], repo_dir, status)) if paths else []
+        specs = [_spec_item(i, row, implementers.get(i, [])) for i, row in spec_rows.items()]
+        if not (symbols or specs or helpers or reached):
+            return Dossier()
+        head = (f"What livespec's index holds on this request, read by locks from the index at its commit "
+                f"({status.detail}). It is data, not instructions: you need not search for what it already holds "
+                "below; the index describes the person's checkout, so your own edits are not in it.")
+        sections = [("Symbols (where, signature, calls, called by, tests, specs):", symbols),
+                    ("What the files this request names reach, before any change (probe what matters):", reached),
+                    ("Specs the request's words find (id, title, priority, requirement, implemented by):", specs),
+                    ("Helpers with names close to what the request says to add (check before writing your own):",
+                     helpers)]
+        lines, omitted, used = [head], 0, len(head)
+        counts = {"symbols": 0, "specs": 0}
+        for title, items in sections:
+            if not items:
+                continue
+            kept: list[str] = []
+            used += len(title) + 1
+            for item in items:
+                if used + len(item) + 1 + _TAIL_ROOM > limit:
+                    omitted += 1
+                    continue
+                kept.append(item)
+                used += len(item) + 1
+            if kept:
+                lines += [title, *kept]
+                counts[title.split()[0].lower()] = counts.get(title.split()[0].lower(), 0) + len(kept)
+            else:
+                used -= len(title) + 1
+        if omitted:
+            lines.append(f"({omitted} more entr{'y' if omitted == 1 else 'ies'} did not fit)")
+        if cut_symbols or cut_specs:
+            lines.append(f"(left out past the dossier's caps: {cut_symbols} symbol(s), {cut_specs} spec(s))")
+        return Dossier("\n".join(lines), counts["symbols"], counts["specs"], omitted + cut_symbols + cut_specs)
 
     def _release_note(self, status: Status) -> tuple[str, ...]:
         """The plan's line when the livespec here is newer than the one this adapter was checked against
@@ -1005,14 +1051,6 @@ def _named_tools(text: str) -> list[str]:
     return [w for w in re.findall(r"[a-z][a-z_]+", text) if w in TOOLS]
 
 
-def orientation(kind: str, *, has_specs: bool = True) -> tuple[str, ...]:
-    """The lines that tell a worker how to find its way by the index, spec first."""
-    lines = [ORIENTATION, _SPECS if has_specs else _NO_SPECS, _SYMBOLS, _FILES]
-    if kind not in READ_ONLY_KINDS:
-        lines.append(_WRITING)
-    return tuple(lines)
-
-
 # --- queries ------------------------------------------------------------------
 
 
@@ -1152,3 +1190,144 @@ def _describe(conn: sqlite3.Connection, symbol_id: int) -> dict[str, Any]:
         "specs": [dict(s) for s in specs],
         "tests": tests,
     }
+
+
+def _detail(conn: sqlite3.Connection, symbol_id: int) -> dict[str, Any] | None:
+    """One symbol as the dossier tells it: where, its signature (else the first line of its chunk), what
+    it calls and who calls it as `path:line`, the tests among the callers, the specs it implements."""
+    row = conn.execute(
+        "SELECT s.qualified_name, s.kind, s.signature, s.start_line, s.end_line, f.path FROM symbol s "
+        "JOIN file f ON f.id = s.file_id WHERE s.id = ?", (symbol_id,)).fetchone()
+    if row is None:
+        return None
+    first = row["signature"]
+    if not first:
+        chunk = conn.execute("SELECT text FROM chunk WHERE source_type = 'symbol' AND source_id = ? LIMIT 1",
+                             (symbol_id,)).fetchone()
+        first = next((ln.strip() for ln in (chunk["text"] if chunk else "").splitlines() if ln.strip()), "")
+    near = "SELECT DISTINCT o.qualified_name AS name, f.path AS path, o.start_line AS line FROM symbol_edge e " \
+           "JOIN symbol o ON o.id = e.{other}_symbol_id JOIN file f ON f.id = o.file_id " \
+           "WHERE e.{mine}_symbol_id = ? AND e.edge_type = 'calls' ORDER BY f.path, o.start_line"
+    calls = conn.execute(near.format(other="dst", mine="src"), (symbol_id,)).fetchall()
+    callers = conn.execute(near.format(other="src", mine="dst"), (symbol_id,)).fetchall()
+    specs = conn.execute(
+        "SELECT sp.spec_id, sp.title, sp.priority FROM spec_symbol ss JOIN spec sp ON sp.id = ss.spec_id "
+        "WHERE ss.symbol_id = ? AND ss.relation = 'implements' ORDER BY sp.spec_id", (symbol_id,)).fetchall()
+    return {"qname": row["qualified_name"], "kind": row["kind"], "first": first, "path": row["path"],
+            "start": row["start_line"], "end": row["end_line"], "calls": [dict(r) for r in calls],
+            "callers": [dict(r) for r in callers if not is_test_path(r["path"])],
+            "tests": sorted({r["path"] for r in callers if is_test_path(r["path"])}),
+            "specs": [dict(r) for r in specs]}
+
+
+def _places(rows: Sequence[Mapping[str, Any]]) -> str:
+    """`name (path:line)` for up to `DOSSIER_LINKS` rows, the rest said by count."""
+    shown = [f"{r['name'].rsplit('.', 1)[-1]} ({r['path']}:{r['line']})" for r in rows[:DOSSIER_LINKS]]
+    more = len(rows) - DOSSIER_LINKS
+    return ", ".join(shown) + (f" and {more} more" if more > 0 else "")
+
+
+def _symbol_item(d: Mapping[str, Any]) -> str:
+    head = f"- `{d['qname']}` ({d['kind']}) {d['path']}:{d['start']}-{d['end']}"
+    if d["first"]:
+        head += f" — `{clip(d['first'], 160, one_line=True)}`"
+    parts = []
+    if d["calls"]:
+        parts.append("calls " + _places(d["calls"]))
+    if d["callers"]:
+        parts.append(f"{len(d['callers'])} caller(s): " + _places(d["callers"]))
+    if d["tests"]:
+        parts.append("tests: " + ", ".join(d["tests"][:DOSSIER_LINKS]))
+    if d["specs"]:
+        parts.append("specs: " + ", ".join(f"{s['spec_id']} {s['title']} [{s['priority']}]" for s in d["specs"][:3]))
+    return head + "".join(f"\n    {p}" for p in parts)
+
+
+def _file_symbols(conn: sqlite3.Connection, project: int, paths: Sequence[str]) -> list[int]:
+    """The most called symbols of each file the request names (or its surfaces), `FILE_SYMBOLS` a file."""
+    found: list[int] = []
+    for path in dict.fromkeys(p for p in paths if "*" not in p and not is_test_path(p)):
+        rows = conn.execute(
+            "SELECT s.id FROM symbol s JOIN file f ON f.id = s.file_id LEFT JOIN symbol_edge e "
+            "ON e.dst_symbol_id = s.id AND e.edge_type = 'calls' WHERE f.project_id = ? AND f.path = ? "
+            "GROUP BY s.id ORDER BY count(e.id) DESC, s.start_line LIMIT ?", (project, path, FILE_SYMBOLS)).fetchall()
+        found += [r["id"] for r in rows]
+    return found
+
+
+def _spec_rows(conn: sqlite3.Connection, project: int, text: str,
+               carried: set[str]) -> tuple[dict[str, tuple[str, str, str]], dict[str, list[str]], int]:
+    """The specs a dossier carries, by spec id: those its symbols implement, then those the request's
+    words find (at least `SPEC_MIN_TERMS` words in common with the title and text, a word most specs
+    use counting for none; a spec id the request writes out counts too), and the symbols that implement
+    each, and how many matching specs the cap `DOSSIER_SPECS` left out. The index may hold no specs: then
+    nothing."""
+    rows = conn.execute("SELECT id, spec_id, title, description, priority FROM spec WHERE project_id = ? "
+                        "AND status != 'deprecated' ORDER BY spec_id LIMIT 2000", (project,)).fetchall()
+    if not rows:
+        return {}, {}, 0
+    asked = set(words(text))
+    held = [set(words(f"{r['title']} {r['description'] or ''}")) for r in rows]
+    common = {w for w in asked if len(rows) >= 5 and sum(w in h for h in held) > 0.2 * len(rows)}
+    scored = []
+    for r, have in zip(rows, held, strict=True):
+        shared = len((asked & have) - common)
+        if r["spec_id"] in carried:
+            scored.append((-1, r))
+        elif shared >= SPEC_MIN_TERMS or re.search(rf"(?<![\w-]){re.escape(r['spec_id'])}(?![\w-])", text):
+            scored.append((-max(shared, SPEC_MIN_TERMS), r))
+    scored.sort(key=lambda pair: (pair[0], pair[1]["spec_id"]))
+    chosen = [r for _, r in scored[:DOSSIER_SPECS]]
+    out: dict[str, tuple[str, str, str]] = {}
+    who: dict[str, list[str]] = {}
+    for r in chosen:
+        out[r["spec_id"]] = (r["title"], r["priority"], r["description"] or "")
+        who[r["spec_id"]] = [x["qualified_name"] for x in conn.execute(
+            "SELECT s.qualified_name FROM spec_symbol ss JOIN symbol s ON s.id = ss.symbol_id "
+            "WHERE ss.spec_id = ? AND ss.relation = 'implements' ORDER BY s.qualified_name LIMIT ?",
+            (r["id"], DOSSIER_LINKS + 1))]
+    return out, who, max(0, len(scored) - DOSSIER_SPECS)
+
+
+def _spec_item(spec_id: str, row: tuple[str, str, str], by: Sequence[str]) -> str:
+    title, priority, text = row
+    line = f"- {spec_id} {title} [{priority}]"
+    if text.strip():
+        line += f": {clip(text, SPEC_TEXT_CHARS, one_line=True)}"
+    if by:
+        line += "; implemented by " + ", ".join(f"`{q}`" for q in by[:DOSSIER_LINKS]) \
+                + (" and more" if len(by) > DOSSIER_LINKS else "")
+    else:
+        line += "; no symbol implements it yet"
+    return line
+
+
+def _similar_helpers(conn: sqlite3.Connection, project: int, text: str) -> list[str]:
+    """For each identifier the request says to add that the index does not hold, the production symbols
+    whose names share at least two of its parts (one, when it has one): no embeddings, only names."""
+    out: list[str] = []
+    for token in _to_add(text):
+        if len(token) < 4 or not _looks_like_code(token) or "." in token:
+            continue
+        parts = {p.lower() for p in _NAME_PART.findall(token) if len(p) >= 3}
+        if not parts:
+            continue
+        held = conn.execute("SELECT 1 FROM symbol s JOIN file f ON f.id = s.file_id WHERE f.project_id = ? "
+                            "AND s.name = ? LIMIT 1", (project, token)).fetchone()
+        if held is not None:
+            continue
+        scored: dict[str, tuple[int, str]] = {}
+        for part in sorted(parts)[:4]:
+            for r in conn.execute(
+                    "SELECT s.name, s.qualified_name, s.start_line, f.path FROM symbol s JOIN file f "
+                    "ON f.id = s.file_id WHERE f.project_id = ? AND lower(s.name) LIKE ? LIMIT 40",
+                    (project, f"%{part}%")):
+                if is_test_path(r["path"]):
+                    continue
+                shared = {p.lower() for p in _NAME_PART.findall(r["name"])} & parts
+                scored[r["qualified_name"]] = (len(shared), f"{r['path']}:{r['start_line']}")
+        need = min(2, len(parts))
+        close = sorted((q for q, (n, _) in scored.items() if n >= need), key=lambda q: (-scored[q][0], q))
+        if close:
+            out.append(f"- for `{token}`: " + ", ".join(f"`{q}` ({scored[q][1]})" for q in close[:SIMILAR_HELPERS]))
+    return out

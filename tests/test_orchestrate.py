@@ -351,7 +351,6 @@ def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path, monkeyp
     from .livespec_fixture import build
 
     build(git_repo)  # dated in the future, so never older than the last commit
-    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # handed, whatever the trial would draw
     script = Script(ok("fixed"))
 
     def launcher(spec):
@@ -363,17 +362,15 @@ def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path, monkeyp
     report = run("charge_card charges twice on retry", git_repo, store, registry={}, launcher=launcher,
                  classifier=kind("implement"), adapters=[_livespec(tmp_path)])
     spec = script.specs[0]
-    # routing: a critical spec moves the start one rung up
-    assert report.cells == ["sonnet/high"]
+    # routing: the index raises a reading kind's start only; a build stays on its ladder's first cell
+    assert report.cells == ["sonnet/medium"]
     assert any("critical spec" in r for r in report.plan.reasons)
     # briefing: the code map opens the worker's prompt
-    assert "Code map from livespec" in spec.prompt and "SPEC-7" in spec.prompt
-    # the worker gets livespec's server and a hint naming the workspace
-    assert "uvx" in spec.mcp_servers["livespec"]["args"]  # behind its guard, held to the brief's tools
-    # and its tools are allowed with it: a worker is never refused the index it was handed
-    assert "mcp__livespec" in spec.allowed_tools
-    assert f'workspace="{git_repo.resolve()}"' in spec.append_system_prompt
-    assert "livespec" in report.plan.capabilities
+    assert "What livespec's index holds on this request" in spec.prompt and "SPEC-7" in spec.prompt
+    # the worker is handed no livespec: no server, no tools, no hint; the dossier is what it gets
+    assert "livespec" not in spec.mcp_servers and "mcp__livespec" not in spec.allowed_tools
+    assert f'workspace="{git_repo.resolve()}"' not in spec.append_system_prompt
+    assert "livespec" in report.plan.capabilities  # the neighbour is present: the check and the dossier use it
     # after the pass: what the change touched
     assert any("SPEC-7" in line for line in report.impact)
     assert "livespec: present" in report.text()
@@ -401,7 +398,7 @@ def test_an_unindexed_repo_is_indexed_in_the_background_and_the_task_starts_at_o
     # the index is started, never waited on: the task runs without it
     assert started and started[0][-2:] == ["index-livespec", str(git_repo.resolve())]
     assert "livespec: indexing in the background; this task runs without it" in report.plan.reasons
-    assert "Code map from livespec" not in script.specs[0].prompt
+    assert "What livespec's index holds on this request" not in script.specs[0].prompt
     assert report.status == "done" and lines[0].startswith(f"locks: task #{report.task_id} started")
     # a task planned while that index runs starts no second one
     adapter = _livespec(tmp_path, popen=popen)
@@ -416,7 +413,7 @@ def test_an_unindexed_repo_is_indexed_in_the_background_and_the_task_starts_at_o
     script = Script(ok())
     report = run("parse_amount rounds wrong", git_repo, store, registry={}, launcher=script,
                  classifier=kind("implement"), adapters=[_livespec(tmp_path, popen=popen)])
-    assert len(started) == 1 and "22 caller(s)" in script.specs[0].prompt
+    assert len(started) == 1 and "and 16 more" in script.specs[0].prompt
 
 
 class _Index:
@@ -452,7 +449,8 @@ def test_a_task_waits_for_the_index_before_its_worker_starts(git_repo, store, tm
     assert len(started) == 1 and started[0][-2:] == ["index-livespec", str(git_repo.resolve())]
     assert any(r.startswith("livespec: repo: indexed before the worker started") for r in report.plan.reasons)
     # The worker's brief opens with the map of the index that was built for it.
-    assert "Code map from livespec" in script.specs[0].prompt and "22 caller(s)" in script.specs[0].prompt
+    prompt = script.specs[0].prompt
+    assert "What livespec's index holds on this request" in prompt and "and 16 more" in prompt
     assert report.status == "done"
     waiting = next(i for i, line in enumerate(lines) if "livespec is indexing repo before the worker starts" in line)
     assert waiting < next(i for i, line in enumerate(lines) if "started: implement" in line)
@@ -474,7 +472,7 @@ def test_past_the_wait_the_task_starts_without_the_index_and_says_so(git_repo, s
     assert len(said) == 1 and "this task runs without it" in said[0]
     # Said once: not again as a background refresh.
     assert not any("in the background" in r for r in report.plan.reasons)
-    assert "Code map from livespec" not in script.specs[0].prompt
+    assert "What livespec's index holds on this request" not in script.specs[0].prompt
 
 
 def test_past_the_wait_a_stale_index_still_reaches_the_worker_and_the_plan_says_it_is_used_as_it_is(
@@ -493,7 +491,7 @@ def test_past_the_wait_a_stale_index_still_reaches_the_worker_and_the_plan_says_
     said = [r for r in report.plan.reasons if r.startswith("livespec: repo: still indexing after the 30 s")]
     assert len(said) == 1
     assert "this task uses the index as it is" in said[0]
-    assert "22 caller(s)" in script.specs[0].prompt
+    assert "and 16 more" in script.specs[0].prompt
 
 
 def test_a_task_in_a_folder_of_repositories_indexes_each_one_and_never_the_folder(store, tmp_path, monkeypatch):
@@ -516,25 +514,22 @@ def test_a_task_in_a_folder_of_repositories_indexes_each_one_and_never_the_folde
                for r in the_plan.reasons) == 2
 
 
-def test_a_worker_is_told_to_orient_by_specs_before_the_map_and_before_opening_files(git_repo, store, tmp_path,
-                                                                                     monkeypatch):
+def test_a_worker_gets_the_dossier_as_data_and_no_orientation_to_call_livespec(git_repo, store, tmp_path):
     from .livespec_fixture import build
 
     build(git_repo)
-    monkeypatch.setenv("LOCKS_LIVESPEC_TRIAL", "off")  # handed, whatever the trial would draw
     script = Script(ok())
     run("parse_amount rounds wrong", git_repo, store, registry={}, launcher=script, classifier=kind("implement"),
         adapters=[_livespec(tmp_path)])
     prompt = script.specs[0].prompt
-    assert prompt.index("Orient by livespec before you open files") < prompt.index("Code map from livespec")
-    assert prompt.index("`list_specs`") < prompt.index("`get_spec_implementation`") < prompt.index("`read_unit`")
-    assert "`search_similar`" in prompt and "`git_diff_impact`" not in prompt
-    # Told also when the request names no symbol the index knows: there is no map, and the way still holds.
+    assert "parse_amount" in prompt and "read by locks from the index" in prompt
+    assert "Orient by livespec" not in prompt and "`quick_orient`" not in prompt and "`read_unit`" not in prompt
+    assert "livespec" not in script.specs[0].mcp_servers
+    # With no symbol the index knows there is nothing to carry, and still nothing to call.
     bare = Script(ok())
     run("make the build faster", git_repo, store, registry={}, launcher=bare, classifier=kind("explore"),
         adapters=[_livespec(tmp_path)])
-    assert "Orient by livespec before you open files" in bare.specs[0].prompt
-    assert "Code map from livespec" not in bare.specs[0].prompt and "`search_similar`" not in bare.specs[0].prompt
+    assert "Orient by livespec" not in bare.specs[0].prompt and "livespec" not in bare.specs[0].mcp_servers
 
 
 def test_a_worker_with_no_index_is_not_told_to_call_livespec(git_repo, store, tmp_path):
@@ -579,7 +574,7 @@ def test_a_stale_index_is_used_as_it_is_while_one_refresh_runs(git_repo, store, 
     report = run("parse_amount rounds wrong", git_repo, store, registry={}, launcher=script,
                  classifier=kind("implement"), adapters=[adapter])
     assert "livespec: refreshing in the background; this task uses the index as it is" in report.plan.reasons
-    assert "22 caller(s)" in script.specs[0].prompt and len(started) == 1
+    assert "and 16 more" in script.specs[0].prompt and len(started) == 1
     # a refresh that holds the lock is not started twice
     with ls._lock(adapter.lock_path(git_repo), wait_s=0) as (got, _):
         assert got
@@ -612,7 +607,7 @@ def test_review_of_critical_code_is_reviewed_as_critical(git_repo, store, tmp_pa
     report = run("review the charge_card change", git_repo, store, Options(dry_run=True), registry={},
                  classifier=kind("review-routine"), adapters=[_livespec(tmp_path)])
     assert report.plan.kind == "review-critical"
-    assert "Code map from livespec" in report.text()
+    assert "What livespec's index holds on this request" in report.text()
 
 
 def test_the_switch_turns_livespec_off_everywhere(git_repo, store, monkeypatch):
@@ -2503,3 +2498,15 @@ def test_the_kind_and_the_neighbours_indexes_are_found_side_by_side(git_repo, st
                              adapters=[Neighbour()])
     assert time.monotonic() - began < 1.1 and seen["index"] != seen["classify"]
     assert found.kind == "implement"
+
+
+@pytest.mark.parametrize("text,services,expected", [
+    ("Navigate the running app at localhost:3000 and report the title", (), True),
+    ("Browse the site and list its pages", (), True),
+    ("Abre la página de inicio y lee el título", (), True),
+    ("Fix the rounding in the total", (), False),
+    ("Write tests for the parser", (), False),
+    ("Fix the rounding in the total", ("npm run dev@4200",), True),
+])
+def test_a_request_asks_to_browse_by_its_words_or_a_service(text, services, expected):
+    assert orchestrate.asks_to_browse(text, orchestrate.Options(services=services)) is expected

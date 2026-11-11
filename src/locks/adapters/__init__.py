@@ -68,6 +68,21 @@ class Briefing:
     reached: int | None = None
 
 
+@dataclass(frozen=True)
+class Dossier:
+    """What an index says on a request, read by locks and put in the worker's brief as data."""
+
+    text: str = ""
+    #: The symbols and the specs the text carries, and what did not fit, said in the text by count.
+    symbols: int = 0
+    specs: int = 0
+    omitted: int = 0
+
+    @property
+    def chars(self) -> int:
+        return len(self.text)
+
+
 class Adapter(Protocol):
     name: str
 

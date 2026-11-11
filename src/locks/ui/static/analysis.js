@@ -257,7 +257,7 @@ export async function renderAnalysis(ctx) {
         }))] : [],
     trustSection(r.trust || []),
     capabilitiesSection(r.capabilities || []),
-    armsSection("Holding work to evidence", "A worker handed layout-inspector for a UI change, or rastro, has to show a "
+    armsSection("Holding work to evidence", "A worker handed layout-inspector for a UI change has to show a "
       + "call of that tool that went through before its pass counts. Tried in turns with free work; kept where its passes "
       + "drew fewer blockers from the independent check.", r.evidence, ["gate", "free"],
       (a) => `${a.tasks} tasks · ${a.blocked}/${a.read} blocked (${pct(a.blocked_rate)})`, r.evidence_now),

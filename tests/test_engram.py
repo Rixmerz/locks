@@ -259,3 +259,30 @@ def test_the_client_speaks_http_and_a_unix_socket():
         assert http_client({"ENGRAM_SOCKET": path})("GET", "/search?q=x", None) == (200, [])
     finally:
         listener.close()
+
+
+def test_engram_is_off_until_the_person_turns_it_on(tmp_path, monkeypatch, capsys):
+    from locks import cli, config
+    from locks.adapters import default_adapters
+
+    monkeypatch.setenv("LOCKS_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("LOCKS_ENGRAM", raising=False)
+    assert config.DEFAULTS["engram"] is False and config.DEFAULTS["engram_write"] is False
+    assert not config.enabled("engram", {"LOCKS_HOME": str(tmp_path / "home")})
+    assert [a.name for a in default_adapters({"LOCKS_HOME": str(tmp_path / "home"), "LOCKS_LIVESPEC": "off"})] == []
+    on = {"LOCKS_HOME": str(tmp_path / "home"), "LOCKS_LIVESPEC": "off", "LOCKS_ENGRAM": "on"}
+    assert [a.name for a in default_adapters(on)] == ["engram"]
+    # `locks neighbours` probes engram only when it is on
+    monkeypatch.setattr(Engram, "inspect", lambda self, where: pytest.fail("engram was probed while off"))
+    assert cli.main(["neighbours", "--repo", str(tmp_path)]) == 0
+    assert "engram setting: off" in capsys.readouterr().out
+
+
+def test_the_plugin_manifest_declares_engram_off_like_the_settings():
+    import json
+    from pathlib import Path
+
+    from locks import config
+
+    manifest = json.loads((Path(__file__).resolve().parents[1] / ".claude-plugin" / "plugin.json").read_text())
+    assert manifest["userConfig"]["engram"]["default"] is config.DEFAULTS["engram"] is False

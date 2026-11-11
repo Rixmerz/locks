@@ -370,3 +370,73 @@ def test_a_branch_far_behind_the_one_work_lands_on_is_said_and_one_close_to_it_i
     assert said.startswith("base: ") and f"{isolate.TRUNK_BEHIND} commits behind {trunk}" in said
     git(git_repo, "reset", "-q", "--hard", f"{trunk}~1")
     assert isolate.behind_trunk(git_repo) is None
+
+
+def _timeout(argv, **kwargs):
+    import subprocess
+
+    raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+
+
+def test_git_that_outlasts_its_timeout_is_an_isolation_error(git_repo, monkeypatch):
+    monkeypatch.setattr(isolate.subprocess, "run", _timeout)
+    with pytest.raises(isolate.IsolationError, match=r"git status timed out after 120s"):
+        isolate._git(git_repo, "status")
+    with pytest.raises(isolate.IsolationError, match="timed out"):
+        isolate._git(git_repo, "status", check=False)
+
+
+def test_every_git_call_is_bounded_and_never_prompts(git_repo, monkeypatch):
+    seen = []
+    real = isolate.subprocess.run
+
+    def spy(argv, **kwargs):
+        seen.append(kwargs)
+        return real(argv, **kwargs)
+
+    monkeypatch.delenv("GIT_TERMINAL_PROMPT", raising=False)
+    monkeypatch.setattr(isolate.subprocess, "run", spy)
+    isolate._git(git_repo, "status")
+    isolate.numstat(git_repo, "HEAD", "HEAD")
+    assert isolate.GIT_TIMEOUT_S == 120
+    assert seen and all(k["timeout"] == isolate.GIT_TIMEOUT_S for k in seen)
+    assert all(k["env"]["GIT_TERMINAL_PROMPT"] == "0" for k in seen)
+    assert "PATH" in seen[0]["env"]  # the process's own environment is kept
+
+
+def test_a_git_that_hangs_fails_each_caller_the_way_it_already_fails(git_repo, tmp_path, monkeypatch):
+    ws = isolate.prepare(git_repo, 31, tmp_path / "home")
+    monkeypatch.setattr(isolate.subprocess, "run", _timeout)
+    assert isolate.numstat(git_repo, "HEAD", "HEAD") is None
+    assert isolate.generated(git_repo, ["a.py"]) == set()
+    with pytest.raises(isolate.IsolationError, match="timed out"):  # read through _git, which raises
+        isolate.landed(git_repo, "locks/task-31")
+    assert isolate.delete_branch(git_repo, ws.branch) is False
+    assert isolate.snapshot(ws.path) is None
+    assert isolate.fingerprint(ws.path) is None
+    assert isolate.put_back(ws.path, "HEAD", ["app.py"]) == ["app.py"]
+    assert isolate.ignored_named(ws, "see ./nothing.txt") == []
+    assert isolate.adopt_legacy(git_repo) == []
+    with pytest.raises(isolate.IsolationError, match="timed out"):
+        isolate.undo(ws, ["app.py"])
+    with pytest.raises(isolate.IsolationError, match="timed out"):
+        isolate.join(ws, ["locks/other"], message=lambda b: b)
+
+
+def test_no_git_subprocess_call_in_isolate_or_merging_lacks_a_timeout():
+    import ast
+    from pathlib import Path
+
+    checked = 0
+    for name in ("isolate.py", "merging.py"):
+        path = Path(isolate.__file__).with_name(name)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.List)):
+                continue
+            func = ast.unparse(node.func)
+            first = node.args[0].elts[0] if node.args[0].elts else None
+            if func not in ("subprocess.run", "run") or not (isinstance(first, ast.Constant) and first.value == "git"):
+                continue
+            checked += 1
+            assert "timeout" in {k.arg for k in node.keywords}, f"{name}:{node.lineno} runs git with no timeout"
+    assert checked >= 3  # isolate._run_git, merging._git and merging.open_pr's push

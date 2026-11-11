@@ -22,6 +22,7 @@ import os
 import pickle
 import re
 import shlex
+import signal
 import socket
 import sqlite3
 import statistics
@@ -1279,298 +1280,304 @@ def run(
     say = progress or (lambda line: None)
     # Said as it happens: a run in a background shell is otherwise silent until
     # its report, and silence reads as a run that never started.
-    say(f"locks: task #{task['id']} started: {the_plan.kind}, at {the_plan.start.label}")
-    if task_id is not None and not store.last_event(task["id"], "planned") and (
-            released := after.released_line(store, task["id"])):
-        # Queued after other work that passed: where it starts, said once, as it starts.
-        the_plan.reasons.append(released)
-    if options.resume_why:
-        the_plan.reasons.append(options.resume_why)
-    if task_id is None:
-        for twin in _twins(store, task, repo_dir):
-            the_plan.reasons.append(f"task #{twin} asked the same and keeps its work on {isolate.branch_for(twin)}: "
-                                    f"`locks resume {twin}` continues it instead of starting over")
-    if options.max_turns and options.max_turns > MAX_TURNS_CEILING:
-        the_plan.reasons.append(f"{options.max_turns} turns were asked for; an attempt gets at most "
-                                f"{MAX_TURNS_CEILING}: work bigger than that is split")
-    if not options.max_turns and the_plan.turns is None and turns_for(the_plan.kind) != DEFAULT_TURNS:
-        the_plan.reasons.append(f"{the_plan.kind} work starts with {turns_for(the_plan.kind)} turns: "
-                                f"at {DEFAULT_TURNS} its attempts ran out")
-    if told := manifests.plan_line(manifests.read_all()):
-        the_plan.reasons.append(told)
-    the_plan.quiet = said_today(store, repo.key(repo_dir), [*the_plan.reasons,
-                                                           *(st.line() for st in the_plan.neighbours)])
-    warned = warnings(the_plan.reasons)
-    for reason in warned:
-        if reason not in the_plan.quiet:
-            say(f"locks: #{task['id']} warning: {reason}")
-    store.add_event(task["id"], "planned", kind=the_plan.kind, start=the_plan.start.label, warnings=warned,
-                    role=the_plan.role.name if the_plan.role else None, team=the_plan.team,
-                    risk=the_plan.risk.data(), points=the_plan.points.points,
-                    points_why=list(the_plan.points.reasons), standard=the_plan.standard,
-                    ladder=[x.label for x in the_plan.ladder], reasons=the_plan.reasons,
-                    neighbours=[st.line() for st in the_plan.neighbours], plan_s=round(plan_s, 2),
-                    quiet=sorted(the_plan.quiet),
-                    **({"probation": the_plan.probation} if the_plan.probation else {}),
-                    **({predict_mod.KEY: the_plan.predicted} if the_plan.predicted else {}),
-                    queued_s=queued_s)
-
+    # What the close-out below reads, set before anything that can raise: a failure while the worktree
+    # or the brief is made still ends the task, with what exists by then.
     workspace = None
-    filled: list[str] = []
     resumed = False
-    # Why the task's worktree could not be made, in one line. It stops the task before its first
-    # attempt, resumable, instead of leaving it `running` under a process that is about to exit.
-    no_worktree: str | None = None
-    writes = the_plan.kind not in READ_ONLY_KINDS
-    # A build in a repository the person made spec-first owes its spec (`locks.specs`).
-    spec_first = (writes and the_plan.kind in specs_mod.FIRST_KINDS and config.enabled("specs", os.environ)
-                  and (repo_dir / specs_mod.OPENSPEC).is_dir() and specs_mod.first(store, key))
-    declared_read_only = declares_read_only(the_plan.kind, task.get("body") or task.get("title") or "")
-    if not options.verify and options.run_verify and writes and not declared_read_only:
-        # A workflow step with no kind of its own was classified into one that writes:
-        # the run's check is its check.
-        options = dataclasses.replace(options, verify=options.run_verify)
-    context = list(the_plan.context)
-    # A reading step of a workflow reads the work of the steps before it: it gets
-    # their commit too, in a worktree its tools cannot write to.
-    if options.isolate and (writes or options.base) and repo.toplevel(repo_dir) is not None:
-        try:
-            # A task that never ran owns no branch yet: one of its name is another's.
-            never_ran = (len(store.events_of(task["id"], "planned")) <= 1 and not store.attempts(task["id"])
-                         and not store.events_of(task["id"], "finished"))
-            resumed = not never_ran and isolate.kept(repo_dir, task["id"])
-            workspace = isolate.prepare(repo_dir, task["id"], home(), base=options.base, fresh=never_ran)
-            if workspace.set_aside:
-                say(f"a branch {workspace.branch} was already in this checkout with none of this task's work "
-                    f"(another locks store's): kept as {workspace.set_aside}, and this task starts on its base")
-                store.add_event(task["id"], "branch_set_aside", branch=workspace.branch, to=workspace.set_aside)
-            if workspace.stray:
-                say(f"this task's folder {workspace.path} was left by a run whose removal stopped half way, and "
-                    f"git no longer knew it: moved to {workspace.stray} (delete it once nothing in it is wanted)")
-                store.add_event(task["id"], "stray_moved", path=str(workspace.path), to=str(workspace.stray))
-            if isolate.has_compose(workspace.path):
-                context.append("This worktree has no container stack up: the one the person runs belongs to their "
-                               "checkout. Do not start another (sail up, docker compose up) to run the check; if "
-                               "the check needs one, stop and report the environment. locks stops any stack "
-                               "named after this worktree when the task ends.")
-            if resumed:
-                context.append("This task was stopped before and is resumed: what its earlier attempts wrote is "
-                               "already here. Check it, and finish it rather than starting over.")
-            if workspace.links:
-                context.append("Linked from the person's checkout and shared with it: "
-                               + ", ".join(workspace.links) + ". Use them; do not delete or reinstall them.")
-            if workspace.stale:
-                # Linking them would hand the worker another commit's dependencies.
-                context.append("Not linked from the person's checkout: " + ", ".join(workspace.stale)
-                               + ". The lockfile here differs from the one they were installed from there, so "
-                               "install the dependencies in this directory first (`npm ci`, `uv sync`, as the "
-                               "project does).")
-                say(f"dependencies not linked, their lockfile differs from your checkout's: "
-                    f"{', '.join(workspace.stale)}; the worker installs them (a refused install is allowed "
-                    f"with --allow, e.g. 'Bash(npm ci)')")
-            if not resumed:
-                filled = _fill_worktree(store, task["id"], workspace, text, options.carry, say)
-                context += filled
-        except (isolate.IsolationError, OSError) as exc:  # git failed, or git or the disk is not there
-            no_worktree = " ".join(str(exc).split())
-    if workspace is not None and task.get("workflow_run"):
-        # How far the base branch moved past the work this step starts from: said, never merged.
-        drift = isolate.behind_text(workflows.drift(store, task, workspace.base, "start") or {})
-        if drift:
-            say(f"locks: #{task['id']} starts {drift}")
-    workdir = workspace.path if workspace else repo_dir
-    context += how_to_run(workdir, (*options.allow_tools, *grants.granted(key)))
-    # The thread of the session that sent it, as the scribe kept it: the worker
-    # does not start from the task's text alone.
-    from_session, got = _session_context(task, text)
-    context += from_session
-    launch_dir = options.launch_dir.resolve() if options.launch_dir else workdir
-
-    # Strict, as the prompt hook: a task's text shares a word or two with
-    # nearly every task in its repository, and a loose match puts unrelated
-    # failures in front of the worker as if they were this problem's. Matched by
-    # the work's own text (a step's goal, never its template) and kept to its
-    # cell: the failures of its area, of its role, and the shared ones.
-    reach = cells.of_request(text, the_plan.kind, touched_paths(text, options))
-    dead = cells.dead_ends(store, cells.memory_text(store, task), repo=key, areas=reach,
-                           role=the_plan.role.name if the_plan.role is not None else None)
-    if dead:
-        # What the workers are shown, kept as shown: the memory grows after the run.
-        store.add_event(task["id"], "dead_ends", shown=dead)
-    # How the cell's earlier workers got oriented: given or withheld by the primer's
-    # trial, and kept either way so the two arms can be compared.
-    role_name = the_plan.role.name if the_plan.role is not None else None
-    primed: dict[str, Any] = {}
-    if config.enabled("primer", os.environ):
-        lines = cells.primer(store, key, role=role_name, areas=reach)
-        if lines:
-            arm, why = cells.primer_arm(store, key, task["id"])
-            primed = {"primer_arm": arm, "primer_lines": len(lines), "primer_why": why}
-            if arm == "primer":
-                context.append(cells.primer_text(lines))
-    # Which role and which version of its text this worker wears, and the role's lessons here:
-    # given or withheld by their trial, and kept either way so the arms can be compared.
-    # The notes the brief carries are kept too, so a worker-learned one is proven or dropped by
-    # the tasks that read it (`notes.weigh`), never by a guess.
-    context.extend(resume_context(store, task, key))
-    worn: dict[str, Any] = {}
-    held_files = roles.languages(repo_dir) if the_plan.role is not None else None
-    if the_plan.role is not None:
-        worn = {"role": role_name, "role_version": roles.version(the_plan.role),
-                "skill_sources": roles.skill_sources(the_plan.role, held=held_files)}
-        if revisions.enabled():
-            lessons, given = revisions.for_brief(store, key, role_name, task["id"])
-            worn.update(given)
-            if lessons:
-                context.append(lessons)
-    # A workflow step whose first try forks the session of the reading step it names
-    # (`locks.trunks`): forked or fresh by the trunk's trial, kept either way so the arms
-    # can be compared; one with nothing to fork says why and is in no arm.
-    forking: dict[str, Any] | None = None
-    trunked: dict[str, Any] = {}
-    if options.trunk and trunks.enabled() and not store.attempts(task["id"]) and not resumed:
-        trunk = options.trunk
-        why = trunk.get("missing") or ("" if workspace is not None else
-                                       "it runs in no worktree of its own, where a session is kept")
-        held_tokens = trunks.context_tokens(trunk["session"]) if not why else None
-        if held_tokens is not None and held_tokens > trunks.MAX_TOKENS:
-            why = f"its trunk's context held {held_tokens} tokens, over {trunks.MAX_TOKENS}: little room left"
-        if why:
-            trunked = {"trunk_why": f"starts fresh, not as a fork of step {trunk.get('step')!r}: {why}"}
-        else:
-            arm, arm_why = trunks.arm(store, key, task["id"])
-            trunked = {trunks.KEY: arm, "trunk_why": arm_why, "trunk_task": trunk.get("task"),
-                       **({"trunk_tokens": held_tokens} if held_tokens is not None else {})}
-            if arm == "fork":
-                forking = dict(trunk)
-        say(f"locks: #{task['id']} " + (f"forks step {trunk.get('step')!r}'s session (#{trunk.get('task')}) "
-                                         f"on its first try: {trunked['trunk_why']}" if forking is not None
-                                         else trunked["trunk_why"]))
-    # A worker handed a neighbour whose measurement its work owes (`locks.evidence`): held to it or
-    # free by the trial, kept either way so the arms can be compared.
-    evidenced: dict[str, Any] = {}
-    held_to: list[evidence_mod.Requirement] = []
-    if writes and evidence_mod.enabled() and (owing := evidence_mod.handed(the_plan.capabilities)):
-        arm, arm_why = evidence_mod.arm(store, key, task["id"])
-        evidenced = {evidence_mod.KEY: arm, "evidence_why": arm_why,
-                     "evidence_of": [r.capability for r in owing]}
-        if arm == "gate":
-            held_to = owing
-            context.append(evidence_mod.brief_line(owing))
-    # A method its kind's workers are briefed to follow (`locks.methods`): given or not by its trial,
-    # kept either way so the arms can be compared.
-    methodical: dict[str, Any] = {}
-    if methods_mod.enabled() and (method := methods_mod.for_kind(the_plan.kind)) is not None:
-        side, side_why = methods_mod.arm(store, key, method, task["id"])
-        methodical = {methods_mod.KEY: f"{method.name}:{side}", "method_why": side_why}
-        if side == "with":
-            context.append(method.lines)
-    the_plan.seen_risks = tuple(methods_mod.lines_for(methods_mod.run_risks(store, task)))
-    # A plan's parts read blind before they are built (`locks.critique`): read or not by the trial,
-    # kept either way so the arms can be compared; a resume keeps the arm its first brief drew.
-    critiqued: dict[str, Any] = {}
-    critic_arm = ""
-    if options.parts and critique_mod.enabled() and options.start is None:
-        critic_arm, critic_why = critique_mod.arm_for(store, key, task["id"])
-        critiqued = {critique_mod.KEY: critic_arm, critique_mod.WHY_KEY: critic_why}
-    # Whether this worker is handed livespec's tools (`locks.handing`): drawn by the trial of its
-    # nature here, kept either way so the arms can be compared; the orientation goes with the tools.
-    # What locks read from the index itself (the code map, the size, the check's impact) stays.
-    handed_arms: dict[str, Any] = {}
-    withheld_tools: frozenset[str] = frozenset()
-    if any(a.name == "livespec" for a, _ in the_plan.active) and handing_mod.enabled():
-        side, side_why = handing_mod.arm(store, key, the_plan.kind, task["id"])
-        handed_arms = {handing_mod.KEY: f"{handing_mod.nature(the_plan.kind)}:{side}", "livespec_why": side_why}
-        if side == "withhold":
-            withheld_tools = frozenset({"livespec"})
-    context[:0] = [line for name, line in the_plan.oriented if name not in withheld_tools]
-    # The brief's fixed weight, per kind and release (`locks.footprint`): what a worker reads
-    # before its task, so a brief that grows release after release is seen, not guessed.
-    worn_brief = roles.brief(the_plan.role, held=held_files) if the_plan.role is not None else None
-    store.add_event(task["id"], "briefed", session=got, dead_ends=len(dead), areas=list(reach),
-                    context_chars=sum(len(line) for line in context), kind=the_plan.kind,
-                    system_chars=len(worn_brief.system_prompt) if worn_brief is not None else 0,
-                    skills=len(worn_brief.skills) if worn_brief is not None else 0,
-                    # Each adopted neighbour's state when this brief was written: a brief with no
-                    # livespec orientation says why (absent, stale, unreadable), never left to guess.
-                    **({"livespec_tools": sorted(handed)} if (handed := next(
-                        (a.worker_tools(the_plan.kind, st) for a, st in the_plan.active
-                         if hasattr(a, "worker_tools") and a.name not in withheld_tools), None)) is not None
-                       else {}),
-                    # livespec's index describes the person's checkout; a worker in a worktree edits
-                    # a copy of it, so what the index answers is the base, not its own work so far.
-                    **({"livespec_index_of": "checkout" if workdir.resolve() != repo_dir.resolve() else "workdir"}
-                       if handed is not None else {}),
-                    **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
-                                       for st in the_plan.neighbours}} if the_plan.neighbours else {}),
-                    **primed, **worn, **trunked, **evidenced, **handed_arms,
-                    **methodical, **critiqued, **(the_plan.recalled or {}),
-                    **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
-                    **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
-    # The runtime the project declares goes first on the worker's PATH, and on its
-    # check's: a worker given the wrong Node hunts for another and is refused each one.
-    run_env = runtime.env_for(workdir)
-    briefing = worn_brief
-    # The independent check: what it found first, and how many corrections it has had.
-    verifying = writes and not declared_read_only and config.enabled("verifier", os.environ) \
-        and not options.reviewed_next
-    if writes and options.reviewed_next and config.enabled("verifier", os.environ):
-        the_plan.reasons.append("no independent check of its own: the blind review step that follows reads "
-                                "this change as the verifier would")
-    # The independent check after the ending (`late_verifier`): the run ends on locks' own
-    # check and the verifier reads the kept branch afterwards. Only with a check of locks' to end
-    # on, and never for a workflow step, a fix that answers ledger rows, or work something waits
-    # on: a step or held work it released could not be taken back.
-    late = verifying and bool(options.verify) and config.enabled("late_verifier", os.environ) \
-        and not task.get("workflow_run") \
-        and not _fixing(options) and not options.ledger and not _awaited(store, task["id"])
-    deferred: dict[str, Any] | None = None
-    ledger: dict[str, Mapping[str, str]] = {findings_mod.key(f): f for f in known_findings}
-    corrections = 0
-    # A workflow step that decides ledger rows: a pass answers each, and its answers decide the run.
-    deciding = options.ledger if options.ledger and options.ledger.get("role") in ledger_mod.WORDS else None
-    settled: ledger_mod.Outcome | None = None
-    base_commit = workspace.base if workspace else _head(repo_dir)
-    # In a folder that is no checkout, the base is each repository inside it at its own commit.
-    base_places = _base_places(repo_dir) if workspace is None and base_commit is None else ()
-    # A red check is compared with the same check at the commit the work started from:
-    # what failed there too was not this work's doing (`_against_base`).
-    baseline = Baseline(store, task["id"], workspace.repo_dir if workspace else repo_dir,
-                        base_commit or isolate.places_label(base_places), home(),
-                        must_fix=the_plan.kind in _REPRODUCES,
-                        runs=flake_fix_runs(the_plan.kind, task.get("body") or task.get("title") or ""),
-                        places=base_places) \
-        if (base_commit or base_places) and options.verify else None
-    # Turns are the one room dial, and they have one ceiling: a number asked for from
-    # outside (a resume, a model's tool call) never raises it.
-    cell, turns = the_plan.start, min(options.max_turns or the_plan.turns or turns_for(the_plan.kind),
-                                      MAX_TURNS_CEILING)
+    writes = False
+    subject = ""
     attempts: list[Attempt] = []
     changed: set[str] = set()
-    started_at: list[dict[str, Any]] | None = None
-    decision: Decision | None = None
-    # What the brief says of work set aside when a new model started from the base.
-    aside: list[str] = []
-    # The last attempt's session, and what ran it: more turns on the same cell continue
-    # it, more effort on the same model continues a fork of it.
-    session: WorkerSession | None = None
-    # The session the next attempt continues, or why one due starts fresh: decided with the move.
-    resume, fresh = "", ""
-    # The commit's subject: the last line a worker proposed for the change.
-    subject = ""
-    # In the checkout itself, one run at a time: the work and its check share the
-    # person's files. A run in a worktree has its own.
-    in_place = no_worktree is None and workspace is None and (
-        (writes and not declared_read_only) or bool(options.verify))
+    deferred: dict[str, Any] | None = None
+    settled: ledger_mod.Outcome | None = None
+    verifying = False
+    base_commit: str | None = None
     held = contextlib.ExitStack()
-    # What an integrate step joined before its first attempt (`_integrate`).
-    joined: dict[str, Any] | None = None
     timing = {"hold_s": 0.0, "services_s": 0.0, "worker_s": 0.0, "check_s": 0.0, "verifier_s": 0.0, "wait_s": 0.0}
-    # Its first try races the next rung (`race_cell`): only a fresh run in its own worktree
-    # that brought nothing in from the person's checkout, which the race's lane would lack.
-    racing = the_plan.race is not None and workspace is not None and not history and not filled and not resumed \
-        and forking is None
     try:
+        say(f"locks: task #{task['id']} started: {the_plan.kind}, at {the_plan.start.label}")
+        if task_id is not None and not store.last_event(task["id"], "planned") and (
+                released := after.released_line(store, task["id"])):
+            # Queued after other work that passed: where it starts, said once, as it starts.
+            the_plan.reasons.append(released)
+        if options.resume_why:
+            the_plan.reasons.append(options.resume_why)
+        if task_id is None:
+            for twin in _twins(store, task, repo_dir):
+                the_plan.reasons.append(f"task #{twin} asked the same and keeps its work on "
+                                        f"{isolate.branch_for(twin)}: `locks resume {twin}` continues it "
+                                        "instead of starting over")
+        if options.max_turns and options.max_turns > MAX_TURNS_CEILING:
+            the_plan.reasons.append(f"{options.max_turns} turns were asked for; an attempt gets at most "
+                                    f"{MAX_TURNS_CEILING}: work bigger than that is split")
+        if not options.max_turns and the_plan.turns is None and turns_for(the_plan.kind) != DEFAULT_TURNS:
+            the_plan.reasons.append(f"{the_plan.kind} work starts with {turns_for(the_plan.kind)} turns: "
+                                    f"at {DEFAULT_TURNS} its attempts ran out")
+        if told := manifests.plan_line(manifests.read_all()):
+            the_plan.reasons.append(told)
+        the_plan.quiet = said_today(store, repo.key(repo_dir), [*the_plan.reasons,
+                                                               *(st.line() for st in the_plan.neighbours)])
+        warned = warnings(the_plan.reasons)
+        for reason in warned:
+            if reason not in the_plan.quiet:
+                say(f"locks: #{task['id']} warning: {reason}")
+        store.add_event(task["id"], "planned", kind=the_plan.kind, start=the_plan.start.label, warnings=warned,
+                        role=the_plan.role.name if the_plan.role else None, team=the_plan.team,
+                        risk=the_plan.risk.data(), points=the_plan.points.points,
+                        points_why=list(the_plan.points.reasons), standard=the_plan.standard,
+                        ladder=[x.label for x in the_plan.ladder], reasons=the_plan.reasons,
+                        neighbours=[st.line() for st in the_plan.neighbours], plan_s=round(plan_s, 2),
+                        quiet=sorted(the_plan.quiet),
+                        **({"probation": the_plan.probation} if the_plan.probation else {}),
+                        **({predict_mod.KEY: the_plan.predicted} if the_plan.predicted else {}),
+                        queued_s=queued_s)
+
+        filled: list[str] = []
+        # Why the task's worktree could not be made, in one line. It stops the task before its first
+        # attempt, resumable, instead of leaving it `running` under a process that is about to exit.
+        no_worktree: str | None = None
+        writes = the_plan.kind not in READ_ONLY_KINDS
+        # A build in a repository the person made spec-first owes its spec (`locks.specs`).
+        spec_first = (writes and the_plan.kind in specs_mod.FIRST_KINDS and config.enabled("specs", os.environ)
+                      and (repo_dir / specs_mod.OPENSPEC).is_dir() and specs_mod.first(store, key))
+        declared_read_only = declares_read_only(the_plan.kind, task.get("body") or task.get("title") or "")
+        if not options.verify and options.run_verify and writes and not declared_read_only:
+            # A workflow step with no kind of its own was classified into one that writes:
+            # the run's check is its check.
+            options = dataclasses.replace(options, verify=options.run_verify)
+        context = list(the_plan.context)
+        # A reading step of a workflow reads the work of the steps before it: it gets
+        # their commit too, in a worktree its tools cannot write to.
+        if options.isolate and (writes or options.base) and repo.toplevel(repo_dir) is not None:
+            try:
+                # A task that never ran owns no branch yet: one of its name is another's.
+                never_ran = (len(store.events_of(task["id"], "planned")) <= 1 and not store.attempts(task["id"])
+                             and not store.events_of(task["id"], "finished"))
+                resumed = not never_ran and isolate.kept(repo_dir, task["id"])
+                workspace = isolate.prepare(repo_dir, task["id"], home(), base=options.base, fresh=never_ran)
+                if workspace.set_aside:
+                    say(f"a branch {workspace.branch} was already in this checkout with none of this task's work "
+                        f"(another locks store's): kept as {workspace.set_aside}, and this task starts on its base")
+                    store.add_event(task["id"], "branch_set_aside", branch=workspace.branch, to=workspace.set_aside)
+                if workspace.stray:
+                    say(f"this task's folder {workspace.path} was left by a run whose removal stopped half way, and "
+                        f"git no longer knew it: moved to {workspace.stray} (delete it once nothing in it is wanted)")
+                    store.add_event(task["id"], "stray_moved", path=str(workspace.path), to=str(workspace.stray))
+                if isolate.has_compose(workspace.path):
+                    context.append("This worktree has no container stack up: the one the person runs belongs to their "
+                                   "checkout. Do not start another (sail up, docker compose up) to run the check; if "
+                                   "the check needs one, stop and report the environment. locks stops any stack "
+                                   "named after this worktree when the task ends.")
+                if resumed:
+                    context.append("This task was stopped before and is resumed: what its earlier attempts wrote is "
+                                   "already here. Check it, and finish it rather than starting over.")
+                if workspace.links:
+                    context.append("Linked from the person's checkout and shared with it: "
+                                   + ", ".join(workspace.links) + ". Use them; do not delete or reinstall them.")
+                if workspace.stale:
+                    # Linking them would hand the worker another commit's dependencies.
+                    context.append("Not linked from the person's checkout: " + ", ".join(workspace.stale)
+                                   + ". The lockfile here differs from the one they were installed from there, so "
+                                   "install the dependencies in this directory first (`npm ci`, `uv sync`, as the "
+                                   "project does).")
+                    say(f"dependencies not linked, their lockfile differs from your checkout's: "
+                        f"{', '.join(workspace.stale)}; the worker installs them (a refused install is allowed "
+                        f"with --allow, e.g. 'Bash(npm ci)')")
+                if not resumed:
+                    filled = _fill_worktree(store, task["id"], workspace, text, options.carry, say)
+                    context += filled
+            except (isolate.IsolationError, OSError) as exc:  # git failed, or git or the disk is not there
+                no_worktree = " ".join(str(exc).split())
+        if workspace is not None and task.get("workflow_run"):
+            # How far the base branch moved past the work this step starts from: said, never merged.
+            drift = isolate.behind_text(workflows.drift(store, task, workspace.base, "start") or {})
+            if drift:
+                say(f"locks: #{task['id']} starts {drift}")
+        workdir = workspace.path if workspace else repo_dir
+        context += how_to_run(workdir, (*options.allow_tools, *grants.granted(key)))
+        # The thread of the session that sent it, as the scribe kept it: the worker
+        # does not start from the task's text alone.
+        from_session, got = _session_context(task, text)
+        context += from_session
+        launch_dir = options.launch_dir.resolve() if options.launch_dir else workdir
+
+        # Strict, as the prompt hook: a task's text shares a word or two with
+        # nearly every task in its repository, and a loose match puts unrelated
+        # failures in front of the worker as if they were this problem's. Matched by
+        # the work's own text (a step's goal, never its template) and kept to its
+        # cell: the failures of its area, of its role, and the shared ones.
+        reach = cells.of_request(text, the_plan.kind, touched_paths(text, options))
+        dead = cells.dead_ends(store, cells.memory_text(store, task), repo=key, areas=reach,
+                               role=the_plan.role.name if the_plan.role is not None else None)
+        if dead:
+            # What the workers are shown, kept as shown: the memory grows after the run.
+            store.add_event(task["id"], "dead_ends", shown=dead)
+        # How the cell's earlier workers got oriented: given or withheld by the primer's
+        # trial, and kept either way so the two arms can be compared.
+        role_name = the_plan.role.name if the_plan.role is not None else None
+        primed: dict[str, Any] = {}
+        if config.enabled("primer", os.environ):
+            lines = cells.primer(store, key, role=role_name, areas=reach)
+            if lines:
+                arm, why = cells.primer_arm(store, key, task["id"])
+                primed = {"primer_arm": arm, "primer_lines": len(lines), "primer_why": why}
+                if arm == "primer":
+                    context.append(cells.primer_text(lines))
+        # Which role and which version of its text this worker wears, and the role's lessons here:
+        # given or withheld by their trial, and kept either way so the arms can be compared.
+        # The notes the brief carries are kept too, so a worker-learned one is proven or dropped by
+        # the tasks that read it (`notes.weigh`), never by a guess.
+        context.extend(resume_context(store, task, key))
+        worn: dict[str, Any] = {}
+        held_files = roles.languages(repo_dir) if the_plan.role is not None else None
+        if the_plan.role is not None:
+            worn = {"role": role_name, "role_version": roles.version(the_plan.role),
+                    "skill_sources": roles.skill_sources(the_plan.role, held=held_files)}
+            if revisions.enabled():
+                lessons, given = revisions.for_brief(store, key, role_name, task["id"])
+                worn.update(given)
+                if lessons:
+                    context.append(lessons)
+        # A workflow step whose first try forks the session of the reading step it names
+        # (`locks.trunks`): forked or fresh by the trunk's trial, kept either way so the arms
+        # can be compared; one with nothing to fork says why and is in no arm.
+        forking: dict[str, Any] | None = None
+        trunked: dict[str, Any] = {}
+        if options.trunk and trunks.enabled() and not store.attempts(task["id"]) and not resumed:
+            trunk = options.trunk
+            why = trunk.get("missing") or ("" if workspace is not None else
+                                           "it runs in no worktree of its own, where a session is kept")
+            held_tokens = trunks.context_tokens(trunk["session"]) if not why else None
+            if held_tokens is not None and held_tokens > trunks.MAX_TOKENS:
+                why = f"its trunk's context held {held_tokens} tokens, over {trunks.MAX_TOKENS}: little room left"
+            if why:
+                trunked = {"trunk_why": f"starts fresh, not as a fork of step {trunk.get('step')!r}: {why}"}
+            else:
+                arm, arm_why = trunks.arm(store, key, task["id"])
+                trunked = {trunks.KEY: arm, "trunk_why": arm_why, "trunk_task": trunk.get("task"),
+                           **({"trunk_tokens": held_tokens} if held_tokens is not None else {})}
+                if arm == "fork":
+                    forking = dict(trunk)
+            say(f"locks: #{task['id']} " + (f"forks step {trunk.get('step')!r}'s session (#{trunk.get('task')}) "
+                                             f"on its first try: {trunked['trunk_why']}" if forking is not None
+                                             else trunked["trunk_why"]))
+        # A worker handed a neighbour whose measurement its work owes (`locks.evidence`): held to it or
+        # free by the trial, kept either way so the arms can be compared.
+        evidenced: dict[str, Any] = {}
+        held_to: list[evidence_mod.Requirement] = []
+        if writes and evidence_mod.enabled() and (owing := evidence_mod.handed(the_plan.capabilities)):
+            arm, arm_why = evidence_mod.arm(store, key, task["id"])
+            evidenced = {evidence_mod.KEY: arm, "evidence_why": arm_why,
+                         "evidence_of": [r.capability for r in owing]}
+            if arm == "gate":
+                held_to = owing
+                context.append(evidence_mod.brief_line(owing))
+        # A method its kind's workers are briefed to follow (`locks.methods`): given or not by its trial,
+        # kept either way so the arms can be compared.
+        methodical: dict[str, Any] = {}
+        if methods_mod.enabled() and (method := methods_mod.for_kind(the_plan.kind)) is not None:
+            side, side_why = methods_mod.arm(store, key, method, task["id"])
+            methodical = {methods_mod.KEY: f"{method.name}:{side}", "method_why": side_why}
+            if side == "with":
+                context.append(method.lines)
+        the_plan.seen_risks = tuple(methods_mod.lines_for(methods_mod.run_risks(store, task)))
+        # A plan's parts read blind before they are built (`locks.critique`): read or not by the trial,
+        # kept either way so the arms can be compared; a resume keeps the arm its first brief drew.
+        critiqued: dict[str, Any] = {}
+        critic_arm = ""
+        if options.parts and critique_mod.enabled() and options.start is None:
+            critic_arm, critic_why = critique_mod.arm_for(store, key, task["id"])
+            critiqued = {critique_mod.KEY: critic_arm, critique_mod.WHY_KEY: critic_why}
+        # Whether this worker is handed livespec's tools (`locks.handing`): drawn by the trial of its
+        # nature here, kept either way so the arms can be compared; the orientation goes with the tools.
+        # What locks read from the index itself (the code map, the size, the check's impact) stays.
+        handed_arms: dict[str, Any] = {}
+        withheld_tools: frozenset[str] = frozenset()
+        if any(a.name == "livespec" for a, _ in the_plan.active) and handing_mod.enabled():
+            side, side_why = handing_mod.arm(store, key, the_plan.kind, task["id"])
+            handed_arms = {handing_mod.KEY: f"{handing_mod.nature(the_plan.kind)}:{side}", "livespec_why": side_why}
+            if side == "withhold":
+                withheld_tools = frozenset({"livespec"})
+        context[:0] = [line for name, line in the_plan.oriented if name not in withheld_tools]
+        # The brief's fixed weight, per kind and release (`locks.footprint`): what a worker reads
+        # before its task, so a brief that grows release after release is seen, not guessed.
+        worn_brief = roles.brief(the_plan.role, held=held_files) if the_plan.role is not None else None
+        store.add_event(task["id"], "briefed", session=got, dead_ends=len(dead), areas=list(reach),
+                        context_chars=sum(len(line) for line in context), kind=the_plan.kind,
+                        system_chars=len(worn_brief.system_prompt) if worn_brief is not None else 0,
+                        skills=len(worn_brief.skills) if worn_brief is not None else 0,
+                        # Each adopted neighbour's state when this brief was written: a brief with no
+                        # livespec orientation says why (absent, stale, unreadable), never left to guess.
+                        **({"livespec_tools": sorted(handed)} if (handed := next(
+                            (a.worker_tools(the_plan.kind, st) for a, st in the_plan.active
+                             if hasattr(a, "worker_tools") and a.name not in withheld_tools), None)) is not None
+                           else {}),
+                        # livespec's index describes the person's checkout; a worker in a worktree edits
+                        # a copy of it, so what the index answers is the base, not its own work so far.
+                        **({"livespec_index_of": "checkout" if workdir.resolve() != repo_dir.resolve() else "workdir"}
+                           if handed is not None else {}),
+                        **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
+                                           for st in the_plan.neighbours}} if the_plan.neighbours else {}),
+                        **primed, **worn, **trunked, **evidenced, **handed_arms,
+                        **methodical, **critiqued, **(the_plan.recalled or {}),
+                        **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
+                        **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
+        # The runtime the project declares goes first on the worker's PATH, and on its
+        # check's: a worker given the wrong Node hunts for another and is refused each one.
+        run_env = runtime.env_for(workdir)
+        briefing = worn_brief
+        # The independent check: what it found first, and how many corrections it has had.
+        verifying = writes and not declared_read_only and config.enabled("verifier", os.environ) \
+            and not options.reviewed_next
+        if writes and options.reviewed_next and config.enabled("verifier", os.environ):
+            the_plan.reasons.append("no independent check of its own: the blind review step that follows reads "
+                                    "this change as the verifier would")
+        # The independent check after the ending (`late_verifier`): the run ends on locks' own
+        # check and the verifier reads the kept branch afterwards. Only with a check of locks' to end
+        # on, and never for a workflow step, a fix that answers ledger rows, or work something waits
+        # on: a step or held work it released could not be taken back.
+        late = verifying and bool(options.verify) and config.enabled("late_verifier", os.environ) \
+            and not task.get("workflow_run") \
+            and not _fixing(options) and not options.ledger and not _awaited(store, task["id"])
+        ledger: dict[str, Mapping[str, str]] = {findings_mod.key(f): f for f in known_findings}
+        corrections = 0
+        # A workflow step that decides ledger rows: a pass answers each, and its answers decide the run.
+        deciding = options.ledger if options.ledger and options.ledger.get("role") in ledger_mod.WORDS else None
+        base_commit = workspace.base if workspace else _head(repo_dir)
+        # In a folder that is no checkout, the base is each repository inside it at its own commit.
+        base_places = _base_places(repo_dir) if workspace is None and base_commit is None else ()
+        # A red check is compared with the same check at the commit the work started from:
+        # what failed there too was not this work's doing (`_against_base`).
+        baseline = Baseline(store, task["id"], workspace.repo_dir if workspace else repo_dir,
+                            base_commit or isolate.places_label(base_places), home(),
+                            must_fix=the_plan.kind in _REPRODUCES,
+                            runs=flake_fix_runs(the_plan.kind, task.get("body") or task.get("title") or ""),
+                            places=base_places) \
+            if (base_commit or base_places) and options.verify else None
+        # Turns are the one room dial, and they have one ceiling: a number asked for from
+        # outside (a resume, a model's tool call) never raises it.
+        cell, turns = the_plan.start, min(options.max_turns or the_plan.turns or turns_for(the_plan.kind),
+                                          MAX_TURNS_CEILING)
+        started_at: list[dict[str, Any]] | None = None
+        decision: Decision | None = None
+        # What the brief says of work set aside when a new model started from the base.
+        aside: list[str] = []
+        # The last attempt's session, and what ran it: more turns on the same cell continue
+        # it, more effort on the same model continues a fork of it.
+        session: WorkerSession | None = None
+        # The session the next attempt continues, or why one due starts fresh: decided with the move.
+        resume, fresh = "", ""
+        # The commit's subject: the last line a worker proposed for the change.
+        # In the checkout itself, one run at a time: the work and its check share the
+        # person's files. A run in a worktree has its own.
+        in_place = no_worktree is None and workspace is None and (
+            (writes and not declared_read_only) or bool(options.verify))
+        # What an integrate step joined before its first attempt (`_integrate`).
+        joined: dict[str, Any] | None = None
+        # Its first try races the next rung (`race_cell`): only a fresh run in its own worktree
+        # that brought nothing in from the person's checkout, which the race's lane would lack.
+        racing = the_plan.race is not None and workspace is not None and not history and not filled and not resumed \
+            and forking is None
         mark = time.monotonic()
         if in_place:
             for place in isolate.held_by(repo_dir, repo.toplevel(repo_dir)):
@@ -1969,8 +1976,10 @@ def run(
             # record as it was; it never fails the run.
             with contextlib.suppress(Exception):
                 habits.load_events(store)
+            # Under the number its worker ran as (and its tool calls are logged under), not the next free
+            # row: after an attempt that died the two differ.
             seq = store.add_attempt(
-                task["id"], cell=cell.label, max_turns=turns, passed=int(result.passed),
+                task["id"], seq=nth, cell=cell.label, max_turns=turns, passed=int(result.passed),
                 failure=result.failure.value if result.failure else None, summary=result.summary,
                 evidence=kept_evidence(result.evidence), cost_usd=result.cost_usd,
                 input_tokens=result.input_tokens, output_tokens=result.output_tokens, turns=result.turns,
@@ -2154,29 +2163,40 @@ def run(
                                  attempt=len(attempts) or None, extra={"via": "keyboard"})
         report.status, report.summary = "cancelled", report.stop.reason
     finally:
+        # A second terminate must not abort the close-out half way.
+        terminate = None
+        with contextlib.suppress(ValueError):  # signals can be set from the main thread only
+            terminate = signal.signal(signal.SIGTERM, signal.SIG_IGN)
         held.close()
         if workspace is not None:
             report.isolated = True
-            if stopped := isolate.stop_stacks(workspace.path):
-                store.add_event(task["id"], "stacks_stopped", projects=stopped)
-            report.changed = list(isolate.changed(workspace))
-            # Work that outgrew its turns is kept too: the task was not wrong, only big. A
-            # cancel stops the work, never throws it away: what it changed stays on its branch.
-            # Nor does a resume that ends short drop what an earlier run of it kept.
-            outgrew = report.stop is not None and report.stop.cause in ("turns", "split")
-            report.branch = isolate.finish(
-                workspace, keep=report.status in KEEPS_WORK or outgrew or report.status == "cancelled" or resumed,
-                message=isolate.message(task["id"], title=commit_title(task), subject=subject,
-                                        summary=attempts[-1].summary if attempts else "",
-                                        status="done" if report.status == "done" else report.status,
-                                        check_output=len([p for p in report.check_output if p in report.changed])),
-            )
-            if report.branch:
-                with contextlib.suppress(isolate.IsolationError):
-                    report.commit = isolate.head(workspace.repo_dir, report.branch)
-            if report.branch and report.status == "done":
-                # The fix that worked is anchored to the commit a person can check.
-                store.set_fix_commit(task["id"], isolate.head(workspace.repo_dir, report.branch))
+            try:
+                if stopped := isolate.stop_stacks(workspace.path):
+                    store.add_event(task["id"], "stacks_stopped", projects=stopped)
+                report.changed = list(isolate.changed(workspace))
+                # Work that outgrew its turns is kept too: the task was not wrong, only big. A
+                # cancel stops the work, never throws it away: what it changed stays on its branch.
+                # Nor does a resume that ends short drop what an earlier run of it kept.
+                outgrew = report.stop is not None and report.stop.cause in ("turns", "split")
+                report.branch = isolate.finish(
+                    workspace, keep=report.status in KEEPS_WORK or outgrew or report.status == "cancelled" or resumed,
+                    message=isolate.message(task["id"], title=commit_title(task), subject=subject,
+                                            summary=attempts[-1].summary if attempts else "",
+                                            status="done" if report.status == "done" else report.status,
+                                            check_output=len([p for p in report.check_output if p in report.changed])),
+                )
+                if report.branch:
+                    with contextlib.suppress(isolate.IsolationError):
+                        report.commit = isolate.head(workspace.repo_dir, report.branch)
+                if report.branch and report.status == "done":
+                    # The fix that worked is anchored to the commit a person can check.
+                    store.set_fix_commit(task["id"], isolate.head(workspace.repo_dir, report.branch))
+            except Exception as exc:  # the final status and the `finished` event are written whatever this does
+                if report.stop is None:
+                    report.stop = stops.Stop("environment", f"closing its worktree failed: {exc}"[:500],
+                                             attempt=len(attempts) or None)
+                    report.summary = report.summary or report.stop.reason
+                    report.status = "blocked"
         status = report.status if report.status != "running" else "failed"
         if status != "done" and report.stop is None:
             # Nothing above ended it: an error escaped the loop, and locks, not the work, failed.
@@ -2240,6 +2260,11 @@ def run(
         except Exception as exc:
             store.add_event(task["id"], "workflow_error", error=str(exc)[:300])
             say(f"locks: #{task['id']} could not start the work that waits on it: {exc}")
+        if terminate is not None:
+            # The close-out is done: what is started from here (the detached after-ending) must not
+            # inherit an ignored SIGTERM, and a terminate may stop the rest as it did.
+            with contextlib.suppress(ValueError):
+                signal.signal(signal.SIGTERM, terminate)
         # What follows the ending, after its ending and the next step are out: filing what it
         # learned (a model call, about 5 s at the median) and the late independent check. No
         # session and no step waits on either; with `detach_after` the command does not either.
@@ -3935,13 +3960,18 @@ def _preflight(command: str, workdir: Path, task: Mapping[str, Any], store: Stor
 def _run_check(command: str, workdir: Path, timeout: float | None = None) -> tuple[int | None, str]:
     """The repository's own check: (exit code, or None on a timeout; its whole output). It has
     `VERIFY_TIMEOUT_S` unless `timeout` says otherwise (the base's run: `base_timeout_s`)."""
+    # Its own process group: on a timeout the shell's children, which hold the pipes, die with it.
+    proc = subprocess.Popen(command, shell=True, cwd=str(workdir), text=True,  # noqa: S602
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                            env={**os.environ, **runtime.env_for(workdir)})
     try:
-        proc = subprocess.run(command, shell=True, cwd=str(workdir), capture_output=True, text=True,  # noqa: S602
-                              timeout=VERIFY_TIMEOUT_S if timeout is None else timeout, check=False,
-                              env={**os.environ, **runtime.env_for(workdir)})
+        out, err = proc.communicate(timeout=VERIFY_TIMEOUT_S if timeout is None else timeout)
     except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
         return None, ""
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+    return proc.returncode, (out + err).strip()
 
 
 def _timed_check(command: str, workdir: Path, baseline: Baseline | None) -> tuple[int | None, str]:

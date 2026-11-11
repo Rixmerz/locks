@@ -139,11 +139,20 @@ def entry(event: Mapping[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
+def _private_dir(directory: Path) -> None:
+    """Create a folder of the locks home (and the home above it) readable by the person alone.
+
+    `mkdir(mode=)` applies to the leaf only, so the parent is made first.
+    """
+    directory.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.mkdir(exist_ok=True, mode=0o700)
+
+
 def append(event: Mapping[str, Any], env: Mapping[str, str]) -> None:
     if event.get("tool_name") in NOT_STEPS:
         return
     directory = log_dir(env)
-    directory.mkdir(parents=True, exist_ok=True)
+    _private_dir(directory)
     line = json.dumps(entry(event, env), separators=(",", ":")) + "\n"
     path = directory / f"{datetime.now(UTC):%Y-%m-%d}.ndjson"
     # One write of one line in append mode: concurrent hooks never interleave.
@@ -160,7 +169,7 @@ def note_error(env: Mapping[str, str]) -> None:
         import traceback
 
         path = log_dir(env).parent / "hook-errors.log"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        _private_dir(path.parent)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(f"--- {datetime.now(UTC).isoformat(timespec='seconds')} PostToolUse\n"
                      f"{traceback.format_exc()}\n")

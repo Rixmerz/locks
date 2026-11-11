@@ -867,3 +867,40 @@ def test_a_wait_stands_while_the_work_ahead_changed_nothing_new(store: Store, mo
     store.add_event(held["id"], "dispatch_decided", parallel=False, reason="names", ahead=[first["id"]],
                     by="surfaces", seen={})
     assert flow.runnable(store, "r", parallel=True, decide=_never) == []
+
+
+def test_a_start_that_raises_leaves_no_claimed_task_running_without_a_process(store: Store, tmp_path):
+    import pytest
+
+    first = store.enqueue("read the docs", repo="r", cwd=str(tmp_path))
+    second = store.enqueue("read the faq", repo="r2", cwd=str(tmp_path))
+
+    def start(task, where):
+        raise RuntimeError("could not spawn")
+
+    with pytest.raises(RuntimeError):
+        flow.work(store, start=start, pause=lambda: None)
+    for task in (first, second):
+        row = store.get_task(task["id"])
+        assert row["status"] == "queued" and not row["dispatched"]
+
+
+def test_the_sweep_releases_a_claim_nobody_started_and_leaves_a_fresh_one(store: Store):
+    stale = store.enqueue("stale claim", repo="r", cwd="/")
+    fresh = store.enqueue("fresh claim", repo="r2", cwd="/")
+    assert store.claim(stale["id"]) and store.claim(fresh["id"])
+    now = datetime.now(UTC)
+    store._conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?",
+                        ((now - timedelta(minutes=6)).isoformat(timespec="seconds"), stale["id"]))
+    store._conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?",
+                        ((now - timedelta(minutes=1)).isoformat(timespec="seconds"), fresh["id"]))
+    assert flow.CLAIM_STALE_S == 300
+    swept = flow.sweep(store, now=now)
+    assert swept == []  # a released claim is no dead worker
+    row = store.get_task(stale["id"])
+    assert row["status"] == "queued" and not row["dispatched"]
+    released = store.last_event(stale["id"], "claim_released")
+    assert 350 <= released["data"]["sat_s"] <= 370
+    kept = store.get_task(fresh["id"])
+    assert kept["status"] == "running" and kept["dispatched"]
+    assert store.last_event(fresh["id"], "claim_released") is None

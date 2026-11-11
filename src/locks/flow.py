@@ -57,6 +57,9 @@ orchestrate = lazy.module("locks.orchestrate")
 #: How long a session prompt may sit in `running` with no update before it is
 #: taken for abandoned. Claude Code fires no Stop for an interrupted turn.
 SESSION_TASK_TIMEOUT = timedelta(hours=12)
+#: A claimed task (`Store.claim`: running, dispatched, no pid) whose process never started is
+#: put back in the queue after this many seconds (`sweep`).
+CLAIM_STALE_S = 300
 #: How long a session's subagent may sit in `running` before it is taken for one whose
 #: ending never reached locks (a background agent's notice lost to a compaction or a
 #: closed session). Longer than a turn: a subagent may work for hours.
@@ -206,6 +209,14 @@ def sweep(store: Store, *, now: datetime | None = None, is_alive: Callable[[int 
     now = now or datetime.now(UTC)
     swept = []
     for task in store.list_tasks(status=["running"], limit=500):
+        if task["dispatched"] and not task["pid"] and task["source"] != "locks":
+            # Claimed by a dispatcher that never started its process (it was killed, or `start` raised
+            # past the handler in `work`): nobody holds it, and it is no dead worker to resume.
+            sat = now - datetime.fromisoformat(task["updated_at"])
+            if sat.total_seconds() > CLAIM_STALE_S:
+                store.update_task(task["id"], status="queued", dispatched=0)
+                store.add_event(task["id"], "claim_released", sat_s=int(sat.total_seconds()))
+            continue
         if task["source"] == "locks":
             dead = not is_alive(task["pid"])
         else:
@@ -857,13 +868,16 @@ def work(
                         store.add_event(task["id"], "dispatched", at=round(time.time(), 3), level=level.value,
                                         **({"ceiling": ceiling} if isinstance(ceiling, int) else {}))
                         launched.append((task, where))
-            for n, (task, where) in enumerate(launched):
+            for task, where in launched:
                 try:
                     out.append(start(task, where))
-                except Exception as exc:
-                    if disk_full(exc):  # its process never started: it goes back to the queue, with the rest
-                        for back, _ in launched[n:]:
-                            with contextlib.suppress(Exception):
+                except Exception:
+                    # Whatever raised, a task claimed this round with no process yet would stay
+                    # `running` until the sweep's timeout: it goes back to the queue, with the rest.
+                    for back, _ in launched:
+                        with contextlib.suppress(Exception):
+                            current = store.get_task(back["id"]) or {}
+                            if current.get("status") == "running" and not current.get("pid"):
                                 store.update_task(back["id"], status="queued", dispatched=0)
                     raise
             through()

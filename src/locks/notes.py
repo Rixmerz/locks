@@ -47,6 +47,7 @@ from typing import Any
 
 from locks import arms as arms_mod
 from locks import repo, workspaces
+from locks.masking import SECRET_STRICT as _SECRET
 from locks.store import Store, home
 from locks.text import fold, reads_alike, title_of, words
 
@@ -120,16 +121,6 @@ MAX_FACT = 1000
 MAX_FACTS = 8
 #: Text in a fact that looks like a secret keeps the fact out: notes are put
 #: in front of models and shown in the UI.
-#: API keys are written with dashes inside (`sk-ant-api03-…`, `sk-proj-…`): a pattern of letters and
-#: digits alone let every Anthropic and OpenAI key through (found by `tests/test_fuzz.py`).
-#: A key starts a word, or holds a digit when glued to one: inside a word (`<task-notification>`,
-#: `desk-reference`) `sk-` is no key.
-_SECRET = re.compile(r"((?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}|(?<![A-Za-z0-9])sk-[A-Za-z0-9]{8,}|"
-                     r"sk-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_\w{8,}|"
-                     r"xox[abposr]-[\w-]{8,}|AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{30,}|"
-                     r"-----BEGIN [A-Z ]*PRIVATE KEY|\b[0-9a-f]{40,}\b|password\s*[:=]\s*\S+|"
-                     r"bearer\s+[A-Za-z0-9._~+/-]{20,})",
-                     re.IGNORECASE)
 
 _PRIVATE = re.compile(r"<private>.*?</private>", re.IGNORECASE | re.DOTALL)
 

@@ -208,7 +208,8 @@ def call(srv, method, path, body=None, headers=None, host=None):
 
 
 def token(srv):
-    _, data = call(srv, "GET", "/api/token", headers={"Sec-Fetch-Site": "same-origin"})
+    _, data = call(srv, "GET", "/api/token",
+                   headers={"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"})
     return json.loads(data)["token"]
 
 

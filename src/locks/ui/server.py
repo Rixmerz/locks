@@ -79,6 +79,8 @@ def token_path(root: Path) -> Path:
 def ensure_token(root: Path) -> str:
     path = token_path(root)
     if path.is_file():
+        with contextlib.suppress(OSError):  # a token file made loose (0644) is tightened before it is read
+            os.chmod(path, 0o600)
         return path.read_text(encoding="utf-8").strip()
     root.mkdir(parents=True, exist_ok=True)
     value = secrets.token_hex(32)
@@ -251,7 +253,14 @@ class Handler(BaseHTTPRequestHandler):
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             self._error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "JSON only")
             return None
-        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.headers.get("Content-Length")
+        try:
+            length = int(raw) if raw is not None else -1
+        except ValueError:
+            length = -1
+        if length < 0:  # missing, not a number or negative: answered before the socket is read
+            self._error(HTTPStatus.BAD_REQUEST, "a valid Content-Length is required")
+            return None
         if length > MAX_BODY:
             self._error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "body too large")
             return None
@@ -309,7 +318,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/token":
             # Only the page itself: a browser marks its own fetches same-origin, and
             # a cross-origin page could not read this answer even if it asked.
-            if self.headers.get("Sec-Fetch-Site") != "same-origin":
+            origin = self.headers.get("Origin")
+            own = {f"http://{host}" for host in self.server.allowed_hosts}
+            if (
+                self.headers.get("Sec-Fetch-Site") != "same-origin"
+                or self.headers.get("Sec-Fetch-Mode") is None
+                or (origin is not None and origin not in own)
+            ):
                 return self._error(HTTPStatus.FORBIDDEN, "same-origin only")
             return self._json(HTTPStatus.OK, {"token": ensure_token(self.server.root)})
         if path == "/api/projects":

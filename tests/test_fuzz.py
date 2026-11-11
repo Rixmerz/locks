@@ -120,7 +120,11 @@ def test_a_ci_file_the_line_reader_cannot_read_is_skipped_never_a_crash(tmp_path
 @pytest.mark.parametrize("key", [
     "sk-ant-api03-AbCdEf0123456789xyz-_AAbbCC", "sk-proj-abc123def456ghi789jkl", "gho_abcdefghij1234567890",
     "ghs_abcdefghij1234567890", "github_pat_11ABCDEFG0123456789_abcdef", "AKIAIOSFODNN7EXAMPLE",
-    "AIzaSyA1234567890abcdefghijklmnopqrstu", "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc"])
+    "AIzaSyA1234567890abcdefghijklmnopqrstu", "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc",
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r", "Basic dXNlcjpwYXNzd29yZA==",
+    "ASIAIOSFODNN7EXAMPLE", "sk_live" "_" "4eC39HqLyjWDarjtT1zdp7dc", "rk_test" "_" "4eC39HqLyjWDarjtT1zdp7dc",
+    "postgres://admin:hunter2pass@db.internal/app", "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXX",
+    "npm" "_abcdefghijklmnopqrstuvwxyz0123456789", "glpat" "-abcdefghij0123456789", "api_key=zxcvbnm12345"])
 def test_a_real_shaped_key_is_masked_wherever_text_is_kept(key):
     """Keys are written with dashes inside: `sk-[A-Za-z0-9]{8,}` let every Anthropic and OpenAI key
     through to check tails, notes, briefs and the UI. Each shape here is masked, glued or not."""

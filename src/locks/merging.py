@@ -57,7 +57,14 @@ def order(changed: Mapping[int, Sequence[str]]) -> list[int]:
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=False)
+    """`git <args>` in `cwd`; one that outlasts `isolate.GIT_TIMEOUT_S` is a failed call (exit 124,
+    the timeout said on stderr), which every caller already treats as git failing."""
+    try:
+        return subprocess.run(["git", *args], cwd=str(cwd), env=isolate.git_env(), capture_output=True, text=True,
+                              check=False, timeout=isolate.GIT_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(["git", *args], 124, "",
+                                           f"git {' '.join(args)} timed out after {isolate.GIT_TIMEOUT_S}s")
 
 
 def ready(top: Path, branches: Mapping[int, str]) -> str:
@@ -176,7 +183,11 @@ def pr_body(task: Mapping[str, Any], final: Mapping[str, Any]) -> str:
 def open_pr(top: Path, branch: str, title: str, body: str, *, base: str | None = None,
             run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> tuple[bool, str]:
     """Push `branch` and open a draft pull request for it with `gh`: (opened, what it said)."""
-    pushed = run(["git", "push", "-u", "origin", branch], cwd=str(top), capture_output=True, text=True, check=False)
+    try:
+        pushed = run(["git", "push", "-u", "origin", branch], cwd=str(top), env=isolate.git_env(),
+                     capture_output=True, text=True, check=False, timeout=isolate.GIT_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return False, f"git push timed out after {isolate.GIT_TIMEOUT_S}s"
     if pushed.returncode != 0:
         return False, f"git push failed: {(pushed.stderr or pushed.stdout).strip()[-400:]}"
     # Named in full: right after a push, `gh` reading the head from the checkout alone says

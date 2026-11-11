@@ -596,3 +596,22 @@ a check locks runs itself, and an independent reader only where the risk asks fo
 argues for a Haiku worker under an Opus planner on a build of this size; it was not built. Three runs a
 cell, one repository: a difference under about 20% is not read as one, and these are far above it.
 
+## Y: locks 0.95.0 against 0.92.0 on the same build (`versus.py`)
+
+Whether the releases since X changed what a build costs and how long it takes: the same request and
+hidden tests, a locks home of its own with no history, Claude Code 2.1.319. The medium build ran six
+times (one invocation was meant for the hard build and ran the medium one), the hard build three.
+
+| build | arm | right (hidden) | wall p50 (min-max) | $ p50 | $ mean |
+|---|---|---|---|---|---|
+| medium | locks 0.92.0 | 3/3 (7/7 each) | 83 s (77-88) | 0.22 | 0.21 |
+| medium | locks 0.95.0 | 5/6 (one 6/7) | 65 s (44-74) | 0.21 | 0.20 |
+| hard | locks 0.92.0 | 3/3 (10/10 each) | 442 s (411-473) | 1.45 | 1.47 |
+| hard | locks 0.95.0 | 3/3 (10/10 each) | 366 s (340-416) | 1.17 | 1.24 |
+
+Wall time fell 22% on the medium build and 17% on the hard one, cost 20% on the hard one and not at
+all on the medium one. Each is at the edge of what three runs a cell can tell (a difference under about
+20% is not read as one), and nothing here says which change did it. One medium run of 0.95.0 passed its
+own check and missed one hidden test, where no earlier run of locks had: one in six is not a rate, and
+it is the number to watch at the next measure. One medium run started at sonnet/medium instead of
+sonnet/high and was the fastest and cheapest of the six, every hidden test passed.

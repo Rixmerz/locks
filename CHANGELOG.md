@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [0.95.1] - 2026-11-11
+
+### Fixed
+- A resume's instruction reaches the independent check too (the first check, a correction's re-check and
+  the late check), marked as the session's later decision: twice a resumed worker did what the session
+  told it and was blocked for departing from the original request.
+- The late check blocks by the first check's rule: a passing verdict whose only findings are read from
+  the code leaves the pass standing.
+- A worker stopped by a test outside its surfaces, with its change made, is a `decision` with its work
+  kept and the paths to widen, no longer a `replan` that says the task is wrong. The paths offered exist:
+  a bare name is resolved to the one tracked file it matches, or dropped.
+- An ending's overlap notice leaves out kept branches whose files HEAD already holds, and a run with no
+  worktree no longer counts as its own the files a merge brought into the checkout while it ran.
+- A lockfile that differs only in the project's own version keeps its dependency folder linked: a release
+  bump made `uv.lock` differ, `.venv` was left out of the worktree and the task's check ended as exit 127.
+
+### Added
+- `bench/speed/README.md`, section Y: 0.95.0 against 0.92.0 on the same build.
+
 ## [0.95.0] - 2026-11-11
 
 ### Changed

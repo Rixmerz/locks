@@ -1087,7 +1087,7 @@ yields the default kind, not a guess.
   (`cli.cmd_extract_notes`), a dispatcher revived or a task resumed by a hook (`hooks._revive`). A new act of
   a hook on a session gets one, so an audit reads it from the session's own trace.
 - A stray path outside a task's surfaces is a finding of its own: it never rewrites an `environment` failure, nor a `code_bug` with the check's output, as `approach`, and never empties `check_tail`. Surfaces are read from inside the repository as well as from the folder, and a dependency folder is never offered as one. A container stack a worker started in its worktree is stopped when its task ends (`isolate.stop_stacks`).
-- A resume's brief carries the notes filed since its last attempt and the instruction a session passed with `locks resume N -` (`orchestrate.resume_context`), quoted as context, never the task.
+- A resume's brief carries the notes filed since its last attempt and the instruction a session passed with `locks resume N -` (`orchestrate.resume_context`), quoted as context, never the task. The independent check gets that instruction too, as the session's later decision: following it is no finding. The late check blocks by the first check's rule (a finding only read from the code goes with the pass). A lockfile that differs only in the project's own version is not stale (`isolate._stale`), and an overlap notice never names a kept branch HEAD already holds (`isolate.already_in_head`).
 - Forensics, the footprint and skill use read a copy of the store, never the live file, and say what
   they observed, never a modeled figure; a dormant skill is said, never archived by locks. The notes
   fork is judged by facts kept per filing, never by its cost, which is shown beside it.

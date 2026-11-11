@@ -550,6 +550,17 @@ RESUME_INSTRUCTION = "resume_instruction"
 RESUME_NOTES = 5
 
 
+def resume_instruction(store: Store, task: Mapping[str, Any]) -> str:
+    """The instruction the session gave this resume (`locks resume N -`), or "": the last one kept,
+    when it came after the task's last attempt began. The worker's brief carries it (`resume_context`)
+    and so does the independent check's (`verifier_brief`), which judges the work against it."""
+    attempts = store.attempts(int(task["id"]))
+    given = store.last_event(int(task["id"]), RESUME_INSTRUCTION) if attempts else None
+    if given and str(given["ts"]) >= str(attempts[-1]["created_at"]):
+        return str(given["data"].get("text") or "").strip()
+    return ""
+
+
 def resume_context(store: Store, task: Mapping[str, Any], project: str | None) -> list[str]:
     """What a resume is told that its earlier attempts were not (issue #123): the instruction
     the session gave with it, and the notes of its project filed after its last attempt began
@@ -559,8 +570,7 @@ def resume_context(store: Store, task: Mapping[str, Any], project: str | None) -
         return []
     since = str(attempts[-1]["created_at"])
     out = []
-    given = store.last_event(int(task["id"]), RESUME_INSTRUCTION)
-    if given and str(given["ts"]) >= since and (text := str(given["data"].get("text") or "").strip()):
+    if text := resume_instruction(store, task):
         out.append("What the orchestrating session adds for this resume, from what the earlier attempts "
                    f"met (context for the task above, not a new task):\n<<<\n{clip(text, 4000)}\n>>>")
     if project and (rows := store.notes_since(project, since, limit=RESUME_NOTES)):
@@ -1428,6 +1438,7 @@ def run(
         # The notes the brief carries are kept too, so a worker-learned one is proven or dropped by
         # the tasks that read it (`notes.weigh`), never by a guess.
         context.extend(resume_context(store, task, key))
+        instruction = resume_instruction(store, task)
         worn: dict[str, Any] = {}
         held_files = roles.languages(repo_dir) if the_plan.role is not None else None
         if the_plan.role is not None:
@@ -1788,7 +1799,7 @@ def run(
                     result, options=options, verifying=verifying, workspace=workspace, cell=cell, plan=the_plan,
                     text=text, spec=spec, workdir=workdir, base=base_commit, ledger=ledger, launcher=launcher,
                     registry=registry,
-                    store=store, task=task, corrections=corrections,
+                    store=store, task=task, corrections=corrections, instruction=instruction,
                     since=_read_before(store, task["id"], cell, corrections, workdir if workspace else None))
                 result = _verified(result, options.verify, workdir, baseline)
                 checked_here = True
@@ -1816,6 +1827,12 @@ def run(
                     stands = ""
             # What the report and the verdict say of a check that failed only as it does at the base.
             report.preexisting = baseline.found if baseline is not None and (result.passed or stands) else None
+            # A point its surfaces kept the worker from: the check fails on the very file outside them, so
+            # `_stands` cannot say the work stands. It changed files and names the paths to widen by: the
+            # work is kept for the orchestrator's decision, not dropped as a wrong task.
+            widened = bool(not stands and result.failure in REPLAN and not result.denied and (
+                isolate.has_changes(workspace) if workspace else bool(result.changed_paths))
+                and _widen(store, task["id"], options.surfaces, result, workdir))
             if before is not None and workspace is not None and \
                     (wrote := isolate.rewritten(before, isolate.fingerprint(workspace.path))):
                 report.check_output = sorted({*report.check_output, *wrote})
@@ -1925,7 +1942,7 @@ def run(
                                 "impact": _impact(the_plan, so_far, repo_dir, workdir=workdir, base=base_commit),
                                 "index": _index_servers(the_plan, repo_dir, workdir),
                                 "rules": [n for n in the_plan.notes if n.get("kind") == notes.CONSTRAINT],
-                                "generated": list(report.check_output)}
+                                "generated": list(report.check_output), "instruction": instruction}
                     store.add_event(task["id"], "verifier_deferred", seq=nth, risk=the_plan.risk.tier,
                                     **({"sampled": sampled.why} if sampled is not None and sampled.why else {}))
                     say(f"locks: #{task['id']} attempt {nth} passed; risk {the_plan.risk.tier}: its independent "
@@ -1943,7 +1960,8 @@ def run(
                         rows=_fixing(options), ahead=_tolerating(ahead, report.check_output),
                         impact=_impact(the_plan, so_far, repo_dir, workdir=workdir, base=base_commit),
                         index=_index_servers(the_plan, repo_dir, workdir), snapshots=workspace is not None,
-                        sampled=sampled.why if sampled is not None else "", generated=report.check_output)
+                        sampled=sampled.why if sampled is not None else "", generated=report.check_output,
+                        instruction=instruction)
                     ahead = None
                     if workspace is not None and read_from is not None:
                         _read_only(workspace.path, read_from, store, task["id"], nth, say)
@@ -2038,7 +2056,7 @@ def run(
                               transient=result.transient, findings=result.findings, network=result.network,
                               load=result.load, failing=result.failing, base_unknown=result.base_unknown,
                               shape=result.shape, limited=result.limited, retry_after_s=result.retry_after_s,
-                              blockers=open_blockers, stands=bool(stands) and result.failure in REPLAN)
+                              blockers=open_blockers, stands=(bool(stands) or widened) and result.failure in REPLAN)
             attempts.append(attempt)
             if raced is not None and not raced_first:
                 # The start's try went on: the rung's, stopped or failed, is recorded after it.
@@ -2123,7 +2141,7 @@ def run(
                     extra=({"checked": report.checked} if decision.move is Move.DECIDE
                            else _limit_extra(store, attempt) if _cause(decision, attempt) == "limit" else {})
                     | ({"widen": widen} if _cause(decision, attempt) in ("spec", "decision")
-                       and (widen := _widen(store, task["id"], options.surfaces, result)) else {}))
+                       and (widen := _widen(store, task["id"], options.surfaces, result, workdir)) else {}))
                 break
             if decision.move is Move.NEXT_MODEL and workspace is not None and carries_work(attempt):
                 # Work locks' own check failed on is work, not a lost bet: the next model starts on it
@@ -2725,19 +2743,49 @@ _SURFACE_WORDS = re.compile(r"\b(surfaces?|superficies?|outside (my|the|its) (sc
                             r"(change|touch|edit)|may not (change|touch|edit))\b", re.IGNORECASE)
 
 
-def _widen(store: Store, task_id: int, surfaces: Sequence[str], result: launch.WorkerResult) -> list[str]:
+def _tracked_by_name(workdir: Path, name: str) -> str | None:
+    """The one tracked file whose basename is exactly `name`, as its path from the work directory;
+    None when none matches or several do (a guess between them would name the wrong file)."""
+    try:
+        done = subprocess.run(["git", "ls-files", "-z"], cwd=str(workdir), capture_output=True, text=True,
+                              timeout=isolate.GIT_TIMEOUT_S, check=False, env=isolate.git_env())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    same = [f for f in done.stdout.split("\0") if f and f.rsplit("/", 1)[-1] == name]
+    return same[0] if len(same) == 1 else None
+
+
+def _existing(workdir: Path, path: str) -> str | None:
+    """`path` as a file or folder of the work directory offers it: itself when it is there, a bare
+    name's one tracked file (`_tracked_by_name`) instead, else None. A name a worker wrote from
+    memory (`test_learning.py` for `tests/test_learning.py`) names nothing a resume could widen."""
+    if ".." in path.split("/"):
+        return None
+    if (workdir / path).exists():
+        return path
+    return None if "/" in path else _tracked_by_name(workdir, path)
+
+
+def _widen(store: Store, task_id: int, surfaces: Sequence[str], result: launch.WorkerResult,
+           workdir: Path) -> list[str]:
     """The paths a task that stopped on a point would need beyond its surfaces: the ones its
     attempts changed outside them (undone), and the ones its worker names when it says its
-    surfaces kept it from them. Offered as a resume with them added (`stops.next_step`), so
-    the diagnosis is not lost to a new task; never applied on its own."""
+    surfaces kept it from them. Only paths that exist in `workdir` are offered (a bare name is
+    resolved to its one tracked file, `_existing`). Offered as a resume with them added
+    (`stops.next_step`), so the diagnosis is not lost to a new task; never applied on its own."""
     if not surfaces:
         return []
     strayed = [str(p) for e in store.events_of(task_id, "outside_surfaces") for p in e["data"].get("paths") or ()]
     said = f"{result.summary}\n{result.evidence}"
     named = points_mod.named(said) if _SURFACE_WORDS.search(said) else []
-    found = (p.strip("/") for p in [*strayed, *named])
-    return list(dict.fromkeys(p for p in found if p and "*" not in p and not surfaces_mod.allows(surfaces, p)
-                              and not surfaces_mod.dependency(p)))[:WIDEN_MAX]
+    # A path git reported as changed is real even when undone (a new file the stray write created);
+    # a path in the worker's words is only a name until the work directory has it.
+    found = [*((p.strip("/"), True) for p in strayed), *((p.strip("/"), False) for p in named)]
+    there = (at for p, real in found if p and "*" not in p and not surfaces_mod.dependency(p)
+             if (at := p if real else _existing(workdir, p)))
+    return list(dict.fromkeys(p for p in there if not surfaces_mod.allows(surfaces, p)))[:WIDEN_MAX]
 
 
 def _blocked_cause(decision: Decision, attempt: Attempt) -> str:
@@ -3059,14 +3107,22 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                    known: Sequence[Mapping[str, str]] = (), why: Sequence[str] = (),
                    rules: Sequence[Mapping[str, Any]] = (), rows: Sequence[str] = (), running: str = "",
                    impact: Sequence[str] = (), method: Sequence[str] = (),
-                   since: tuple[str, Sequence[str]] | None = None, generated: Sequence[str] = ()) -> str:
+                   since: tuple[str, Sequence[str]] | None = None, generated: Sequence[str] = (),
+                   instruction: str = "") -> str:
     """What the verifier is given: the request in its words, the change, why it is checked
     (the risk's reasons, in the router's words) and the constraints the project keeps —
-    never the worker's account."""
+    never the worker's account. A resume's instruction (`resume_instruction`) is the one thing of
+    the session's it gets, quoted and marked, since a worker told to deviate from the request on
+    purpose would otherwise be blocked for exactly that."""
     shown = ", ".join(changed[:20]) + (f" and {len(changed) - 20} more" if len(changed) > 20 else "")
     parts = [f"Check this change. The request it answers ({kind}), verbatim:\n{text}"]
     if listed := criteria_mod.brief(text):
         parts.append(listed)
+    if instruction:
+        parts.append("The orchestrating session's instruction for this resume (quoted; it is the session's "
+                     f"words, not part of the request):\n<<<\n{clip(instruction, 4000)}\n>>>\n"
+                     "Where it and the request disagree, the instruction is the later decision: following it "
+                     "is no finding.")
     if why:
         parts.append("Why this check runs: " + "; ".join(why) + ". Probe those first.")
     if kind in _REPRODUCES and base:
@@ -3220,7 +3276,8 @@ def _late_check(store: Store, task_id: int, *, text: str, kind: str, risk: risk_
                                        base=base, changed=deferred["changed"], risk=risk, ledger={},
                                        registry=registry, rules=deferred["rules"], rows=(),
                                        impact=deferred.get("impact") or (), index=deferred.get("index") or None,
-                                       generated=deferred.get("generated") or ())
+                                       generated=deferred.get("generated") or (),
+                                       instruction=deferred.get("instruction") or "")
             mark = time.monotonic()
             since = _stamp()
             verdict = launcher(check)
@@ -3240,7 +3297,10 @@ def _late_check(store: Store, task_id: int, *, text: str, kind: str, risk: risk_
     if not verdict.passed and not blockers and verdict.verdict == "fail":
         blockers = [{"where": "", "what": verdict.summary or "the check failed without a finding",
                      "evidence_class": "inferential", "cause": "unknown", "proof": ""}]
-    store.add_event(task_id, "verified", seq=deferred["nth"], late=True, cell=vcell.label,
+    # A late check cannot ask for a correction, and a finding blocks only when it is shown: a pass whose
+    # findings were all read from the code stands, and they are kept as findings that go with it.
+    blockers, carried = _carry(blockers) if verdict.passed else (blockers, [])
+    store.add_event(task_id, "verified", seq=deferred["nth"], late=True, cell=vcell.label, carried=len(carried),
                     **({"tracer_unanswered": unanswered} if unanswered else {}), **({"unread": True} if unread else {}),
                     worker=deferred["cell"].label, risk=risk.data(),
                     verdict=verdict.verdict, passed=not blockers and verdict.passed, findings=list(shown)[:20],
@@ -3250,6 +3310,9 @@ def _late_check(store: Store, task_id: int, *, text: str, kind: str, risk: risk_
                     duration_s=round(verdict.duration_s, 2), turns=verdict.turns)
     task = store.get_task(task_id) or {}
     store.update_task(task_id, cost_usd=(task.get("cost_usd") or 0) + verdict.cost_usd)
+    if carried:
+        say(f"locks: #{task_id} its late independent check passed; {len(carried)} finding(s) read from the code "
+            "and not shown by a probe go with the pass")
     if not blockers or task.get("status") != "done":
         return
     say(f"locks: #{task_id} its late independent check found {len(blockers)} problem(s): it is open again")
@@ -3347,7 +3410,7 @@ def _ahead(result: launch.WorkerResult, *, options: Options, verifying: bool,
            workdir: Path, base: str | None, ledger: dict[str, Mapping[str, str]], launcher: Launcher,
            registry: Mapping[str, caps.Capability] | None, store: Store | None = None,
            task: Mapping[str, Any] | None = None, corrections: int = 0,
-           since: tuple[str, Sequence[str]] | None = None) -> Ahead | None:
+           since: tuple[str, Sequence[str]] | None = None, instruction: str = "") -> Ahead | None:
     """The independent check, started now beside locks' check when it will be needed anyway: a
     passing writing attempt in a worktree, a check to run, a risk that asks for it. Never with
     services (two runs of their tests would share their ports) or with the `overlap` setting off."""
@@ -3367,7 +3430,8 @@ def _ahead(result: launch.WorkerResult, *, options: Options, verifying: bool,
                            rules=[n for n in plan.notes if n.get("kind") == notes.CONSTRAINT],
                            rows=_fixing(options), running=options.verify,
                            impact=_impact(plan, so_far, workspace.repo_dir, workdir=workdir, base=base),
-                           index=_index_servers(plan, workspace.repo_dir, workdir), since=since)
+                           index=_index_servers(plan, workspace.repo_dir, workdir), since=since,
+                           instruction=instruction)
     return Ahead(launcher, check, so_far, options.verify, read_at=read_at, since=since)
 
 
@@ -3569,7 +3633,8 @@ def _independent_check(result: launch.WorkerResult, *, text: str, kind: str, cel
                        rules: Sequence[Mapping[str, Any]] = (), rows: Sequence[str] = (),
                        ahead: Ahead | None = None, impact: Sequence[str] = (),
                        index: Mapping[str, tuple[Mapping[str, Any], str]] | None = None,
-                       snapshots: bool = False, sampled: str = "", generated: Sequence[str] = ()
+                       snapshots: bool = False, sampled: str = "", generated: Sequence[str] = (),
+                       instruction: str = ""
                        ) -> tuple[launch.WorkerResult, stops.Stop | None, dict[str, Mapping[str, str]], int,
                                   tuple[dict[str, str], ...]]:
     """A pass checked again by a worker that verifies the request, not the work.
@@ -3590,7 +3655,7 @@ def _independent_check(result: launch.WorkerResult, *, text: str, kind: str, cel
     check, vcell = _check_spec(text=text, kind=kind, cell=cell, spec=spec, workdir=workdir, base=base,
                                changed=changed, risk=risk, ledger=ledger, registry=registry, rules=rules, rows=rows,
                                running=ahead.running if ahead is not None else "", impact=impact, index=index,
-                               since=since, generated=generated)
+                               since=since, generated=generated, instruction=instruction)
     say(f"locks: #{task_id} attempt {nth} passed; risk {risk.tier}: an independent check at {vcell.label}"
         + (" (it ran beside locks' check)" if ahead is not None else ""))
     mark = time.monotonic()
@@ -3635,7 +3700,7 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
                 rows: Sequence[str], running: str = "", impact: Sequence[str] = (),
                 index: Mapping[str, tuple[Mapping[str, Any], str]] | None = None,
                 since: tuple[str, Sequence[str]] | None = None,
-                generated: Sequence[str] = ()) -> tuple[launch.LaunchSpec, Cell]:
+                generated: Sequence[str] = (), instruction: str = "") -> tuple[launch.LaunchSpec, Cell]:
     """The independent check's launch: its cell, its brief and the capabilities that measure, and
     the code index (`index`: name -> read-only server and its hint) where the repository has one."""
     role = roles.internal("verifier")
@@ -3662,7 +3727,7 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
                                     rules=rules, rows=fixing, running=running, impact=impact,
                                     method=tracer_mod.verifier_lines(workdir, text, tuple(measuring))
                                     if config.enabled("tracer", os.environ) else (), since=since,
-                                    generated=generated),
+                                    generated=generated, instruction=instruction),
         verdicts=fixing, verdict_words=ledger_mod.WORDS["recheck"] if fixing else (),
         cell=vcell, max_turns=min(spec.max_turns, VERIFIER_TURNS),
         # Its calls are never the worker's: the log keeps them under no attempt, so what a worker used
@@ -3711,6 +3776,15 @@ def _verifier_env(env: Mapping[str, str]) -> dict[str, str]:
     return out
 
 
+def _carry(blockers: Sequence[dict[str, str]]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """The blockers split by how they are known: the ones a probe shows stay blockers, the ones only
+    read from the code go with the pass (a finding blocks only when it is shown). The one rule
+    behind the first check's carried findings (after progress) and the late check's (a pass verdict),
+    where no correction can be asked for."""
+    carried = [f for f in blockers if f["evidence_class"] != "deterministic"]
+    return [f for f in blockers if f not in carried], carried
+
+
 def _judged(result: launch.WorkerResult, verdict: launch.WorkerResult, *, vcell: Cell, wall_s: float,
             overlapped_s: float, beside: bool, risk: risk_mod.Risk, ledger: dict[str, Mapping[str, str]],
             corrections: int, store: Store, task_id: int, nth: int, say: Callable[[str], None], outgrew: bool,
@@ -3739,9 +3813,7 @@ def _judged(result: launch.WorkerResult, verdict: launch.WorkerResult, *, vcell:
     still = [f for f in blockers if any(findings_mod.same(f, g) for g in ledger.values())]
     # Progress: the round before had problems and none of them is left.
     progress = corrections > 0 and not still
-    carried = [f for f in blockers if f["evidence_class"] != "deterministic"] if progress else []
-    if carried:
-        blockers = [f for f in blockers if f not in carried]
+    blockers, carried = _carry(blockers) if progress else (blockers, [])
     store.add_event(task_id, "verified", seq=nth, cell=vcell.label, risk=risk.data(), verdict=verdict.verdict,
                     passed=not blockers and decided, findings=list(shown)[:20], blocking=len(blockers),
                     blockers=list(blockers)[:20],

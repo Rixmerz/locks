@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -317,9 +318,41 @@ def _stale(top: Path, path: Path, rel: str) -> bool:
         mine, theirs = path / folder.parent / name, top / folder.parent / name
         if mine.is_file() != theirs.is_file():
             return True
-        if mine.is_file() and mine.read_bytes() != theirs.read_bytes():
+        if mine.is_file() and _lock_text(name, mine) != _lock_text(name, theirs):
             return True
     return False
+
+
+def _lock_text(name: str, file: Path) -> bytes:
+    """A lockfile's content with the project's own version taken out: a release bump changes only
+    that, and the dependencies installed beside it are still right. Anything else is kept."""
+    raw = file.read_bytes()
+    try:
+        if name == "uv.lock":
+            return _without_uv_self_version(raw.decode())
+        if name in ("package-lock.json", "npm-shrinkwrap.json"):
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                data.pop("version", None)
+                root = (data.get("packages") or {}).get("")
+                if isinstance(root, dict):
+                    root.pop("version", None)
+                return json.dumps(data, sort_keys=True).encode()
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        pass  # a lockfile this reader cannot parse is compared as written
+    return raw
+
+
+def _without_uv_self_version(text: str) -> bytes:
+    """uv.lock without the version line of the [[package]] whose source is the project itself."""
+    blocks = re.split(r"(?m)^(?=\[\[package\]\]\s*$)", text)
+    own = re.compile(r"^source = \{ (?:editable|virtual) = \"\.\" \}\s*$", re.M)
+    out = []
+    for block in blocks:
+        if block.startswith("[[package]]") and own.search(block):
+            block = re.sub(r"(?m)^version = .*\n", "", block, count=1)
+        out.append(block)
+    return "".join(out).encode()
 
 
 def _shared(top: Path, path: Path) -> tuple[str, ...]:
@@ -738,13 +771,20 @@ def moved_in_place(place: Mapping[str, Any]) -> tuple[str, ...] | None:
     top = Path(place["path"])
     try:
         now = fingerprint(top)
-        committed = _git(top, "diff", "--name-only", place["head"], "HEAD", check=False).splitlines()
+        moved = _git(top, "rev-parse", "HEAD", check=False) != place["head"]
+        # Only commits made on the branch itself: what a merge brought in is another's work.
+        committed = _git(top, "log", "--first-parent", "--no-merges", "--name-only", "--format=",
+                         f"{place['head']}..HEAD", check=False).splitlines() if moved else []
     except OSError:
         return None
     if now is None:
         return None
-    paths = {*rewritten(place.get("dirty"), now), *(p for p in committed if p and not is_artifact(p))}
-    return tuple(sorted(paths))
+    before = place.get("dirty") or {}
+    # HEAD moved (the session merged there): a file that differs from the stand only because
+    # HEAD holds it now is clean at the end and is not the run's; a dirty one whose content
+    # differs from what the stand recorded is, and so is a commit made on the branch itself.
+    dirty = {p for p, blob in now.items() if before.get(p) != blob} if moved else set(rewritten(before, now))
+    return tuple(sorted(dirty | {p for p in committed if p and not is_artifact(p)}))
 
 
 def changed_so_far(root: Path, repo_dir: Path, task_id: int, started: Mapping[str, Any]) -> tuple[str, ...] | None:
@@ -1077,6 +1117,24 @@ def landed(repo_dir: Path, branch: str, paths: Sequence[str] = ()) -> bool:
     except IsolationError:
         return False  # a git that cannot say leaves the branch to review
 
+
+
+def already_in_head(repo_dir: Path, base: str, tip: str) -> bool:
+    """Whether the checkout's HEAD holds, byte for byte, every file the branch at `tip` changed
+    against `base`: its work is merged, whatever the history says. A file deleted on both sides
+    is equal. False when git cannot say or the branch changed nothing."""
+    if not base or not tip:
+        return False
+    names = _git(repo_dir, "diff", "--name-only", "-z", base, tip, "--", check=False, strip=False)
+    paths = [n for n in names.split("\0") if n]
+    if not paths:
+        return False
+    for path in paths:
+        mine = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"HEAD:{path}", check=False)
+        theirs = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"{tip}:{path}", check=False)
+        if mine != theirs:
+            return False
+    return True
 
 
 def kept_branches(repo_dir: Path) -> dict[int, str]:

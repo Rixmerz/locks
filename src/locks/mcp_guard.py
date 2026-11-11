@@ -272,61 +272,19 @@ def screen(message: Any, policy: Callable[[str, Mapping[str, Any]], tuple[str | 
     return None, [answer]
 
 
-#: The environment variable that holds a guarded server to some of its tools (`plugins.guarded`'s
-#: `tools`): comma-separated names. Its `tools/list` shows only those, and a call to another is refused.
-ONLY = "LOCKS_GUARD_ONLY"
-
-
-def only_from(env: Mapping[str, str]) -> frozenset[str] | None:
-    """The tools a guarded server is held to, or None when it is not held."""
-    if ONLY not in env:
-        return None
-    return frozenset(name for name in env[ONLY].split(",") if name)
-
-
-def held_to(policy: Callable[[str, Mapping[str, Any]], tuple[str | None, dict[str, Any]]], only: frozenset[str]
-            ) -> Callable[[str, Mapping[str, Any]], tuple[str | None, dict[str, Any]]]:
-    """The policy, with every tool outside `only` refused first."""
-    def held(name: str, arguments: Mapping[str, Any]) -> tuple[str | None, dict[str, Any]]:
-        if name not in only:
-            return f"{name} is not among the tools this worker was handed", dict(arguments)
-        return policy(name, arguments)
-    return held
-
-
-def listed(message: Any, asked: set[Any], only: frozenset[str] | None) -> Any:
-    """A server's answer, with the tools of a `tools/list` it answers cut to `only`."""
-    if only is None or not isinstance(message, dict) or message.get("id") not in asked:
-        return message
-    asked.discard(message.get("id"))
-    result = message.get("result")
-    if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
-        return message
-    tools = [t for t in result["tools"] if isinstance(t, dict) and t.get("name") in only]
-    return {**message, "result": {**result, "tools": tools}}
-
-
-def relay(source: BinaryIO, sink: BinaryIO, lock: threading.Lock, asked: set[Any] | None = None,
-          only: frozenset[str] | None = None) -> None:
+def relay(source: BinaryIO, sink: BinaryIO, lock: threading.Lock) -> None:
     for line in iter(source.readline, b""):
-        if only is not None:
-            with contextlib.suppress(ValueError):
-                line = json.dumps(listed(json.loads(line), asked if asked is not None else set(), only)
-                                  ).encode() + b"\n"
         with lock:
             sink.write(line)
             sink.flush()
 
 
-def serve(policy_name: str, command: list[str], stdin: BinaryIO, stdout: BinaryIO,
-          env: Mapping[str, str] | None = None) -> int:
-    only = only_from(os.environ if env is None else env)
-    policy = POLICIES[policy_name] if only is None else held_to(POLICIES[policy_name], only)
-    asked: set[Any] = set()
+def serve(policy_name: str, command: list[str], stdin: BinaryIO, stdout: BinaryIO) -> int:
+    policy = POLICIES[policy_name]
     child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     assert child.stdin is not None and child.stdout is not None
     lock = threading.Lock()
-    back = threading.Thread(target=relay, args=(child.stdout, stdout, lock, asked, only), daemon=True)
+    back = threading.Thread(target=relay, args=(child.stdout, stdout, lock), daemon=True)
     back.start()
 
     def reply(answer: dict[str, Any]) -> None:
@@ -343,9 +301,6 @@ def serve(policy_name: str, command: list[str], stdin: BinaryIO, stdout: BinaryI
                 # answered here and never forwarded. RecursionError: nested past the parser's depth.
                 reply(refusal(None, PARSE_ERROR, "locks refused this line: it is not JSON"))
                 continue
-            for item in message if isinstance(message, list) else [message]:
-                if isinstance(item, dict) and item.get("method") == "tools/list":
-                    asked.add(item.get("id"))
             onward, answers = screen(message, policy)
             for answer in answers:
                 reply(answer)

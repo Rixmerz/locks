@@ -20,6 +20,7 @@ import csv
 import io
 import json
 import math
+import statistics
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
@@ -29,7 +30,6 @@ from locks import behavior, launch, racing, revisions, trunks, trust, usage, wor
 from locks import cells as cells_mod
 from locks import critique as critique_mod
 from locks import evidence as evidence_mod
-from locks import handing as handing_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import predict as predict_mod
@@ -106,9 +106,8 @@ def runs(tasks: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]
                 session = data.get("session")
                 current["session_context"] = bool(session)
                 current["session_chars"] = (session or {}).get("chars", 0)
-                if "livespec_tools" in data:
-                    current["livespec_offered"] = sorted(set(current["livespec_offered"] or ())
-                                                         | set(data.get("livespec_tools") or ()))
+                if data.get("livespec_chars"):
+                    current["dossier_chars"] = max(current["dossier_chars"] or 0, int(data["livespec_chars"]))
             elif kind == "attempt_started":
                 # An attempt with no `attempt_finished` before the run's end lost its worker (it died,
                 # or was cut off): the time from its start to the end is lost, not "other".
@@ -156,7 +155,7 @@ def _start(task: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
         "attempts": 0, "first_try": None, "verified": 0, "verifier_blocked": 0, "moves": [], "cells": [],
         "cost_usd": 0.0, "turns": 0, "input_tokens": 0, "output_tokens": 0, "refused": 0,
         "cache_read_tokens": 0, "measured_input_tokens": 0, "verifier_cost_usd": 0.0, "tokens": 0,
-        "livespec_handed": False, "livespec_calls": 0, "livespec_tools": {}, "livespec_offered": None, "lost_usd": 0.0,
+        "livespec_handed": False, "livespec_calls": 0, "livespec_tools": {}, "dossier_chars": None, "lost_usd": 0.0,
         "calls": 0, "failed_calls": 0, "check_runs": 0, "fix_cycles": 0, "calls_before_edit": None,
         "session_context": None, "session_chars": 0, "brief_chars": None,
         "_worker_s": 0.0, "_check_s": 0.0, "_verifier_s": 0.0, "_timed": False, "_check_usd": 0.0,
@@ -289,20 +288,21 @@ def capability_use(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "passed_used": rate(used), "passed_idle": rate(idle)}
 
 
-def livespec_offer(found: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Per livespec tool, the runs whose workers were handed it (`briefed.livespec_tools`, since 0.78)
-    and the runs that called it, and the runs handed livespec with no tool at all: whether a worker
-    leaves the index alone because it was never offered a tool, or offered one and did not call it.
-    Observed, never a trial; runs from before 0.78 say nothing and are left out."""
-    told = [r for r in found if r.get("livespec_offered") is not None]
-    tools: dict[str, dict[str, int]] = {}
-    for r in told:
-        for tool in r["livespec_offered"]:
-            row = tools.setdefault(tool, {"offered": 0, "called": 0})
-            row["offered"] += 1
-            row["called"] += 1 if (r.get("livespec_tools") or {}).get(tool) else 0
-    return {"runs": len(told), "none_offered": sum(1 for r in told if not r["livespec_offered"]),
-            "tools": dict(sorted(tools.items(), key=lambda kv: (-kv[1]["offered"], kv[0])))}
+def dossier_effect(found: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Runs whose first brief carried a dossier from livespec's index (`briefed.livespec_chars`) against
+    those that did not: runs, first tries passed and the median wall time of a pass. Observed, never a
+    trial: the two groups differ in more than the dossier (an index that was absent, a repository's age)."""
+    out: dict[str, dict[str, Any]] = {}
+    for name, group in (("with", [r for r in found if r.get("dossier_chars")]),
+                        ("without", [r for r in found if not r.get("dossier_chars")])):
+        first = [r for r in group if r["first_try"] is not None]
+        took = [r["wall_s"] for r in group if r["status"] == "done" and r["wall_s"] is not None]
+        out[name] = {"runs": len(group), "tries": len(first), "passed": sum(bool(r["first_try"]) for r in first),
+                     "rate": _share(sum(bool(r["first_try"]) for r in first), len(first)),
+                     "pass_p50_s": statistics.median(took) if took else None,
+                     "chars_p50": statistics.median([r["dossier_chars"] for r in group]) if name == "with" and group
+                     else None}
+    return out
 
 
 def livespec_tokens(found: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -694,7 +694,7 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "livespec_use": capability_use(store.capability_use("livespec", since=since, repo=repo)),
         # The tokens a run spent per kind, with livespec called against without (observed, not a trial).
         "livespec_tokens": livespec_tokens(found),
-        "livespec_offer": livespec_offer(found),
+        "dossier": dossier_effect(found),
         # Whether racing a first try paid, per repository and kind (`locks.racing`): its own window.
         "races": racing.table(store, repo),
         # What each blind review of a two-review ledger added that no other saw (`workflows.reviewer_yield`).
@@ -724,10 +724,6 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # Whether a plan's parts are read before they are built, and its trial (`locks.critique`).
         "critique": critique_mod.trial(store, repo),
         "critique_now": critique_mod.arm(store, repo, 0)[1] if repo else None,
-        # Whether workers of each nature are handed livespec here, and its trial (`locks.handing`).
-        "livespec_handing": {n: handing_mod.trial(store, repo, n) for n in handing_mod.NATURES},
-        "livespec_handing_now": {n: handing_mod.arm(store, repo, "chat" if n == "reading" else "implement", 0)[1]
-                                 for n in handing_mod.NATURES} if repo else {},
         # The first tries of starts raised on a shape's record (`locks.predict`), observed.
         "predicted": predict_mod.report(store, repo),
         # Each climb of a ladder and whether the attempt it started passed (observed): a rung's record.
@@ -938,12 +934,13 @@ def text(report: Mapping[str, Any]) -> str:
                          f"call(s)); passed {_rate(use['passed_used'])} when called, {_rate(use['passed_idle'])} "
                          "when not (observed, not a trial)")
             lines.append("")
-        offer = report.get("livespec_offer") or {}
-        if offer.get("runs"):
-            lines.append(f"livespec tools offered against called, over {offer['runs']} run(s) that record them"
-                         + (f" ({offer['none_offered']} offered none)" if offer.get("none_offered") else "") + ":")
-            lines += [f"  {tool:<26} offered {row['offered']:>4}  called {row['called']:>4}"
-                      for tool, row in offer["tools"].items()]
+        dossier = report.get("dossier") or {}
+        if (dossier.get("with") or {}).get("runs"):
+            lines.append("briefs that carried livespec's dossier against those that did not (observed, not a trial):")
+            for side, row in dossier.items():
+                took = f"{row['pass_p50_s']:.0f}s" if row.get("pass_p50_s") is not None else "-"
+                lines.append(f"  {side:<8} runs {row['runs']:>4}  first tries {row['passed']}/{row['tries']} "
+                             f"({_rate(row['rate'])})  pass p50 {took}")
             lines.append("")
         if rows := report.get("livespec_tokens"):
             lines.append("tokens per run by kind, livespec called against not called (observed, not a trial):")
@@ -1069,16 +1066,6 @@ def text(report: Mapping[str, Any]) -> str:
                                  f"({_rate(row['rate'])})")
             if report.get("critique_now"):
                 lines.append(f"  now: {report['critique_now']}")
-        for which, arms in (report.get("livespec_handing") or {}).items():
-            if any(side.get("tasks") for side in arms.values()):
-                lines += ["", f"livespec handed to {which} workers (its trial; tasks, first tries passed, "
-                          "a pass's median time):"]
-                for side, row in arms.items():
-                    took = f"{row['pass_p50_s']:.0f}s" if row.get("pass_p50_s") is not None else "-"
-                    lines.append(f"  {side:<8} tasks {row['tasks']:>4}  first tries {row['passed']}/{row['tries']} "
-                                 f"({_rate(row['rate'])})  pass p50 {took}")
-                if (report.get("livespec_handing_now") or {}).get(which):
-                    lines.append(f"  now: {report['livespec_handing_now'][which]}")
         if report.get("predicted"):
             lines += ["", "starts raised on the record of the task's shape (`predict`; its first tries, observed):"]
             for row in report["predicted"]:

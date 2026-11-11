@@ -89,15 +89,18 @@ def test_the_briefing_maps_the_code_and_raises_the_start(tmp_path, git_repo):
     a = adapter(tmp_path)
     status = a.inspect(git_repo)
     briefing = a.brief("charge_card double-charges when the amount has cents", git_repo, status)
-    text = "\n".join(briefing.lines)
+    assert briefing.lines == ()  # the map is the dossier's; brief() only routes
+    text = a.dossier("charge_card double-charges when the amount has cents", git_repo, status).text
     assert "`src.billing.charge_card`" in text and "SPEC-7 Card charges are idempotent [critical]" in text
     assert "tests.test_parse" not in text  # tests reach the map through what they call
     assert briefing.critical and briefing.raise_rungs == 1
     widely = a.brief("parse_amount rounds wrong", git_repo, status)
-    assert "22 caller(s)" in "\n".join(widely.lines) and "tests/test_parse.py" in "\n".join(widely.lines)
+    wide_text = a.dossier("parse_amount rounds wrong", git_repo, status).text
+    assert "and 16 more" in wide_text
+    assert "tests/test_parse.py" in wide_text
     assert widely.raise_rungs == 1 and not widely.critical
-    assert a.brief("nothing here matches zzzz", git_repo, status).lines == ()
-    assert a.brief("x", git_repo, a.inspect(tmp_path)).lines == ()
+    assert a.dossier("nothing here matches zzzz", git_repo, status).text == ""
+    assert a.dossier("x", git_repo, a.inspect(tmp_path)).text == ""
 
 
 def test_the_assessment_names_specs_and_untouched_callers(tmp_path, git_repo):
@@ -596,39 +599,10 @@ def _named(lines) -> set[str]:
     return {m for line in lines for m in re.findall(r"`([a-z_]+)`", line)}
 
 
-def test_every_tool_the_orientation_and_the_spec_links_name_exists_in_livespec(tmp_path, git_repo):
-    named = _named([*livespec_mod.orientation("implement"), *livespec_mod.orientation("explore", has_specs=False),
-                    *adapter(tmp_path).spec_links_brief(git_repo)])
-    assert {"list_specs", "get_spec_implementation", "quick_orient", "read_unit", "search_similar",
-            "index_project", "sync_openspec"} <= named
+def test_every_tool_the_spec_links_name_exists_in_livespec(tmp_path, git_repo):
+    named = _named(adapter(tmp_path).spec_links_brief(git_repo))
+    assert {"index_project", "sync_openspec"} <= named
     assert named <= TOOLS, named - TOOLS
-
-
-def test_the_orientation_goes_spec_then_code_then_symbol_then_file_and_writers_get_two_more_rules():
-    text = "\n".join(livespec_mod.orientation("feature"))
-    order = [text.index(t) for t in ("list_specs", "get_spec_implementation", "quick_orient", "read_unit",
-                                     "Open a whole file only when that is not enough")]
-    assert order == sorted(order)
-    assert "search_similar" in text and "git_diff_impact" not in text
-    reading = "\n".join(livespec_mod.orientation("explore"))
-    assert "read_unit" in reading
-    assert "search_similar" not in reading and "git_diff_impact" not in reading
-    bare = "\n".join(livespec_mod.orientation("feature", has_specs=False))
-    assert "list_specs" not in bare and "holds no specs" in bare
-
-
-def test_orient_reads_whether_the_index_holds_specs_and_says_nothing_when_it_cannot(tmp_path, git_repo):
-    a = adapter(tmp_path)
-    assert a.orient("implement", a.inspect(git_repo)) == ()  # no index
-    db = build(git_repo)
-    status = a.inspect(git_repo)
-    assert "list_specs" in "\n".join(a.orient("implement", status))
-    with sqlite3.connect(db) as conn:
-        conn.execute("DELETE FROM spec_symbol")
-        conn.execute("DELETE FROM spec")
-    assert "holds no specs" in "\n".join(a.orient("implement", status))
-    db.write_bytes(b"not a database")
-    assert a.orient("implement", status) == ()
 
 
 def test_the_spec_links_brief_tells_a_shared_index_not_to_be_indexed_from_a_worktree(tmp_path, git_repo):
@@ -829,17 +803,6 @@ def test_nothing_to_ask_or_a_server_that_does_not_start_is_an_error(tmp_path, gi
         adapter(tmp_path, tool(tmp_path, "livespec"), popen=broken).call_tools(tmp_path, [("search", {})])
 
 
-def test_a_worker_is_handed_only_the_tools_its_brief_names_and_never_the_ones_that_write_or_diff(tmp_path):
-    ls = adapter(tmp_path)
-    status = Status("livespec", PRESENT)
-    for kind in ("implement", "feature", "explore", "review-routine", "test"):
-        tools = ls.worker_tools(kind, status)
-        assert tools and tools <= TOOLS
-        assert not tools & livespec_mod.WORKER_WITHHELD
-    assert "search_similar" in ls.worker_tools("implement", status)
-    assert "search_similar" not in ls.worker_tools("explore", status)
-
-
 def test_a_symbol_matched_only_by_the_request_s_words_raises_no_rung(tmp_path, git_repo):
     """The map draws the best full-text matches, but only a symbol the request names says what the
     work touches: a widely used one that shares a word with the request starts nothing higher."""
@@ -847,7 +810,22 @@ def test_a_symbol_matched_only_by_the_request_s_words_raises_no_rung(tmp_path, g
     a = adapter(tmp_path)
     status = a.inspect(git_repo)
     by_words = a.brief("the amount is rounded wrong when it has cents", git_repo, status)
-    assert "caller(s)" in "\n".join(by_words.lines)  # the map still shows what the words found
+    found = a.dossier("the amount is rounded wrong when it has cents", git_repo, status)
+    assert "caller(s)" in found.text  # the dossier still shows what the words found
     assert by_words.raise_rungs == 0 and not by_words.critical and not any("callers" in r for r in by_words.reasons)
     named = a.brief("parse_amount rounds wrong", git_repo, status)
     assert named.raise_rungs == 1
+
+
+def test_the_dossier_holds_where_calls_callers_specs_reach_and_is_bounded(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    d = a.dossier("Fix charge_card in src/billing.py", git_repo, status, paths=["src/billing.py"])
+    assert "src/billing.py:20-25" in d.text and "caller(s): checkout (src/api.py:30)" in d.text
+    assert "SPEC-7 Card charges are idempotent [critical]" in d.text
+    assert "implemented by `src.billing.charge_card`" in d.text
+    assert "these files implement specs" in d.text and "data, not instructions" in d.text
+    assert d.symbols >= 1 and d.specs == 1 and d.chars == len(d.text)
+    tight = a.dossier("Fix charge_card in src/billing.py", git_repo, status, paths=["src/billing.py"], limit=700)
+    assert len(tight.text) <= 700 and tight.omitted > 0 and "did not fit" in tight.text

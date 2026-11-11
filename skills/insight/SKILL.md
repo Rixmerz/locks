@@ -66,9 +66,10 @@ tokens are in the summary's `tokens`.
 ## 3. Questions to answer, each with its evidence
 
 - **livespec**: did the plan index or refresh (`locks:planned` lines, `livespec_*` fields)?
-  Did briefs carry orientation (`locks:briefed`)? Did workers call livespec tools
-  (`tool:mcp__…livespec…`, `attempt_finished.livespec_calls`)? Which ones, against the tools it was
-  handed (`briefed.livespec_tools`)?
+  Did briefs carry the dossier locks read from its index (`locks:briefed` `livespec_chars`,
+  `livespec_symbols`, `livespec_specs`)? Workers are handed no livespec tools; the independent
+  check keeps it read-only (`tool:mcp__…livespec…` there). `locks stats` sets the briefs that carried a
+  dossier against those that did not.
 - **Notes**: which notes did each brief carry (`locks:briefed` `notes`, `withheld`), which did
   the worker say it used (`attempt_finished.notes_used`), and did `locks recall` run?
 - **Context injected**: what did UserPromptSubmit and SessionStart put in front of the model

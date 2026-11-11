@@ -330,19 +330,19 @@ def test_every_field_read_from_an_event_is_one_some_place_writes():
     assert dropped == {}, dropped
 
 
-def test_the_livespec_tools_a_brief_offered_are_what_stats_read_back(store):
+def test_the_dossier_size_a_brief_kept_is_what_stats_read_back(store):
     from locks import analysis
 
     # The key the run writes on `briefed` (orchestrate) is the one the analysis reads.
-    assert re.search(r'"livespec_tools":\s*sorted\(', (SRC / "orchestrate.py").read_text())
+    assert re.search(r'"livespec_chars":\s*the_plan\.dossier', (SRC / "orchestrate.py").read_text())
     task = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
     store.add_event(task["id"], "planned", plan_s=0.1)
-    store.add_event(task["id"], "briefed", livespec_tools=["search_specs", "who_calls"])
-    store.add_event(task["id"], "attempt_finished", seq=1, passed=True, livespec_calls={"who_calls": 2})
+    store.add_event(task["id"], "briefed", livespec_chars=900, livespec_symbols=2, livespec_specs=1)
+    store.add_event(task["id"], "attempt_finished", seq=1, passed=True)
     store.add_event(task["id"], "finished", status="done", wall_s=1.0)
     events = store.events_of_kinds(["planned", "briefed", "attempt_finished", "finished"])
-    offer = analysis.livespec_offer(analysis.runs([store.get_task(task["id"])], events))
-    assert offer["tools"] == {"search_specs": {"offered": 1, "called": 0}, "who_calls": {"offered": 1, "called": 1}}
+    effect = analysis.dossier_effect(analysis.runs([store.get_task(task["id"])], events))
+    assert effect["with"]["runs"] == 1 and effect["with"]["chars_p50"] == 900 and effect["without"]["runs"] == 0
 
 
 def test_the_sessions_a_task_notifies_are_the_ones_that_hear_its_copy(store, monkeypatch):

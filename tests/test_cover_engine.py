@@ -1130,10 +1130,13 @@ class _Index:
 
         return Briefing(raise_rungs=self._raise)
 
-    def reach(self, named, repo_dir, status):
+    def dossier(self, text, repo_dir, status, *, kind="implement", paths=()):
+        from locks.adapters import Dossier
+
         if isinstance(self._reach, Exception):
             raise self._reach
-        return self._reach or ()
+        lines = tuple(self._reach or ())
+        return Dossier("\n".join(lines), len(lines), 0) if lines else Dossier()
 
     def assess(self, changed, repo_dir, status):
         if isinstance(self._assess, Exception):
@@ -1165,7 +1168,7 @@ def test_orchestrate_an_index_cannot_raise_a_start_past_the_top_of_its_ladder(gi
     assert not any("one rung up for what the code index found" in r for r in found.reasons)
 
 
-def test_orchestrate_what_named_files_reach_is_briefed_only_from_an_index_that_says(git_repo, store, monkeypatch):
+def test_orchestrate_the_dossier_is_briefed_only_from_an_index_that_says(git_repo, store, monkeypatch):
     from locks import orchestrate
     from locks.orchestrate import Options
 
@@ -1176,11 +1179,11 @@ def test_orchestrate_what_named_files_reach_is_briefed_only_from_an_index_that_s
     found = orchestrate.plan("fix the bug in src/app.py", git_repo, store, Options(), {},
                              classifier=t.kind("implement"), adapters=[broken, quiet])
     # an index that breaks or says nothing puts nothing in the brief, and costs the plan nothing
-    assert not any("What the code index says the files" in line for line in found.context)
+    assert not any("src/app.py: called by main" in line for line in found.context)
     said = _Index(reach=("src/app.py: called by main",))
     found = orchestrate.plan("fix the bug in src/app.py", git_repo, store, Options(), {},
                              classifier=t.kind("implement"), adapters=[said])
-    assert any("- src/app.py: called by main" in line for line in found.context)
+    assert any("src/app.py: called by main" in line for line in found.context)
 
 
 def test_orchestrate_impact_skips_an_index_that_breaks_and_links_fail_open(tmp_path, monkeypatch):

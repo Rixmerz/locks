@@ -57,12 +57,9 @@ def test_the_index_says_what_named_files_reach_before_the_worker_starts(git_repo
     assert a.reach(["src/billing.py"], git_repo, type(status)(False, "", {})) == ()
     dry = run("Fix the charge in src/billing.py", git_repo, store, Options(dry_run=True), registry={},
               classifier=kind("implement"), adapters=[a])
-    told = next(line for line in dry.plan.context if line.startswith("What the code index says the files"))
-    assert "SPEC-7" in told and "src/api.py" in told
-    assert any("named file(s) reach is in the brief" in r for r in dry.plan.reasons)
-    reading = run("Explain the charge in src/billing.py", git_repo, store, Options(dry_run=True), registry={},
-                  classifier=kind("explore"), adapters=[a])
-    assert not any(line.startswith("What the code index says the files") for line in reading.plan.context)
+    told = next(line for line in dry.plan.context if line.startswith("What livespec's index holds"))
+    assert "What the files this request names reach" in told and "SPEC-7" in told and "src/api.py" in told
+    assert any("from its index are in the brief" in r for r in dry.plan.reasons)
 
 
 # --- evidence a neighbour owes -------------------------------------------------------------------

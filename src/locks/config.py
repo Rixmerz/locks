@@ -26,12 +26,6 @@ DEFAULTS: dict[str, Any] = {
     # repository it runs in (`livespec.Livespec.ensure_fresh`); past it the task starts without
     # the index and says so, and the index keeps building. Seconds; 0 never waits.
     "livespec_wait": 120,
-    # Whether a worker is handed livespec's tools is tried against withholding them, per repository
-    # and nature of work (reading, writing), and handed afterwards only where handed workers passed
-    # their first tries no less often and no slower (`locks.handing`). What locks does with the
-    # index itself (the code map, the size, what a change reaches) is never withheld. Off: every
-    # worker is handed it.
-    "livespec_trial": True,
     "predict": True,
     # Haiku decides whether a queued task can start beside the ones running in
     # its repository. Off: one task at a time per repository.

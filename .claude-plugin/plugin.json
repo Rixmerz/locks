@@ -39,12 +39,6 @@
       "description": "A plan that splits into parts is read once by a fresh, read-only reader that sees only the request, the contract and each part's prompt and surfaces, and names the design decisions a part leaves to its worker (a name, a schema, an endpoint, where a file goes). The plan goes back once with what it found, and its second answer stands. Each repository tries it in turns against its absence and keeps it only where the first tries of the parts after it passed no less often. Off: plans go to their parts as they are.",
       "default": true
     },
-    "livespec_trial": {
-      "type": "boolean",
-      "title": "Try handing livespec to workers in turns",
-      "description": "Whether a worker is handed livespec's tools (its server, their descriptions in every turn, the orientation) is tried against withholding them, per repository and nature of work (reading, writing): tasks take turns until each arm has enough first tries, then workers are handed it only where the handed ones passed their first tries no less often and no slower. What locks does with the index itself (the code map in the brief, the size estimate, what a change reaches for the independent check) is never withheld. Off: every worker is handed it.",
-      "default": true
-    },
     "parallel": {
       "type": "boolean",
       "title": "Haiku decides what runs in parallel",

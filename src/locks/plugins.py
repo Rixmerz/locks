@@ -31,7 +31,7 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -194,13 +194,10 @@ class Found:
         return folder if (folder / "SKILL.md").is_file() else None
 
 
-def guarded(server: Mapping[str, Any], policy: str, *, tools: Iterable[str] | None = None) -> dict[str, Any]:
-    """The server run behind `locks.mcp_guard`, by this same Python. `tools`, when given, holds it
-    to those: its list shows only them and a call to another is refused (`mcp_guard.ONLY`)."""
+def guarded(server: Mapping[str, Any], policy: str) -> dict[str, Any]:
+    """The server run behind `locks.mcp_guard`, by this same Python."""
     src = str(Path(__file__).resolve().parents[1])
     env = dict(server.get("env") or {})
-    if tools is not None:
-        env["LOCKS_GUARD_ONLY"] = ",".join(sorted(tools))
     env["PYTHONPATH"] = src + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     return {**server, "command": sys.executable,
             "args": ["-m", "locks.mcp_guard", policy, "--", server["command"], *server.get("args", [])], "env": env}

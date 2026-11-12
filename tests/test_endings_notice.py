@@ -118,3 +118,9 @@ def test_a_writing_workers_answer_is_cut_in_the_notice_and_kept_whole_on_the_tas
     said = next(line for line in notice.splitlines() if line.startswith("  the worker says: "))
     assert len(said) <= len("  the worker says: ") + hooks.ANSWER_SHOWN
     assert f"`locks show {task['id']}` prints it whole" in notice
+
+
+def test_the_short_line_still_says_merging_is_the_persons():
+    from locks import hooks
+
+    assert "merged only on the person's word" in hooks.ENDINGS_SHORT

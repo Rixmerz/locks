@@ -87,7 +87,7 @@ ENDINGS_RULES = ("Act on each now: tell the person what happened. Every stop is 
                  "(never redo a worker's task by hand).")
 #: What later notices of the day say instead of the rules.
 ENDINGS_SHORT = ("Rules as in `locks guide endings`: act on each now; ask the person for a stop only they can "
-                 "clear, and decide the rest as its line says.")
+                 "clear, and decide the rest as its line says; a kept branch is merged only on the person's word.")
 #: What a session heard today, kept in the store's meta per session (`_heard_today`).
 ENDINGS_SAID = "endings-said:"
 #: A prompt a plugin submitted in the person's place, as Claude Code words it.

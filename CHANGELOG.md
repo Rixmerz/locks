@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-11-12
+
+### Changed
+- An ending's notice is compact: the instructions, the session's cost and the do-not-re-read line are said
+  in a session's first notice of a day and by one short line after it (`locks guide endings` has the whole
+  text); a pass is one verdict line, its criteria shown only when one is not met; the worker's answer is
+  clipped at 300 characters and its files at three, the rest in `locks show N`. Measured before: a median
+  of 2,240 characters a notice, 39% of it a line an earlier notice had said.
+- An overlap notice names a file only when its content at the other work's tip differs from HEAD's, and
+  never work that landed and was edited since.
+- A check that fails only in tests outside the task's surfaces stops the task at once as a `decision`
+  with those files to widen, no climb: four tasks here had paid a more-effort attempt first. Where the
+  index knows them, the plan warns of tests that exercise the surfaces and are left out of them.
+
+### Fixed
+- Two surfaces in one folder are read apart segment by segment (`surfaces.disjoint`): a plan whose parts
+  held `tests/test_rule_*.py` and `tests/test_receipt.py` was refused as overlapping in six of six runs, sent
+  back twice and climbed to opus/xhigh ($4 to $5 on the plan alone); it now plans on its first answer.
+
+### Added
+- `bench/speed/flow.py`: whole workflow runs judged by the hidden tests (`single`, `feature`,
+  `parallel-fork`, `parallel-fresh`), and `LOCKS_TRUNK_ARM=fork|fresh`, which forces a trunk's arm for one
+  process and keeps the forced step out of the trial. Section AC has the first rows.
+
 ## [0.97.0] - 2026-11-12
 
 ### Fixed

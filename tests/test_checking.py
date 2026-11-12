@@ -1426,3 +1426,21 @@ def test_an_unanswered_criterion_is_asked_again_of_the_same_cell_not_climbed(git
     assert "S2" in script.specs[1].prompt and "criteria" in script.specs[1].prompt
     assert orchestrate._reshape_prompt([Attempt(Cell("sonnet", "medium"), 30, False, Failure.INCONCLUSIVE,
                                                 shape=f"{launch.VERDICTS_SHAPE}: F2")]).count("F2") == 1
+
+
+def test_surfaces_in_one_folder_are_read_apart_segment_by_segment():
+    from locks import surfaces
+
+    # the plan a workflow refused: a glob of one family of tests beside other tests of the folder
+    assert surfaces.disjoint(["src/tally/rules/**", "tests/test_rule_*.py"],
+                             ["src/tally/receipt.py", "tests/test_receipt.py", "tests/test_export.py"])
+    assert not surfaces.disjoint(["tests/test_rule_*.py"], ["tests/test_rule_promo.py"])
+    assert not surfaces.disjoint(["tests/test_*.py"], ["tests/test_receipt.py"])
+    assert not surfaces.disjoint(["tests/*_rule.py"], ["tests/test_*.py"])        # test_x_rule.py is both
+    assert surfaces.disjoint(["tests/test_rule_*.py"], ["tests/test_receipt_*.py"])
+    assert surfaces.disjoint(["tests/*.py"], ["tests/*.md"])
+    assert not surfaces.disjoint(["tests"], ["tests/test_rule_*.py"])              # a folder holds its files
+    assert not surfaces.disjoint(["src/a"], ["src/a/b.py"])
+    assert surfaces.disjoint(["src/*.py"], ["src/pkg/mod.py"])                     # `*` never crosses a folder
+    assert not surfaces.disjoint(["src/**"], ["src/web/a.ts"])
+    assert not surfaces.disjoint(["tests/test_[ab].py"], ["tests/test_a.py"])

@@ -136,9 +136,42 @@ def disjoint(a: Sequence[str], b: Sequence[str]) -> bool:
             px, py = _prefix(x), _prefix(y)
             if not px or not py:
                 return False  # a glob from the top could reach anywhere
-            if px == py or px.startswith(py + "/") or py.startswith(px + "/"):
+            if (px == py or px.startswith(py + "/") or py.startswith(px + "/")) and _may_touch(x, y):
                 return False
     return True
+
+
+def _segment_apart(a: str, b: str) -> bool:
+    """Whether no name can match both segments: read from what each holds before its first glob
+    character and after its last one. `test_rule_*.py` and `test_receipt.py` start apart; in doubt, no."""
+    if _GLOB.search(a) is None and _GLOB.search(b) is None:
+        return a != b
+    if "[" in a or "[" in b:
+        return False  # a character class is not read here
+    head_a, head_b = _GLOB.split(a, 1)[0], _GLOB.split(b, 1)[0]
+    tail_a, tail_b = _GLOB.split(a)[-1], _GLOB.split(b)[-1]
+    if _GLOB.search(a) is None:
+        head_a = tail_a = a
+    if _GLOB.search(b) is None:
+        head_b = tail_b = b
+    heads = head_a.startswith(head_b) or head_b.startswith(head_a)
+    tails = tail_a.endswith(tail_b) or tail_b.endswith(tail_a)
+    return not (heads and tails)
+
+
+def _may_touch(x: str, y: str) -> bool:
+    """Whether two surfaces under one folder may hold the same file, segment by segment: a literal
+    path holds everything under it, `*` and `?` stay inside a segment, and `**` is never read apart.
+    A plan's `tests/test_rule_*.py` beside `tests/test_receipt.py` was refused as overlapping."""
+    xs, ys = _norm(x).split("/"), _norm(y).split("/")
+    if any("**" in s for s in (*xs, *ys)):
+        return True
+    # A glob names files of exactly its depth; a literal path may be a folder holding deeper ones.
+    if len(xs) != len(ys):
+        shorter = ys if len(xs) > len(ys) else xs
+        if _GLOB.search("/".join(shorter)) is not None:
+            return False  # the shorter one is a glob: it reaches nothing as deep as the longer
+    return not any(_segment_apart(a, b) for a, b in zip(xs, ys, strict=False))
 
 
 def overlapping(groups: Mapping[str, Sequence[str]]) -> list[str]:

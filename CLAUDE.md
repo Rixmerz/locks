@@ -554,6 +554,12 @@ yields the default kind, not a guess.
   `orchestrate._widen`) keeps those paths on its stop (`widen`), and its next step is
   `locks resume N --surface …` with them: the resume adds them and its brief keeps the
   diagnosis. Nothing widens a task's surfaces but that resume.
+- A check that fails only in tests outside the task's surfaces (its work changed files, the failures are not
+  the base's) stops the task at once as a `decision` with those files on its `widen`, no climb; and where the
+  index knows them the plan warns of tests that exercise the surfaces and are left out of them.
+- Two surfaces under one folder are read apart segment by segment (`surfaces._may_touch`): `*` and `?` stay in a
+  segment, a literal path holds what is under it, `**` and a character class are never read apart; in doubt they
+  touch. A plan's `tests/test_rule_*.py` beside `tests/test_receipt.py` had been refused as overlapping.
 - Surfaces narrow and grant nothing: a change outside them fails the attempt
   and is undone in its worktree, never in a person's checkout. Two tasks whose
   surfaces are provably disjoint run side by side without Haiku; a task whose
@@ -719,6 +725,11 @@ yields the default kind, not a guess.
   person's roles: their instructions kept, `model` dropped, their tool list as the built-in
   tools taken away, their kinds read from their name and description; a role of the same
   name is never replaced, and an imported role reaches no worker until a team names it.
+- An ending's notice is compact (`hooks.endings`): its instructions, the session's cost and the do-not-re-read
+  line are said in a session's first notice of a day and by one short line after it (`locks guide endings`), a
+  pass is one verdict line with its criteria shown only when one is not met, the worker's answer is clipped at
+  300 characters and its files at three; what is left out is in `locks show N` and said by count. A stop only
+  the person clears always carries its own instruction.
 - An ending of four or more at once tells each pass in one line (`hooks.verdict_summary`).
   `locks stats --expensive` names the runs over their kind's p90 cost and why, from what
   they recorded. A running task past `flow.SLOW_MIN_S` and its kind's p90 wall time in its
@@ -1237,7 +1248,8 @@ yields the default kind, not a guess.
   (`split.by_items`), and items that all touch one module of `src/` are one task (`route.one_module`).
   Tests run with `LOCKS_AUTOSPLIT=off`.
 - An ending names other work in its repository (running, or a kept branch of the last
-  `hooks.OVERLAP_DAYS`) that changed the same files: merging both conflicts there. Said,
+  `hooks.OVERLAP_DAYS`) that changed the same files: merging both conflicts there. A file is named only when
+  its content at that work's tip differs from HEAD's, and never work that landed and was edited since. Said,
   never acted on; steps of one run are never named.
 - A goal of `workflows.MANY_FEATURES` items or more at the largest size is told,
   before its run starts, that runs per feature or per phase (`--after run:<N>`)
@@ -1582,7 +1594,8 @@ yields the default kind, not a guess.
   each arm has `trunks.TRIAL`, then forking stays only where its first tries passed no worse
   than `MARGIN` below and reached their first change in fewer calls or finished sooner
   (`trunks.arm`, the `briefed` event's `trunk_arm`, `locks stats`); the `trunk` setting
-  turns it off, and tests run with `LOCKS_TRUNK=off`.
+  turns it off, and tests run with `LOCKS_TRUNK=off`. `LOCKS_TRUNK_ARM=fork|fresh` forces the arm for one
+  process (a benchmark's), and a forced step is left out of the trial.
 - A worker's answer is refused for its form only by what its result contract
   told it (`launch.RESULT_INSTRUCTIONS`, `PARTS_INSTRUCTIONS`): a check the
   worker was never told of is a lost attempt, never a shape. Length is no form:

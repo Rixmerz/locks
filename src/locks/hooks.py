@@ -78,6 +78,18 @@ _HANDBACK = re.compile(r'^<agent-message from="([^"]+)">\s*\[Subagent hand-back\
 
 #: How the endings notice opens: the mod submits it as a prompt to wake an idle session.
 ENDINGS_HEADER = "locks: work this session sent has ended since you last heard."
+#: The rules, in full: a session hears them in its first endings notice of a day (`endings`), and
+#: `locks guide endings` has the same text.
+ENDINGS_RULES = ("Act on each now: tell the person what happened. Every stop is yours to carry: "
+                 "one only the person can grant (a refused command's rule, a cell's approval) you ask them for here, "
+                 "and on their yes you run its line; any other you decide as its line says: resume it, rewrite it, "
+                 "or dismiss it with why (`locks dismiss N --why '<why>'`). Nothing waits on the person unasked "
+                 "(never redo a worker's task by hand).")
+#: What later notices of the day say instead of the rules.
+ENDINGS_SHORT = ("Rules as in `locks guide endings`: act on each now; ask the person for a stop only they can "
+                 "clear, and decide the rest as its line says.")
+#: What a session heard today, kept in the store's meta per session (`_heard_today`).
+ENDINGS_SAID = "endings-said:"
 #: A prompt a plugin submitted in the person's place, as Claude Code words it.
 _PLUGIN_SENT = re.compile(r"^The [\w.:@-]+ plugin sent a message")
 
@@ -914,23 +926,26 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
     paused = _paused_lanes(store, str(session_id), said=[t["id"] for t in ended]) if claim else None
     if not ended:
         return paused, []
-    lines = [ENDINGS_HEADER + " Act on each now: tell the person what happened. Every stop is yours to carry: "
-             "one only the person can grant (a refused command's rule, a cell's approval) you ask them for here, "
-             "and on their yes you run its line; any other you decide as its line says: resume it, rewrite it, "
-             "or dismiss it with why (`locks dismiss N --why '<why>'`). Nothing waits on the person unasked "
-             "(never redo a worker's task by hand)."]
+    claimed = claim is not None
+    # The rules in full once a session's day, as are the cost and the record lines below; a peek says all.
+    full = not _heard_today(store, str(session_id), "rules", claimed)
+    lines = [ENDINGS_HEADER + " " + (ENDINGS_RULES if full else ENDINGS_SHORT)]
     # Many endings at once: each pass in one line, so the notice costs the session little.
     grouped = len(ended) >= ENDINGS_GROUPED
     if grouped:
         passed = sum(1 for t in ended if t["status"] == "done")
         lines.append(f"{len(ended)} ended: {passed} passed, {len(ended) - passed} stopped; each pass in one line "
                      "(`locks show N` has its verdict in full).")
+    # The verdict record's line (`verdict_parts`) is said once a session's day: by the first pass of this
+    # notice that prints a verdict in full, decided then (`record`), so a grouped notice uses none of it.
+    record: bool | None = None
     for t in ended:
         data = t["finished_data"]
         changed = data.get("changed") or []
         total = data.get("changed_n") or len(changed)
         stop = stops.view(store, t) if t["status"] != "done" else None
         decided = bool(stop) and stop["cause"] == "decision"
+        reading = _reading(t)
         # Work done that waits on one decision is no failure, and its header never reads as one.
         lines.append(f"#{t['id']} [{'work done, one decision open' if decided else t['status']}] {t['title']}")
         # A security problem the worker named goes first, on a line of its own, secrets masked.
@@ -946,31 +961,40 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
         lines += habit_lines(t, store)
         if t["status"] == "done" and grouped:
             branch = data.get("branch")
+            said = verdict_summary(data.get("verdict"), reading=reading)
             lines.append(f"  passed at {data.get('final_cell') or t['final_cell']}"
-                         + (f", on branch {branch}" if branch else "") + f"; {verdict_summary(data.get('verdict'))}"
+                         + (f" on {branch}" if branch else "") + f"; {said}"
                          + (f"; changed {total} file(s)" if total else ""))
             continue
         if t["status"] == "done":
             branch = data.get("branch")
-            commit = f" (commit {str(data['commit'])[:12]})" if data.get("commit") else ""
+            commit = f" ({str(data['commit'])[:12]})" if data.get("commit") else ""
             # In the checkout only when the run had no worktree; an older ending did not say.
             in_place = data.get("in_place")
-            where = (f"; its work is on branch {branch}{commit}, merged only on the person's word"
+            where = (f" on {branch}{commit}"
                      if branch else f"; its changes are in your checkouts of {', '.join(in_place)}, none of them in a "
                      "worktree (the run started in a folder that holds several repositories)"
                      if changed and not data.get("isolated") and in_place
                      else "; its changes are in the checkout (the run had no worktree)"
                      if changed and not data.get("isolated") else "; no branch kept its changes"
                      if changed else "; it changed nothing")
-            lines.append(f"  passed at {data.get('final_cell') or t['final_cell']}{where}")
+            if record is None:
+                record = not _heard_today(store, str(session_id), "record", claimed)
+            summary, extra = verdict_parts(data.get("verdict"), reading=reading, record=record, compact=True)
+            record = False  # the rest of this notice's passes do not repeat it
+            lines.append(f"  passed at {data.get('final_cell') or t['final_cell']}{where}"
+                         + (f"; {summary}" if summary else ""))
             if t.get("result"):
-                lines.append(f"  the worker says: {clip(str(t['result']), 800)}")
-            if store.last_event(t["id"], "report") is not None:
-                lines.append(f"  its full answer is kept on the task: `locks show {t['id']}` prints it whole")
+                answer = str(t["result"])
+                # A writing worker's answer is cut short here, and kept whole on the task; a reading one's report is
+                # its deliverable, so it keeps more of it.
+                cap = 800 if reading else ANSWER_SHOWN
+                lines.append(f"  the worker says: {clip(answer, cap)}")
+                if len(answer) > cap or store.last_event(t["id"], "report") is not None:
+                    lines.append(f"  its full answer is kept on the task: `locks show {t['id']}` prints it whole")
             if changed:
-                lines.append("  changed: " + ", ".join(changed[:8])
-                             + (f" and {total - 8} more" if total > 8 else ""))
-            lines += verdict_lines(data.get("verdict"))
+                lines.append(_changed_line(t["id"], changed, total))
+            lines += extra
             if flaky := store.last_event(t["id"], "check_flaky"):
                 found = flaky["data"].get("failures") or []
                 lines.append(f"  flaky: `{flaky['data'].get('command')}` failed {len(found)} test(s) once, and they "
@@ -992,12 +1016,13 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
             if stop.get("account"):
                 lines.append(f"  the worker found: {clip(stop['account'], 800)}")
         if changed:
-            shown = ", ".join(changed[:5]) + (f" and {total - 5} more" if total > 5 else "")
-            lines.append(f"  changed so far: {shown}")
+            lines.append(_changed_line(t["id"], changed, total, so_far=True))
         if not decided:
             lines += _failed_check(store, t)
         if stop:
-            whose = "ask the person for it here" if stops.waits_on(store, t) == "person" else "yours to decide"
+            # A stop only the person can clear carries its own instruction, whatever was said before.
+            whose = ("ask the person for it here; on their yes run its line"
+                     if stops.waits_on(store, t) == "person" else "yours to decide")
             lines.append(f"  next ({whose}): {stop['todo']}" + (f": {stop['next']}" if stop["next"] else ""))
         if held := after.behind(store, {"task": int(t["id"])}):
             # Queued after this work: it starts only when a resume of this passes.
@@ -1010,11 +1035,51 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
             lines.append(f"  its lane is paused on it: {waiting} queued task(s) wait. Dismissing or resuming it "
                          "opens the lane; when the queued work does not depend on it, tell the person and "
                          f"run `locks lanes --unpause {t.get('repo')}` to let them start now")
-    if (split := session_split(store, str(session_id))) is not None:
+    # The cost line is said once a session's day too; a peek (no claim) always says it.
+    if (split := session_split(store, str(session_id))) is not None and not _heard_today(
+            store, str(session_id), "cost", claimed):
         lines.append(split)
     if paused:
         lines += ["", paused]
     return "\n".join(lines), [t["id"] for t in ended]
+
+
+def _heard_today(store: Store, session_id: str, item: str, claimed: bool) -> bool:
+    """Whether this session already heard `item` today (a standing line of the endings notice),
+    and marks it heard when it did not. A peek (`claimed` False) hears nothing new, so it says
+    every line and marks none. Never fails the notice: when the store cannot say, the line is said."""
+    if not claimed:
+        return False
+    day = datetime.now().astimezone().date().isoformat()
+    key = f"{ENDINGS_SAID}{item}:{session_id}"
+    try:
+        if store.meta(key) == day:
+            return True
+        store.set_meta(key, day)
+    except Exception:  # the line repeats rather than the notice failing
+        note_error(home(), "endings (said today)")
+    return False
+
+
+def _reading(task: Mapping) -> bool:
+    """Whether a task is a reading kind (`matrix.READ_ONLY_KINDS`): its answer is its deliverable."""
+    from locks.matrix import READ_ONLY_KINDS
+
+    return str(task.get("kind") or "") in READ_ONLY_KINDS
+
+
+#: The most characters of a writing worker's answer an ending says; the rest is kept on the task.
+ANSWER_SHOWN = 300
+#: The most changed files an ending names; the count says the rest.
+CHANGED_SHOWN = 3
+
+
+def _changed_line(task_id: int, changed: Sequence[str], total: int, *, so_far: bool = False) -> str:
+    """The files a task changed, by count and the first few (`CHANGED_SHOWN`); the rest is kept whole on the task."""
+    shown = list(changed[:CHANGED_SHOWN])
+    rest = max(0, total - len(shown))
+    said = ", ".join(shown) + (f" and {rest} more (`locks show {task_id}` has them)" if rest else "")
+    return f"  changed{' so far' if so_far else ''} {total} file(s): {said}"
 
 
 COPIES_HEADER = ("locks: work another session sent for you has ended (a copy: that session heard it too and acts "
@@ -1082,75 +1147,90 @@ def _failed_check(store: Store, task: Mapping) -> list[str]:
                                                            clip(tail, CHECK_TAIL_SHOWN).splitlines())]
 
 
-def verdict_summary(verdict: Mapping | None) -> str:
-    """A verdict in a few words: the check, the criteria met, the independent check."""
+def verdict_summary(verdict: Mapping | None, *, reading: bool = False) -> str:
+    """A verdict in one line: locks' check, the criteria met, the independent check."""
     if not isinstance(verdict, Mapping):
         return "no verdict kept"
-    check = verdict.get("check")
-    said = [f"`{check['command']}` " + ("failing at base, unchanged" if check.get("state") else "passed")
-            if isinstance(check, Mapping) else "no check ran"]
-    found = list(verdict.get("criteria") or ())
-    if found:
-        said.append(f"{sum(1 for c in found if c.get('met'))}/{len(found)} criteria met")
-    ind = verdict.get("independent") or {}
-    if ind.get("ran"):
-        said.append("independent check "
-                    + ("read nothing twice, the pass stands on locks' own check" if ind.get("unread") else
-                       "passed" if ind.get("passed") else f"left {ind.get('blocking')} blocker(s)"))
-    elif ind.get("sampled"):
-        said.append(f"independent check not drawn (1 pass in {ind.get('every')} here)")
-    return ", ".join(said)
+    return verdict_parts(verdict, reading=reading, record=False)[0] or "no verdict kept"
 
 
-def verdict_lines(verdict: Mapping | None) -> list[str]:
-    """The verdict a passing ending carries (`orchestrate.verdict_card`), for the session that
-    sent the work: what it was held to and how that was checked, so it reports the result
-    instead of re-reading the code or running the tests again. A verdict locks did not keep
-    (an older ending) says nothing."""
+def verdict_parts(verdict: Mapping | None, *, reading: bool = False, record: bool = True,
+                  compact: bool = False) -> tuple[str, list[str]]:
+    """A verdict (`orchestrate.verdict_card`) as one line of what held, and the lines that say more: the
+    unmet criteria, and what was not checked, in its own words. `compact` (a session's notice) counts the
+    criteria met and shows only the ones not met; a full verdict (a pull request's body) lists each with its
+    evidence. Reading kinds get no "no check" line: their answer is their deliverable. The record line
+    (locks' own record, do not re-read) is always said when the verdict is unverified, and otherwise only
+    when `record`. Empty when no verdict was kept."""
     if not isinstance(verdict, Mapping):
-        return []
-    lines = []
-    check = verdict.get("check")
-    if isinstance(check, Mapping) and check.get("state"):
-        from locks import isolate
+        return "", []
+    from locks import isolate
 
-        lines.append(f"  check: `{check['command']}` {check['state']}: it fails at the base "
+    check = verdict.get("check")
+    ind = verdict.get("independent") or {}
+    criteria = list(verdict.get("criteria") or ())
+    parts: list[str] = []
+    extra: list[str] = []
+    command = clip(str(check.get("command") or ""), 120, one_line=True) if isinstance(check, Mapping) else ""
+    if isinstance(check, Mapping) and check.get("state"):
+        parts.append(f"locks' check `{command}` failing at base, unchanged")
+        extra.append(f"  check: `{command}` {check['state']}: it fails at the base "
                      f"{isolate.base_label(str(check.get('base') or ''))} too, with the same {check.get('failures')} "
                      "failure(s), so the work stood; they were there before it")
     elif isinstance(check, Mapping):
         runs = int(check.get("runs") or 1)
-        lines.append(f"  check: `{check['command']}` passed, run by locks in its worktree"
-                     + (f" {runs} times, every run, since this work fixes a flake" if runs > 1 else ""))
-    else:
-        lines.append("  check: none was given, so nothing ran it: say so to the person")
-    for c in verdict.get("criteria") or ():
-        mark = "met" if c.get("met") else "NOT met"
-        lines.append(f"  {c.get('id')} {mark}: {c.get('evidence') or 'no evidence given'}")
-    ind = verdict.get("independent") or {}
+        parts.append(f"locks' check `{command}` passed" + (f" {runs} times, every run, since this work fixes a flake"
+                                                          if runs > 1 else ""))
+    elif not reading:
+        parts.append("no check was given: say so to the person")
+    if criteria:
+        parts.append(f"{sum(1 for c in criteria if c.get('met'))}/{len(criteria)} criteria met")
+        for c in criteria:
+            if not compact or not c.get("met"):
+                mark = "met" if c.get("met") else "NOT met"
+                extra.append(f"  {c.get('id')} {mark}: {c.get('evidence') or 'no evidence given'}")
+    # An unread check reported no finding twice and read no code either time (`orchestrate._reread`):
+    # it decided nothing, and the pass stands on locks' own check; said in its own words.
     if ind.get("ran"):
-        # An unread check reported no finding twice and read no code either time (`orchestrate._reread`):
-        # it decided nothing, and the pass stands on locks' own check.
-        lines.append("  independent check: " + (
-            "read nothing twice; the pass stands on locks' own check" if ind.get("unread") else
-            "passed" if ind.get("passed") else f"{ind.get('blocking')} blocker(s) left, recorded"))
+        if ind.get("unread"):
+            parts.append("independent check read nothing twice, the pass stands on locks' own check")
+        elif ind.get("passed"):
+            parts.append("independent check passed")
+        else:
+            parts.append(f"independent check left {ind.get('blocking')} blocker(s), recorded")
         if ind.get("unchecked"):
-            lines.append(f"  TRACER CORRECT lines nobody checked: {', '.join(ind['unchecked'])}")
-    elif ind.get("late") or ind.get("sampled"):
-        lines.append(f"  independent check: {ind['why']}")
+            extra.append(f"  TRACER CORRECT lines nobody checked: {', '.join(ind['unchecked'])}")
+    elif ind.get("late"):
+        parts.append("independent check runs after this ending")
+    elif ind.get("sampled"):
+        parts.append(f"independent check not drawn (1 pass in {ind.get('every')} here)")
+        extra.append(f"  independent check: {ind['why']}")
     elif ind.get("why"):
-        lines.append(f"  independent check: not run ({ind['why']})")
+        parts.append(f"independent check not run ({ind['why']})")
     if verdict.get("unchecked"):
-        lines.append(f"  not self-checked: {verdict['unchecked']}")
-    unverified = not isinstance(check, Mapping) or bool(verdict.get("unchecked")) or bool(ind.get("unchecked")) \
-        or bool(ind.get("unread")) or any(not c.get("met") for c in verdict.get("criteria") or ())
-    lines.append("  this verdict is locks' own record: do not re-read the code or re-run the check to confirm it"
-                 + ("; open the diff only where it says something was not checked or not met" if unverified
-                    else "; open the diff only if the person asks"))
-    return lines
+        extra.append(f"  not self-checked: {verdict['unchecked']}")
+    unverified = (not isinstance(check, Mapping) and not reading) or bool(verdict.get("unchecked")) \
+        or bool(ind.get("unchecked")) or bool(ind.get("unread")) or any(not c.get("met") for c in criteria)
+    if unverified or record or not compact:
+        extra.append("  this verdict is locks' own record: do not re-read the code or re-run the check to confirm it"
+                     + ("; open the diff only where it says something was not checked or not met" if unverified
+                        else "; open the diff only if the person asks"))
+    return ", ".join(parts), extra
 
 
-#: The most problems that were already there an ending lists.
-FOUND_BEFORE_SHOWN = 3
+def verdict_lines(verdict: Mapping | None, *, reading: bool = False, record: bool = True,
+                  compact: bool = False) -> list[str]:
+    """The verdict a passing ending carries (`orchestrate.verdict_card`), for the session that
+    sent the work: what it was held to and how that was checked, so it reports the result
+    instead of re-reading the code or running the tests again. A verdict locks did not keep
+    (an older ending) says nothing. See `verdict_parts` for what `compact` and `record` mean."""
+    summary, extra = verdict_parts(verdict, reading=reading, record=record, compact=compact)
+    return ([f"  {summary}"] if summary else []) + extra
+
+
+#: The most problems that were already there an ending lists with their bugfix line; the rest by count
+#: (`locks show N` has each with its proof).
+FOUND_BEFORE_SHOWN = 1
 
 
 def _failing_at_base(data: Mapping) -> dict[str, str]:
@@ -1215,8 +1295,8 @@ def _found_before(store: Store, ended: Mapping) -> list[str]:
             [f"    {len(fixed)} in files this work changed or marked fixed by it"] if fixed else []) + later
     after_ref = f"run:{ended['workflow_run']}" if ended.get("workflow_run") else f"task:{ended['id']}"
     shown = list(found.values())[:FOUND_BEFORE_SHOWN]
-    lines = [f"  it found {len(found)} problem(s) that were already there, not this change's (each shown with "
-             "its proof); a bugfix for one is yours to decide, nothing was started:"]
+    lines = [f"  it found {len(found)} problem(s) that were already there, not this change's; a bugfix for one is "
+             "yours to decide, nothing was started:"]
     for f in shown:
         # A finding may quote what it found: nothing that looks like a secret is repeated.
         what = clip(_SECRET.sub("[secret]", str(f.get("what") or "")), 200, one_line=True)
@@ -1224,7 +1304,7 @@ def _found_before(store: Store, ended: Mapping) -> list[str]:
         lines.append(f"    {where}: {what} — `locks workflow run bugfix {shlex.quote(f'{what} ({where})')} "
                      f"--after {after_ref}`")
     if len(found) > len(shown):
-        lines.append(f"    and {len(found) - len(shown)} more: `locks show {ended['id']}`")
+        lines.append(f"    and {len(found) - len(shown)} more, each with its proof: `locks show {ended['id']}`")
     if fixed:
         lines.append(f"    and {len(fixed)} more in files this work changed or marked fixed by it: not offered")
     return lines + later
@@ -1287,6 +1367,7 @@ def _overlaps(store: Store, ended: Mapping) -> list[str]:
         if other["id"] == ended["id"] or (other.get("updated_at") or "") < since or (
                 ended.get("workflow_run") and other.get("workflow_run") == ended.get("workflow_run")):
             continue
+        tip = None
         if other["status"] == "running":
             tries = store.attempts(other["id"])
             paths = json.loads(tries[-1]["changed_paths"] or "[]") if tries else []
@@ -1298,9 +1379,15 @@ def _overlaps(store: Store, ended: Mapping) -> list[str]:
             except Exception:  # noqa: S110 - an ending never fails on what git could not say
                 pass
             paths = data.get("changed") or []
+            tip = kept[other["id"]]
         else:
             continue
         both = sorted(mine & set(paths))
+        if both and tip is not None:
+            # A file is named only where its content at the branch's tip differs from HEAD's, and HEAD's
+            # history does not hold that content already (a squash that was edited since): the rest is no conflict.
+            with contextlib.suppress(Exception):  # an ending never fails on what git could not say: names stand
+                both = isolate.live_paths(top, tip, both)
         if both:
             hits.append((other, both))
     if not hits:

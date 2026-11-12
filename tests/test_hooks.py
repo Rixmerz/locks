@@ -316,13 +316,13 @@ def test_work_a_session_sent_is_reported_to_it_once_when_it_ends(store: Store, g
     out = hooks.stop({"session_id": "s"}, store)
     assert out["decision"] == "block"
     notice = out["reason"]
-    assert "#1 [done] write the changelog" in notice and "its work is on branch locks/task-1" in notice
+    assert "#1 [done] write the changelog" in notice and "passed at sonnet/low on locks/task-1" in notice
     assert "git diff" not in notice
-    assert "the worker says: Wrote the 0.5.0 entry." in notice and "changed: CHANGELOG.md" in notice
+    assert "the worker says: Wrote the 0.5.0 entry." in notice and "changed 1 file(s): CHANGELOG.md" in notice
     assert "passed at haiku; it changed nothing\n  the worker says: slug.js:1" in notice
     assert f"its full answer is kept on the task: `locks show {answer['id']}` prints it whole" in notice
     assert f"#{big['id']} [replan]" in notice and "stopped by locks' rules" in notice
-    assert "src/f0.ts, src/f1.ts, src/f2.ts, src/f3.ts, src/f4.ts and 2 more" in notice
+    assert "changed so far 7 file(s): src/f0.ts, src/f1.ts, src/f2.ts and 4 more" in notice
     assert f"locks resume {big['id']} --max-turns 120" in notice
     assert "not this session's" not in notice and "still going" not in notice
     assert hooks.stop({"session_id": "s"}, store) is None  # once
@@ -353,7 +353,7 @@ def test_an_ending_with_no_worktree_names_the_repositories_it_changed_in_place(s
                     changed=["api/routes.js", "web/app.ts"], changed_n=2, in_place=["api", "web"])
     notice = hooks.endings(store, "s", claim="stop")[0]
     assert "its changes are in your checkouts of api, web, none of them in a worktree" in notice
-    assert "changed: api/routes.js, web/app.ts" in notice
+    assert "changed 2 file(s): api/routes.js, web/app.ts" in notice
 
 
 def test_a_resumed_task_is_told_with_its_last_ending_never_an_earlier_one(store: Store):
@@ -371,8 +371,9 @@ def test_a_resumed_task_is_told_with_its_last_ending_never_an_earlier_one(store:
     store.add_event(t["id"], "finished", status="done", final_cell="sonnet/xhigh", branch="locks/task-1",
                     changed=changed[:50], changed_n=106)
     notice = hooks.endings(store, "s", claim="stop")[0]
-    assert "passed at sonnet/xhigh; its work is on branch locks/task-1, merged only on the person's word" in notice
-    assert "changed nothing" not in notice and "and 98 more" in notice
+    assert "passed at sonnet/xhigh on locks/task-1" in notice
+    assert "changed nothing" not in notice
+    assert "changed 106 file(s): src/f0.ts, src/f1.ts, src/f2.ts and 103 more" in notice
     assert store.unreported("s") == []
 
 
@@ -475,11 +476,13 @@ def test_an_ending_names_what_was_already_broken_and_the_bugfix_that_would_take_
     assert lines[0].startswith("  it found 1 problem(s) that were already there")
     assert "lib/tax.py:12: rounds half down" in lines[1] and f"--after run:{run['id']}" in lines[1]
     assert "locks workflow run bugfix 'rounds half down (lib/tax.py:12)'" in lines[1]
+    assert len(lines) == 2  # one just the first bugfix line (this run found one problem)
     alone = store.create_task("x", status="done", source="locks", session_id="s")
     many = [{**old, "where": f"f{i}.py"} for i in range(5)]
     store.add_event(alone["id"], "finished", status="done", findings=many)
     found = hooks._found_before(store, store.get_task(alone["id"]))
-    assert f"--after task:{alone['id']}" in found[1] and found[-1].startswith("    and 2 more")
+    # One bugfix line; the rest are counted, and `locks show N` has each with its proof.
+    assert f"--after task:{alone['id']}" in found[1] and found[-1].startswith("    and 4 more")
     plain = store.create_task("y", status="done", source="locks", session_id="s")
     store.add_event(plain["id"], "finished", status="done")
     assert hooks._found_before(store, store.get_task(plain["id"])) == []
@@ -490,7 +493,14 @@ def test_an_ending_names_other_work_that_changes_the_same_files(store: Store, gi
 
     def kept(text: str, status: str, changed: list[str]) -> dict:
         task = store.create_task(text, status=status, source="queue", session_id="s", repo="r", cwd=str(git_repo))
-        git(git_repo, "branch", f"locks/task-{task['id']}")
+        # The kept branch carries its own commit: each file it changed differs from HEAD's.
+        git(git_repo, "checkout", "-q", "-b", f"locks/task-{task['id']}")
+        for path in changed:
+            (git_repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (git_repo / path).write_text(f"{text}\n")
+        git(git_repo, "add", "-A")
+        git(git_repo, "commit", "-q", "-m", text)
+        git(git_repo, "checkout", "-q", "main")
         store.add_event(task["id"], "finished", status=status, changed=changed, branch=f"locks/task-{task['id']}")
         return task
 
@@ -519,19 +529,20 @@ def test_a_passing_ending_carries_its_verdict_so_the_session_never_redoes_the_wo
                          {"id": "S2", "met": True, "evidence": ""}],
             "check": {"command": "npm test", "passed": True}, "independent": {"ran": True, "passed": True},
             "attempts": 1}
+    # A full verdict (a pull request's body) keeps each criterion with its evidence.
     lines = hooks.verdict_lines(full)
-    assert lines[0] == "  check: `npm test` passed, run by locks in its worktree"
+    assert lines[0] == "  locks' check `npm test` passed, 2/2 criteria met, independent check passed"
     assert "  S1 met: test_export passes" in lines and "  S2 met: no evidence given" in lines
-    assert "  independent check: passed" in lines
     assert lines[-1].endswith("open the diff only if the person asks") and "do not re-read" in lines[-1]
     gaps = {"criteria": [{"id": "S1", "met": False, "evidence": "not built"}], "check": None,
             "independent": {"ran": False, "why": "a blind review step of this workflow reads the change next"}}
     lines = hooks.verdict_lines(gaps)
-    assert lines[0].startswith("  check: none was given") and "  S1 NOT met: not built" in lines
-    assert "  independent check: not run (a blind review step of this workflow reads the change next)" in lines
+    assert lines[0] == ("  no check was given: say so to the person, 0/1 criteria met, independent check not run "
+                        "(a blind review step of this workflow reads the change next)")
+    assert "  S1 NOT met: not built" in lines
     assert lines[-1].endswith("not checked or not met")
     blocked = hooks.verdict_lines({**full, "independent": {"ran": True, "passed": False, "blocking": 2}})
-    assert "  independent check: 2 blocker(s) left, recorded" in blocked
+    assert "independent check left 2 blocker(s), recorded" in blocked[0]
     assert hooks.verdict_lines(None) == [] and hooks.verdict_lines({}) [-1].endswith("not checked or not met")
 
 
@@ -540,7 +551,7 @@ def test_an_independent_check_that_read_nothing_twice_is_said_so_and_lets_the_di
             "check": {"command": "npm test", "passed": True},
             "independent": {"ran": True, "passed": False, "blocking": 0, "unread": True}, "attempts": 1}
     lines = hooks.verdict_lines(held)
-    assert "  independent check: read nothing twice; the pass stands on locks' own check" in lines
+    assert "independent check read nothing twice, the pass stands on locks' own check" in lines[0]
     assert not any("blocker(s) left" in line for line in lines)
     assert lines[-1].endswith("open the diff only where it says something was not checked or not met")
     # Its TRACER lines nobody checked are still said.
@@ -593,7 +604,7 @@ def test_many_endings_at_once_tell_each_pass_in_one_line(store: Store):
                         verdict=verdict, changed=["a.py"])
     notice, ids = hooks.endings(store, "s")
     assert len(ids) == 4 and "4 ended: 4 passed, 0 stopped" in notice
-    assert notice.count("passed at sonnet/high, on branch locks/task-") == 4
+    assert notice.count("passed at sonnet/high on locks/task-") == 4
     assert "`npm test` passed, 1/2 criteria met, independent check passed; changed 1 file(s)" in notice
     assert "this verdict is locks' own record" not in notice
     assert hooks.verdict_summary(None) == "no verdict kept"

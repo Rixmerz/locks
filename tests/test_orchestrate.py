@@ -110,6 +110,26 @@ def test_a_first_try_pass_leaves_a_branch(git_repo, store):
 
 
 @pytest.mark.usefixtures("no_verifier")
+def test_a_writing_workers_answer_is_cut_in_the_report_and_the_plan_reasons_past_three_are_counted(git_repo, store):
+    import dataclasses
+
+    answer = "Built the feature and checked it against the spec. " * 25  # well past the report's 800 characters
+    script = Script(ok(summary=answer), write="feature.py")
+    report = run("add the feature", git_repo, store, registry={}, launcher=script, classifier=kind("implement"))
+    text = report.text()
+    assert "Built the feature and checked it" in text and answer.strip() not in text
+    assert f"the worker's whole answer is kept on the task: `locks show {report.task_id}` prints it" in text
+    many = dataclasses.replace(report, plan=dataclasses.replace(report.plan,
+                                                                reasons=[f"reason {i}" for i in range(5)]))
+    many_text = many.text()
+    assert "· reason 2" in many_text and "· reason 3" not in many_text
+    assert f"2 more reason(s): `locks show {report.task_id}` has them" in many_text
+    # A dry run has no task to show them from, so it says them all.
+    dry = dataclasses.replace(many, task_id=None)
+    assert "· reason 4" in dry.text() and "more reason" not in dry.text()
+
+
+@pytest.mark.usefixtures("no_verifier")
 def test_shallow_failures_climb_effort_and_keep_the_work(git_repo, store):
     seen = []
 

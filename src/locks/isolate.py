@@ -1137,6 +1137,29 @@ def already_in_head(repo_dir: Path, base: str, tip: str) -> bool:
     return True
 
 
+def path_landed(repo_dir: Path, path: str, tip: str) -> bool:
+    """Whether the blob `path` has at `tip` appears in the history of `path` on HEAD: the work
+    landed (a squash merge, say) and HEAD edited the file since. False when git cannot say."""
+    blob = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"{tip}:{path}", check=False)
+    if not blob:
+        return False
+    # The blob a commit set the file to is the new side of its raw diff line (`:mode mode old new status`).
+    raw = _git(repo_dir, "log", "--raw", "--no-abbrev", "--format=", "HEAD", "--", path, check=False)
+    return any(line.split()[3] == blob for line in raw.splitlines() if line.startswith(":") and len(line.split()) > 3)
+
+
+def live_paths(repo_dir: Path, tip: str, paths: Sequence[str]) -> list[str]:
+    """The paths whose content at `tip` differs from HEAD's and whose tip blob HEAD's history of
+    the path does not hold (`path_landed`): what merging the branch would still change here."""
+    live = []
+    for path in paths:
+        mine = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"HEAD:{path}", check=False)
+        theirs = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"{tip}:{path}", check=False)
+        if mine != theirs and not path_landed(repo_dir, path, tip):
+            live.append(path)
+    return live
+
+
 def kept_branches(repo_dir: Path) -> dict[int, str]:
     """Every `locks/task-<id>` branch in a checkout, by task id, with its tip."""
     adopt_legacy(repo_dir)

@@ -73,7 +73,7 @@ def test_a_pull_request_carries_the_verdict_and_opens_only_through_gh(git_repo, 
     assert cli.main(["pr", str(task["id"]), "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("title: add the export") and "Added the CSV export." in out
-    assert "- check: `pytest -q` passed, run by locks in its worktree" in out and "- `export.py`" in out
+    assert "- locks' check `pytest -q` passed, 1/1 criteria met" in out and "- `export.py`" in out
     assert "do not re-read" not in out
     calls = []
 

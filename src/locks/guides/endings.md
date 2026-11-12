@@ -1,5 +1,23 @@
 # What each ending means and what to do with it; unattended resumes; paused lanes
 
+## The endings notice's rules
+
+A session hears these in full in its first endings notice of a day, and the notices after it say
+only that the rules are here. The text is the same as the notice's:
+
+- Act on each ending now: tell the person what happened.
+- Every stop is yours to carry. One only the person can grant (a refused command's rule, a cell's
+  approval) you ask them for, and on their yes you run its line. Any other you decide as its line
+  says: resume it, rewrite it, or dismiss it with why (`locks dismiss N --why '<why>'`).
+- Nothing waits on the person unasked. Never redo a worker's task by hand.
+- A kept branch is not their checkout: it is merged only on their word.
+- A pass says its verdict in one line: the check locks ran, the criteria met, the independent check.
+  Criteria not met, and anything not checked, are said in their own words. The record line says the
+  verdict is locks' own, so the code is not read again to confirm it; open the diff only where it
+  says something was not checked or not met, or when the person asks.
+- The worker's answer is cut in a notice; `locks show N` has it whole. A reading task's report is
+  its deliverable and is kept whole on the task too.
+
 **Read the report and act on its status.** The summary is the worker's own
 account; `changed (from git)` is what the files say. Never tell the user a
 file was created or changed unless that line names it, and remember that a

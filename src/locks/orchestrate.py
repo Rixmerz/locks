@@ -319,6 +319,12 @@ def in_place_files(names: Sequence[str], changed: Sequence[str]) -> dict[str, li
     return dict(sorted(found.items()))
 
 
+#: The most plan reasons `locks run` prints for a task; the rest by count (`locks show N` has them all).
+PLAN_REASONS_SHOWN = 3
+#: The most characters of a writing worker's answer `locks run` prints; the rest is kept whole on the task.
+REPORT_ANSWER_SHOWN = 800
+
+
 @dataclass
 class Report:
     task_id: int | None
@@ -381,12 +387,19 @@ class Report:
         return "unverified"
 
     def text(self) -> str:
+        # Warnings first; a task's reasons past the first few are counted, and `locks show N` keeps them all.
+        # A dry run has no task to show them from, so it says them all.
+        heard = [r for r in self.plan.reasons if r not in self.plan.quiet]
+        ordered = [*warnings(heard), *(r for r in heard if not r.startswith(WARNINGS))]
+        shown = ordered if self.task_id is None else ordered[:PLAN_REASONS_SHOWN]
+        start = f"start {self.plan.start.label}" + "".join(f"\n  · {r}" for r in shown)
+        if len(ordered) > len(shown):
+            start += f"\n  · {len(ordered) - len(shown)} more reason(s): `locks show {self.task_id}` has them"
         lines = [
             f"task #{self.task_id}: {self.status}" if self.task_id else f"plan: {self.status}",
             f"kind {self.plan.kind} ({self.plan.classification.source}: {self.plan.classification.reason})",
             f"ladder {' → '.join(c.label for c in self.plan.ladder)}",
-            f"start {self.plan.start.label}" + "".join(f"\n  · {r}" for r in self.plan.reasons
-                                                       if r not in self.plan.quiet),
+            start,
         ]
         if self.plan.role is not None:
             lines.append(f"role {self.plan.role.name} ({self.plan.role.scope}) of the {self.plan.team} team: "
@@ -463,7 +476,12 @@ class Report:
                 f"{'kept' if n['new'] else 'already known as'} #{n['id']} [{n['topic']}] {n['title']}"
                 for n in self.noted))
         if self.summary:
-            lines.append(self.summary)
+            # A reading kind's report is its deliverable, whole; a writing worker's answer is cut, its rest kept.
+            if self.task_id is None or self.plan.kind in READ_ONLY_KINDS or len(self.summary) <= REPORT_ANSWER_SHOWN:
+                lines.append(self.summary)
+            else:
+                lines.append(clip(self.summary, REPORT_ANSWER_SHOWN))
+                lines.append(f"the worker's whole answer is kept on the task: `locks show {self.task_id}` prints it")
         if self.stop is not None and self.task_id:
             lines.append(f"stopped by {stops.WHO.get(self.stop.who, self.stop.who)}: {stops.what_to_do(self.stop)}")
             command = stops.next_step(self.task_id, self.stop)

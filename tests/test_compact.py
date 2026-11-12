@@ -112,3 +112,35 @@ def test_a_secret_is_masked():
     facts = {"requests": ["use password=hunter2 for it"], "written": [], "failures": []}
     text = compact.digest(facts, changed=[], tasks=[])
     assert "hunter2" not in text and "[secret]" in text
+
+
+def _call(call_id: str, command: str) -> dict:
+    return {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": call_id, "name": "Bash", "input": {"command": command}}]}}
+
+
+def _result(call_id: str, text: str, *, error: bool) -> dict:
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": call_id, "is_error": error, "content": text}]}}
+
+
+def test_a_failure_the_same_command_later_passed_is_left_out(tmp_path):
+    entries = [_call("a", "npm test"), _result("a", "boom", error=True),
+               _call("b", "make lint"), _result("b", "lint boom", error=True),
+               _call("c", "npm test"), _result("c", "ok", error=False)]
+    assert compact.read(transcript(tmp_path, entries))["failures"] == ["Bash `make lint`: lint boom"]
+    # a failure after the pass is still a failure
+    again = [*entries, _call("d", "npm test"), _result("d", "boom again", error=True)]
+    assert compact.read(transcript(tmp_path, again))["failures"][-1] == "Bash `npm test`: boom again"
+
+
+def test_each_failure_is_clipped_and_the_section_takes_a_fifth_of_the_budget_saying_the_rest_by_count(tmp_path):
+    entries = []
+    for i in range(30):
+        entries += [_call(f"x{i}", f"cmd {i}"), _result(f"x{i}", f"harness text {i} " + "long " * 200, error=True)]
+    facts = compact.read(transcript(tmp_path, entries))
+    assert all(len(f) <= len("Bash ``: ") + compact.COMMAND_CHARS + compact.ERROR_CHARS + 8 for f in facts["failures"])
+    text = compact.digest({**facts, "requests": ["ask"]}, changed=[], tasks=[])
+    section = text.split("Calls that failed")[1].split("\n\n")[0]
+    assert len(section) <= compact.BUDGET // 5 and "earlier left out" in section
+    assert "cmd 29" in section and "cmd 0 " not in section

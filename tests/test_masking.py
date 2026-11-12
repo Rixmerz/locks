@@ -117,3 +117,42 @@ def test_compact_json_usage_is_no_assignment():
     line = '{"usage":{"input_tokens":12345678,"output_tokens":3,"cache_read_input_tokens":99999999}}'
     assert masking.mask(line) == line
     assert masking.mask('{"token":"abcdefgh1234"}') != '{"token":"abcdefgh1234"}'
+
+
+def test_keep_transcript_appends_only_what_the_copy_lacks_and_starts_over_when_replaced(tmp_path):
+    source = tmp_path / "t.jsonl"
+    env = {"LOCKS_HOME": str(tmp_path / "home")}
+    event = {"transcript_path": str(source), "session_id": "s3"}
+    source.write_text('{"n":1}\n{"n":2}\n{"n":3', encoding="utf-8")  # the last line is still being written
+    target = trace.keep_transcript(event, env)
+    assert target.read_text(encoding="utf-8") == '{"n":1}\n{"n":2}\n'
+    with source.open("a", encoding="utf-8") as fh:
+        fh.write('}\n{"n":4}\n')
+    trace.keep_transcript(event, env)
+    assert target.read_text(encoding="utf-8") == '{"n":1}\n{"n":2}\n{"n":3}\n{"n":4}\n'
+    # An unchanged source is copied again for nothing: the offset says it holds it all.
+    marker = target.with_name("s3.transcript.offset")
+    before = marker.read_text(encoding="utf-8")
+    trace.keep_transcript(event, env)
+    assert marker.read_text(encoding="utf-8") == before
+    # Shrunk, or replaced by another transcript: copied again from the start.
+    source.write_text('{"x":1}\n', encoding="utf-8")
+    trace.keep_transcript(event, env)
+    assert target.read_text(encoding="utf-8") == '{"x":1}\n'
+    source.write_text('{"y":1}\n{"y":2}\n', encoding="utf-8")  # longer, but another file
+    trace.keep_transcript(event, env)
+    assert target.read_text(encoding="utf-8") == '{"y":1}\n{"y":2}\n'
+    assert target.stat().st_mode & 0o777 == 0o600 and marker.stat().st_mode & 0o777 == 0o600
+
+
+def test_keep_transcript_stops_at_its_budget_and_the_next_call_goes_on(tmp_path):
+    source = tmp_path / "t.jsonl"
+    source.write_text("".join(f'{{"n":{i}}}\n' for i in range(50)), encoding="utf-8")
+    env = {"LOCKS_HOME": str(tmp_path / "home")}
+    event = {"transcript_path": str(source), "session_id": "s4"}
+    ticks = iter(range(1000))
+    target = trace.keep_transcript(event, env, budget_s=3, clock=lambda: next(ticks))
+    held = target.read_text(encoding="utf-8").splitlines()
+    assert 0 < len(held) < 50
+    trace.keep_transcript(event, env)
+    assert target.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")

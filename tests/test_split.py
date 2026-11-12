@@ -90,3 +90,95 @@ def test_a_worker_never_queues_a_split(monkeypatch, capsys):
 def test_pieces_whose_folders_collide_go_without_surfaces():
     got = split.by_items("Do these:\n- fix src/a.py\n- fix src/b.py\n- write docs/guide/x.md\n")
     assert [p["surfaces"] for p in got.parts] == [[], [], ["docs/guide/**"]]
+
+
+WORD = ("Update the proposal document report.docx:\n- change the title page to the new client\n"
+        "- rewrite section 2 as a table\n- fix the numbering of the figures\n- replace the footer text\n"
+        "- add a table of contents\n- update the references list in the last section\n"
+        "Keep the styles untouched; the changes are small but touch every section of the document.")
+
+
+def test_items_that_all_change_one_document_are_one_task():
+    from locks import route
+
+    items = route.pieces_of(WORD)
+    assert len(items) >= 6 and route.one_file(WORD, items)
+    assert route.split_first(WORD, "implement") is None
+    assert "one file or document" in route.kept_whole(WORD, "implement")
+    got = split.by_items(WORD)
+    assert not got.parts and "one file or document" in got.problem
+    # propose does not ask the model for what is one task
+    assert split.propose(WORD, None, ask=lambda *a: (_ for _ in ()).throw(AssertionError("no model"))).problem
+
+
+def test_items_naming_files_in_different_folders_are_still_pieces():
+    from locks import route
+
+    assert not route.one_file(LISTED, route.pieces_of(LISTED))
+    two = "Document report.docx and also brief.docx:\n- change report.docx title\n- change brief.docx footer"
+    assert not route.one_file(two, route.pieces_of(two))
+
+
+def test_a_derived_surface_naming_an_absent_path_is_left_out_and_said(tmp_path):
+    (tmp_path / "src" / "app").mkdir(parents=True)
+    text = "Do these:\n- fix src/app/a.py\n- write docs/guide/x.md\n"
+    got = split.by_items(text, where=tmp_path)
+    assert got.parts[0]["surfaces"] == ["src/app/**"] and "absent" not in got.parts[0]
+    assert got.parts[1]["surfaces"] == [] and got.parts[1]["absent"] == ["docs/guide/**"]
+    assert "docs/guide/** left out: not in the repository" in "\n".join(split.lines(got))
+    assert split.by_items(text).parts[1]["surfaces"] == ["docs/guide/**"]  # no directory: kept as derived
+
+
+def test_a_glob_surface_exists_by_its_literal_folder(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert split._exists(tmp_path, "src/**") and not split._exists(tmp_path, "word/**")
+    assert not split._exists(tmp_path, "src/nope/*.py")
+
+
+def test_pieces_with_the_same_text_are_one_task():
+    same = "Do these:\n- fix the totals\n- fix the totals\n"
+    got = split.by_items(same)
+    assert not got.parts and "same text" in got.problem
+    assert split.same_text(["a  b", "a b"]) and not split.same_text(["a", "b"])
+    answer = {"contract": "shared", "parts": [{"id": "a", "prompt": "do x", "surfaces": ["a/"]},
+                        {"id": "b", "prompt": "do  x", "surfaces": ["b/"]}]}
+    assert "one task" in split.by_model("prose", None, ask=lambda *a: (answer, 0.0, "")).problem
+
+
+def test_cancel_split_cancels_every_piece_still_queued_from_the_source_or_any_piece(git_repo, capsys):
+    store = Store.open()
+    try:
+        src = store.create_task("big", status="dismissed", source="locks", repo="r", cwd=str(git_repo))
+        pieces = [store.enqueue(f"piece {k}", repo="r", cwd=str(git_repo))["id"] for k in range(3)]
+        for k, n in enumerate(pieces):
+            store.add_event(n, "split_from", task=src["id"], part=f"p{k}", group=pieces[0])
+        other = store.enqueue("unrelated", repo="r", cwd=str(git_repo))
+        store.update_task(pieces[2], status="done")
+    finally:
+        store.close()
+    assert cli.main(["cancel", "--split", str(pieces[1])]) == 0
+    out = capsys.readouterr().out
+    assert f"cancel requested for #{pieces[0]}, #{pieces[1]}" in out and f"#{pieces[2]} already off" in out
+    store = Store.open()
+    try:
+        assert [store.get_task(n)["status"] for n in pieces[:2]] == ["cancelled", "cancelled"]
+        assert store.get_task(pieces[2])["status"] == "done"
+        assert store.get_task(other["id"])["status"] == "queued"
+        assert split.siblings(store, src["id"]) == pieces
+    finally:
+        store.close()
+    assert cli.main(["cancel", "--split", str(src["id"])]) == 0
+    assert "nothing to cancel" in capsys.readouterr().out
+    assert cli.main(["cancel", "--split", str(other["id"])]) == 1
+
+
+def test_dismissing_a_cancelled_or_dismissed_task_succeeds_and_says_so(git_repo, capsys):
+    store = Store.open()
+    try:
+        a = store.enqueue("a", repo="r", cwd=str(git_repo))["id"]
+    finally:
+        store.close()
+    assert cli.main(["cancel", str(a)]) == 0
+    capsys.readouterr()
+    assert cli.main(["dismiss", str(a)]) == 0
+    assert "already off the board (cancelled)" in capsys.readouterr().out

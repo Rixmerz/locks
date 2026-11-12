@@ -352,6 +352,7 @@ def test_a_worker_is_briefed_livespec_s_answers_and_handed_no_livespec(git_repo,
     from .test_orchestrate import _livespec
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # the brief's content, not the trial
     script = Script(ok("fixed"))
     report = run("charge_card charges twice on retry", git_repo, store, registry={}, launcher=script,
                  classifier=kind("implement"), adapters=[_livespec(tmp_path)])
@@ -387,24 +388,32 @@ def test_a_stored_livespec_trial_setting_is_ignored_without_error(tmp_path, monk
     assert config.enabled("livespec", env) and "livespec_trial" not in config.DEFAULTS
 
 
-def test_stats_set_the_briefs_that_carried_a_dossier_against_those_that_did_not(store: Store):
+def test_stats_show_both_arms_of_the_dossier_trial_per_nature(store: Store):
     from locks import analysis
 
-    def ran(**briefed):
-        task = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
+    def ran(kind, arm, passed, **extra):
+        task = store.create_task("t", status="done", source="locks", repo="r", kind=kind)
         store.add_event(task["id"], "planned", plan_s=0.1)
-        store.add_event(task["id"], "briefed", **briefed)
-        store.add_event(task["id"], "attempt_finished", seq=1, passed=True, input_tokens=1000, output_tokens=10)
+        nature = "write" if kind == "implement" else "read"
+        store.add_event(task["id"], "briefed", dossier_arm=arm, dossier_nature=nature, **extra)
+        store.add_event(task["id"], "attempt_finished", seq=1, passed=passed, input_tokens=1000, output_tokens=10)
+        store.add_attempt(task["id"], cell="sonnet/high", max_turns=10, passed=passed, duration_s=5.0,
+                          input_tokens=1000)
         store.add_event(task["id"], "finished", status="done", wall_s=1.0)
 
-    ran(livespec_chars=1200, livespec_symbols=3, livespec_specs=1)
-    ran(context_chars=10)
-    # records from older releases (a handing arm, the tools offered) read without error
-    ran(livespec_arm="writing:withhold", livespec_tools=["who_calls"])
+    ran("implement", "dossier", True, livespec_chars=1200)
+    ran("implement", "none", False)
+    ran("implement", "none", True)
+    ran("explore", "dossier", True, livespec_chars=900)
     report = analysis.compute(store, days=0, keep_runs=None)
-    assert report["dossier"]["with"]["runs"] == 1 and report["dossier"]["without"]["runs"] == 2
-    assert report["dossier"]["with"]["chars_p50"] == 1200
-    assert "carried livespec's dossier against those that did not" in analysis.text(report)
+    write, read = report["dossier"]["write"], report["dossier"]["read"]
+    assert (write["dossier"]["tasks"], write["dossier"]["passed"]) == (1, 1)
+    assert (write["none"]["tasks"], write["none"]["passed"]) == (2, 1)
+    assert (read["dossier"]["tasks"], read["none"]["tasks"]) == (1, 0)
+    said = analysis.text(report)
+    assert "livespec's dossier in the brief, write work" in said
+    assert "livespec's dossier in the brief, read work" in said
+    assert "against those that did not" not in said
 
 
 def test_a_worker_handed_nothing_still_has_its_logged_calls_read_at_the_attempt_s_end(git_repo, store, monkeypatch):

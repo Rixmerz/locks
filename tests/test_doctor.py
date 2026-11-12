@@ -536,3 +536,24 @@ def test_a_verifier_hold_at_the_same_seq_does_not_excuse_a_worker_that_passed_un
     store.add_event(t, "review_unread", seq=1, who="verifier", again=False, calls=2)
     found = rules(store, now=LATER, alive=lambda pid: True)["clean-review-read-nothing"]
     assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, t)]
+
+
+def test_a_transcript_far_ahead_of_what_a_stop_counted_is_suspect(store: Store, tmp_path):
+    from locks import usage
+
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_bytes(b"x" * (usage.BEHIND_BYTES + 10))
+    counted_at = datetime.now(UTC) - timedelta(hours=1)
+    store.set_meta(usage.COUNTED_KEY + "s", json.dumps({"at": counted_at.isoformat(), "version": "0.99.0",
+                                                       "transcript": str(transcript)}))
+    [found] = rules(store, now=datetime.now(UTC), alive=lambda pid: True)["transcript-ahead-of-usage"]
+    assert found.severity == doctor.SUSPECT and "session s" in found.what
+    # Counted up to the end, or counted a moment ago, or by a release before the fix: nothing to say.
+    store.set_transcript_offset(str(transcript), transcript.stat().st_size)
+    assert "transcript-ahead-of-usage" not in rules(store, now=datetime.now(UTC), alive=lambda pid: True)
+    store.set_transcript_offset(str(transcript), 0)
+    assert "transcript-ahead-of-usage" not in rules(store, now=counted_at + timedelta(minutes=1),
+                                                    alive=lambda pid: True)
+    store.set_meta(usage.COUNTED_KEY + "s", json.dumps({"at": counted_at.isoformat(), "version": "0.98.0",
+                                                       "transcript": str(transcript)}))
+    assert "transcript-ahead-of-usage" not in rules(store, now=datetime.now(UTC), alive=lambda pid: True)

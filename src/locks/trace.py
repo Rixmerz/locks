@@ -14,11 +14,13 @@ This module runs on every tool call while on: standard library only, nothing of 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import time
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -149,23 +151,67 @@ def action(env: Mapping[str, str], session_id: str | None, kind: str, **data: An
         pass
 
 
-def keep_transcript(event: Mapping[str, Any], env: Mapping[str, str]) -> Path | None:
-    """A copy of the session's transcript beside its trace (tokens per message are there)."""
+#: A hook's time is short (the Stop hook's timeout is 5 s): the copy of a transcript takes at most this
+#: long per hook and goes on from where it stopped at the next one.
+COPY_BUDGET_S = 1.5
+#: The copy's bookkeeping, beside it: how much of the source it holds, and which file that was.
+OFFSET_SUFFIX = ".offset"
+#: How much of the source's start identifies it (a transcript that was replaced starts differently).
+HEAD_BYTES = 256
+
+
+def _identity(source: Path) -> str:
+    with source.open("rb") as fh:
+        return hashlib.sha256(fh.read(HEAD_BYTES)).hexdigest()
+
+
+def keep_transcript(event: Mapping[str, Any], env: Mapping[str, str], *, budget_s: float | None = None,
+                    clock: Callable[[], float] = time.monotonic) -> Path | None:
+    """A copy of the session's transcript beside its trace (tokens per message are there), made
+    incrementally: only the complete lines the copy does not hold yet are appended, the offset kept
+    beside it (`OFFSET_SUFFIX`). A transcript that shrank or was replaced is copied again from the
+    start. With a `budget_s` (the hooks') it never runs past it: what is left waits for the next hook."""
     source = event.get("transcript_path")
     sid = str(event.get("session_id") or "")
     if not source or not sid or not Path(str(source)).is_file():
         return None
+    deadline = clock() + budget_s if budget_s is not None else None
+    src = Path(str(source))
     target = path(env, sid).with_suffix(".transcript.jsonl")
+    marker = target.with_name(target.name.removesuffix(".jsonl") + OFFSET_SUFFIX)
     target.parent.mkdir(parents=True, exist_ok=True)
+    head = _identity(src)
+    offset = 0
+    try:
+        kept = json.loads(marker.read_text(encoding="utf-8"))
+        if (kept["head"] == head and 0 < kept["source"] <= src.stat().st_size
+                and kept["target"] == target.stat().st_size):
+            offset = int(kept["source"])
+    except (OSError, ValueError, KeyError, TypeError):
+        offset = 0  # no usable record: the copy is made again from the start
     # Created owner-only, and every line is masked on its way: the copy is the one place a raw
     # transcript (with whatever a tool printed) would otherwise sit in the open.
-    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="") as out, \
-            open(str(source), encoding="utf-8", errors="replace", newline="") as lines:
-        for line in lines:
-            out.write(_masked_line(line))
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | (os.O_APPEND if offset else os.O_TRUNC), 0o600)
+    with os.fdopen(fd, "ab") as out, src.open("rb") as lines:
+        lines.seek(offset)
+        for raw in lines:
+            if not raw.endswith(b"\n"):
+                break  # a line still being written: the next hook copies it whole
+            out.write(_masked_line(raw.decode("utf-8", errors="replace")).encode("utf-8"))
+            offset += len(raw)
+            if deadline is not None and clock() >= deadline:
+                break
+        out.flush()
+        size = out.tell()
     target.chmod(0o600)
+    _write_marker(marker, {"head": head, "source": offset, "target": size})
     return target
+
+
+def _write_marker(marker: Path, record: Mapping[str, Any]) -> None:
+    fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as out:
+        json.dump(record, out)
 
 
 def _masked_line(line: str) -> str:
@@ -331,7 +377,7 @@ def worker_calls(env: Mapping[str, str], session_id: str | None, task_id: int, *
 
 
 def _session_of(name: str) -> str | None:
-    for suffix in (".transcript.jsonl", ".jsonl"):
+    for suffix in (".transcript.jsonl", ".transcript.offset", ".jsonl"):
         if name.endswith(suffix):
             return name[: -len(suffix)]
     return None

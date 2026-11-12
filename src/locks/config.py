@@ -119,6 +119,10 @@ DEFAULTS: dict[str, Any] = {
     # what it found. Tried in turns against its absence per repository and kept where the first tries
     # of the parts after it passed no less often (`locks.critique`).
     "critique": True,
+    # Whether livespec's dossier in a brief helps is tried per repository and nature of work: tasks draw
+    # the dossier or none in turns, and it stays only where its arm passed first tries no less often and
+    # no slower (`locks.dossier`). Off: the dossier is always briefed.
+    "dossier_trial": True,
     # A habit newly found in a project is reviewed by a read-only worker (its tool here, a
     # command scoped to the edited file, timed): its ending lists the install line for the
     # orchestrator to put to the person. Installing stays theirs (`locks habits install`).

@@ -277,8 +277,14 @@ def task_detail(store: Store, task_id: int) -> dict[str, Any] | None:
     finished = store.final_event(task_id)
     children = store.children(task_id)
     turns = usage.cost_by(store, "task_id", [task_id, *(c["id"] for c in children)])
+    spent = usage.so_far(store, task)
     return {
-        "task": {**_brief(task), **usage.so_far(store, task), "body": task["body"],
+        # The release that ran it, what its workers cost and how each attempt went, at the top for a reader
+        # (`locks show N --json`) that wants them without opening the task and its attempts.
+        "version": store.version_of(task_id), "cost_usd": spent["cost_usd"],
+        "ran": [{"seq": a["seq"], "cell": a["cell"], "cost_usd": a["cost_usd"], "passed": bool(a["passed"])}
+                for a in attempts],
+        "task": {**_brief(task), **spent, "body": task["body"],
                  "options": json.loads(task.get("options") or "{}"),
                  "class_source": task["class_source"], "class_reason": task["class_reason"],
                  # What the session's own turns on it cost, its subagents' included; cost_usd is workers'.

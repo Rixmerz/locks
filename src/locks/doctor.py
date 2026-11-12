@@ -74,6 +74,7 @@ FIXED_IN = {
     "tools-logged-off": "0.89.0",
     "problem-opened-by-a-race": "0.90.0",
     "clean-review-read-nothing": "0.91.0",
+    "transcript-ahead-of-usage": "0.99.0",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -924,6 +925,34 @@ def clean_reviews_read_nothing(store: Store, *, since: str | None, **_) -> Itera
         yield _history("clean-review-read-nothing", sorted(before), None)
 
 
+def transcripts_ahead_of_usage(store: Store, *, now: datetime, since: str | None, **_) -> Iterable[Finding]:
+    """A session whose transcript grew past what its usage ingested by `usage.BEHIND_BYTES` or more,
+    with the last count `usage.STALE_MINUTES` old: its Stop hook did not do its work (the trace's
+    transcript copy once outlasted the hook's timeout and killed it before the cost, the scribe and the
+    endings). Read from the count `usage.mark_counted` keeps; a count by an older release is history."""
+    from locks import usage
+
+    for key in sorted(store.metas(usage.COUNTED_KEY)):
+        counted = usage.counted(store, key[len(usage.COUNTED_KEY):])
+        at = _ts(counted["at"]) if counted else None
+        if counted is None or at is None or (since and at < _ts(since)):
+            continue
+        if _fixed("transcript-ahead-of-usage", counted.get("version")):
+            continue
+        transcript = Path(str(counted.get("transcript") or ""))
+        try:
+            size, modified = transcript.stat().st_size, datetime.fromtimestamp(transcript.stat().st_mtime, UTC)
+        except OSError:
+            continue
+        behind = size - store.transcript_offset(str(transcript))
+        if behind >= usage.BEHIND_BYTES and now - at >= timedelta(minutes=usage.STALE_MINUTES) and modified > at:
+            yield Finding("transcript-ahead-of-usage", SUSPECT,
+                          f"session {key[len(usage.COUNTED_KEY):]}'s transcript is {behind // 1024} KiB past what its "
+                          f"usage counted ({usage.STALE_MINUTES}+ minutes since the last count): its Stop hook is "
+                          "not finishing, so its cost, the scribe and the endings are behind",
+                          "check `hook-errors.log` and the trace's copy time; the next Stop that finishes counts it")
+
+
 RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     lanes_paused_on_ended, running_with_no_process, queued_with_no_dispatcher, held_behind_gone, wait_judged_on_gone,
     resumes_that_never_ran,
@@ -933,6 +962,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
     habit_reviews_unapplied, tools_logged_off, problems_opened_by_a_race, clean_reviews_read_nothing,
+    transcripts_ahead_of_usage,
 )
 
 

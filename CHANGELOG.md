@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.102.1] - 2026-11-12
+
+### Fixed
+- An independent check run a second time for reading nothing, whose second run repeated the first's call within
+  the same second, had that call taken as the first run's: its second unread answer was read as not logged and
+  the verdict card never said the check read nothing. The first run's calls are now taken away one for one.
+
 ## [0.102.0] - 2026-11-12
 
 ### Changed

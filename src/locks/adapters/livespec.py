@@ -33,6 +33,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -44,9 +45,10 @@ import tempfile
 import threading
 import time
 import tomllib
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -1171,22 +1173,49 @@ def _matching_symbols(conn: sqlite3.Connection, project: int, text: str) -> tupl
     return picked[:MAP_SYMBOLS], named_ids
 
 
+# The indexer resolves a call on an object of unknown type (`rule.apply_line(...)`) by bare name: one `calls`
+# edge from the call site to every method of that name, each at weight FANOUT_WEIGHT or less (0.5, 0.6 with an
+# untyped receiver). The call site is one call, stored once per same-named method, so each method on its own
+# would count it as a full caller. A caller's edge into a group of k same-named methods is therefore worth 1/k
+# of a caller to each of them; a call resolved to one method (a wrapper of a same-named method, a typed
+# receiver) is worth a whole one. `callers` is the sum, rounded up: 21 tests and a checkout that each reach 21
+# overrides by name are one caller of each, not twenty-one.
+FANOUT_WEIGHT = 0.6
+
+
+def _callers(conn: sqlite3.Connection, symbol_id: int) -> list[sqlite3.Row]:
+    """The distinct symbols that call this one, once each, with `fan`: how many same-named methods that caller's
+    name-resolved edges reach (1 for a call the index resolved to this one alone). Tests are in it, by path."""
+    return conn.execute(
+        "SELECT s.id AS id, s.qualified_name AS name, f.path AS path, s.start_line AS line, "
+        "CASE WHEN MAX(e.weight) <= :w THEN (SELECT COUNT(DISTINCT e2.dst_symbol_id) FROM symbol_edge e2 "
+        "JOIN symbol d2 ON d2.id = e2.dst_symbol_id WHERE e2.src_symbol_id = s.id AND e2.edge_type = 'calls' "
+        "AND e2.weight <= :w AND d2.name = d.name AND d2.kind = d.kind) ELSE 1 END AS fan "
+        "FROM symbol_edge e JOIN symbol s ON s.id = e.src_symbol_id JOIN file f ON f.id = s.file_id "
+        "JOIN symbol d ON d.id = e.dst_symbol_id "
+        "WHERE e.dst_symbol_id = :id AND e.edge_type = 'calls' "
+        "GROUP BY s.id ORDER BY f.path, s.start_line, s.id", {"id": symbol_id, "w": FANOUT_WEIGHT}).fetchall()
+
+
+def _count(callers: Iterable[Mapping[str, Any]]) -> int:
+    """The number of callers `brief`, `_describe`, `reached` and the dossier all state: each caller's share
+    (1/fan) added up, rounded up, so a caller that exists is never counted as none."""
+    return math.ceil(sum(Fraction(1, max(1, int(c["fan"]))) for c in callers))
+
+
 def _describe(conn: sqlite3.Connection, symbol_id: int) -> dict[str, Any]:
     row = conn.execute(
         "SELECT s.qualified_name, s.kind, s.start_line, f.path FROM symbol s JOIN file f ON f.id = s.file_id "
         "WHERE s.id = ?", (symbol_id,)).fetchone()
-    callers = conn.execute(
-        "SELECT DISTINCT f.path, s.id FROM symbol_edge e JOIN symbol s ON s.id = e.src_symbol_id "
-        "JOIN file f ON f.id = s.file_id WHERE e.dst_symbol_id = ? AND e.edge_type = 'calls'",
-        (symbol_id,)).fetchall()
+    callers = _callers(conn, symbol_id)
     specs = conn.execute(
         "SELECT sp.spec_id, sp.title, sp.priority FROM spec_symbol ss JOIN spec sp ON sp.id = ss.spec_id "
         "WHERE ss.symbol_id = ? AND ss.relation = 'implements' ORDER BY sp.spec_id", (symbol_id,)).fetchall()
     tests = sorted({r["path"] for r in callers if is_test_path(r["path"])})
     return {
         "qname": row["qualified_name"], "kind": row["kind"], "line": row["start_line"], "path": row["path"],
-        "callers": len({r["id"] for r in callers}),
-        "caller_ids": sorted({r["id"] for r in callers}),
+        "callers": _count(callers),
+        "caller_ids": sorted(r["id"] for r in callers),
         "specs": [dict(s) for s in specs],
         "tests": tests,
     }
@@ -1209,7 +1238,7 @@ def _detail(conn: sqlite3.Connection, symbol_id: int) -> dict[str, Any] | None:
            "JOIN symbol o ON o.id = e.{other}_symbol_id JOIN file f ON f.id = o.file_id " \
            "WHERE e.{mine}_symbol_id = ? AND e.edge_type = 'calls' ORDER BY f.path, o.start_line"
     calls = conn.execute(near.format(other="dst", mine="src"), (symbol_id,)).fetchall()
-    callers = conn.execute(near.format(other="src", mine="dst"), (symbol_id,)).fetchall()
+    callers = _callers(conn, symbol_id)
     specs = conn.execute(
         "SELECT sp.spec_id, sp.title, sp.priority FROM spec_symbol ss JOIN spec sp ON sp.id = ss.spec_id "
         "WHERE ss.symbol_id = ? AND ss.relation = 'implements' ORDER BY sp.spec_id", (symbol_id,)).fetchall()
@@ -1235,7 +1264,7 @@ def _symbol_item(d: Mapping[str, Any]) -> str:
     if d["calls"]:
         parts.append("calls " + _places(d["calls"]))
     if d["callers"]:
-        parts.append(f"{len(d['callers'])} caller(s): " + _places(d["callers"]))
+        parts.append(f"{_count(d['callers'])} caller(s): " + _places(d["callers"]))
     if d["tests"]:
         parts.append("tests: " + ", ".join(d["tests"][:DOSSIER_LINKS]))
     if d["specs"]:

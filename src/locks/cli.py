@@ -2498,15 +2498,26 @@ def cmd_habits(args: argparse.Namespace) -> int:
             habits.load_events(store)
             here, elsewhere = habits.for_repo(store.tool_events(days=args.days), key,
                                               Path(args.repo or os.getcwd()).resolve())
+        # What a hook here already runs is no candidate any more: it is said first, with what it did.
+        top = Path(args.repo or os.getcwd()).resolve()
+        top = Path(repo.toplevel(top) or top)
+        installed = habits.installed_in(store, None if key is None else top)
+        # Across every repository a habit installed in one is still a candidate for the others.
+        hooked = [] if key is None else [h["steps"] for h in installed]
+        here = [c for c in here if not any(habits.same_tool(c.steps, steps) for steps in hooked)]
         if args.json:
-            print(json.dumps({"repo": key, "here": [c.data() for c in here[: args.limit]],
+            print(json.dumps({"repo": key, "installed": installed, "here": [c.data() for c in here[: args.limit]],
                               "elsewhere": [c.data() for c in elsewhere[: args.limit]]}))
             return 0
         if key is None:
             print("every repository:")
         else:
             print(f"in {key}:")
-        if not here:
+        for h in installed:
+            print(f"  installed #{h['id']}  {' → '.join(h['steps'])}  `{h['command']}`: {habits.record_line(h)}")
+        if not here and installed:
+            print("  no other repeated sequence passes the gates here yet")
+        elif not here:
             print("  no repeated sequence passes the gates here yet")
         for c in here[: args.limit]:
             print(f"  {c.line()}")

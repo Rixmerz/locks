@@ -356,8 +356,10 @@ def automatable(steps: Sequence[str]) -> bool:
         return False
     last = steps[-1]
     program = last.removeprefix("bash:")
+    # A wrapper recorded as the program (`bash:timeout`, by a release that did not read through it)
+    # names no check: what it ran was never kept.
     return (last.startswith("bash:") and program not in _LOOKING and program not in _SCRIPTS
-            and checks_its_edit(steps))
+            and program not in sig._WRAPPERS and program not in sig._TIMED_WRAPPERS and checks_its_edit(steps))
 
 
 #: The file types a program checks, by its first word. A habit whose command does not check
@@ -442,6 +444,38 @@ def same_tool(one: Sequence[str], other: Sequence[str]) -> bool:
         return False
     a, b = one[-1], other[-1]
     return a == b or a.startswith(b + "-") or b.startswith(a + "-")
+
+
+def installed_in(store: Store, repo_dir: Path | None) -> list[dict[str, Any]]:
+    """The habits installed in a checkout (None: in every one), each with its steps read back, where
+    it is, and what it did: its runs, the ones whose check found something, and whether it turned
+    itself off."""
+    out = []
+    for h in store.habits():
+        where = Path(h["settings_path"]).parent.parent
+        if repo_dir is not None and where != repo_dir:
+            continue
+        steps = json.loads(h["steps"]) if isinstance(h["steps"], str) else list(h["steps"])
+        out.append({"id": h["id"], "candidate": h["candidate"], "steps": steps, "command": h["command"],
+                    "runs": h["runs"], "caught": h.get("caught") or 0, "failures": h["failures"],
+                    "disabled_at": h["disabled_at"], "repo": str(where)})
+    return out
+
+
+def record_line(habit: Mapping[str, Any]) -> str:
+    """What an installed habit did, in words: a check that never found anything in many runs is said so,
+    since every edit pays for it; said, never removed."""
+    runs, caught = int(habit["runs"] or 0), int(habit["caught"] or 0)
+    said = f"{runs} runs, {caught} found something"
+    if habit.get("disabled_at"):
+        return f"{said}; off since {habit['disabled_at']} after {habit['failures']} breaks"
+    if runs >= QUIET_RUNS and not caught:
+        return f"{said}: it has caught nothing yet (`locks habits uninstall {habit['id']}` removes it)"
+    return said
+
+
+#: Runs after which an installed habit that never found anything is said so.
+QUIET_RUNS = 50
 
 
 def _marks(store: Store, repo: str) -> dict[str, dict[str, Any]]:

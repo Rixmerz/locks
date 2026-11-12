@@ -16,9 +16,11 @@ only writers, and a GET is neither.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, time, timedelta, tzinfo
+from pathlib import Path
 from typing import Any
 
 from locks import __version__, standards
@@ -286,7 +288,69 @@ def report(store: Store, *, days: int = 30, repo: str | None = None, now: dateti
                         "under": len(under), "line": change_line(change, verdict, under, tz)})
     kept = [{**row, "measured": json.loads(row["measured"] or "{}")} for row in store.standards(repo=repo)]
     return {"days": days, "repo": repo, "generated_at": _stamp(now), "trends": trends(rows), "changes": changes,
+            "learned": learned(store, repo=repo, since=_stamp(since) if since else ""),
             "standards": [{**row, "line": _standard_line(row)} for row in kept]}
+
+
+#: A trial's reason that says it was decided: a verdict of its own arms, or the pooled one.
+_DECIDED = re.compile(r"\b(?:won|lost) its trial\b")
+#: The reason a resume's brief keeps beside its arm: it says nothing of where the trial stands.
+_KEPT_ARM = "the arm this task's first brief drew"
+
+
+def learned(store: Store, *, repo: str | None = None, since: str = "") -> dict[str, list[dict[str, Any]]]:
+    """What the record decided beyond the standards, read and never written: where each trial of a
+    repository stands (the last reason a brief there kept beside its arm), a role's lessons proposed,
+    adopted, dropped or reverted since `since`, the notes the trial moved since then with how many
+    still wait, and the habits installed with what they caught. Every line is a record locks already
+    kept; nothing here is computed again, so it says what the briefs were told."""
+    trials: dict[tuple[str, str], dict[str, Any]] = {}
+    for event in store.session_events(None, ["briefed"], repo=repo):
+        for key, why in event["data"].items():
+            name = key.removesuffix("_why")
+            arm = event["data"].get(f"{name}_arm")
+            if name == key or not why or not arm or why == _KEPT_ARM:
+                continue
+            trials[(event["repo"] or "", name)] = {
+                "repo": event["repo"], "trial": name, "arm": arm, "why": why, "at": event["ts"],
+                "task": event["task_id"], "decided": bool(_DECIDED.search(str(why)))}
+    roles = [{"repo": r["repo"], "role": r["role"], "record": r["record"], "reason": r["reason"], "at": r["at"],
+              "lessons": len(r["lessons"])} for r in store.role_revisions(repo=repo, since=since)]
+    notes: list[dict[str, Any]] = []
+    for project in store.note_projects():
+        if repo is not None and project != repo:
+            continue
+        found = store.notes(project, limit=100_000)
+        moved = [n for n in found if n["updated_at"] >= since and n["state"] in ("current", "dropped")
+                 and str(n.get("state_reason") or "").startswith(("proven", "disproven", "unproven"))]
+        waiting = sum(1 for n in found if n["state"] == "candidate")
+        if moved or waiting:
+            notes.append({"repo": project, "waiting": waiting,
+                          "adopted": sum(1 for n in moved if n["state"] == "current"),
+                          "dropped": [{"id": n["id"], "title": n["title"], "reason": n["state_reason"]}
+                                      for n in moved if n["state"] == "dropped"]})
+    habits = [{"id": h["id"], "steps": json.loads(h["steps"]), "command": h["command"], "runs": h["runs"],
+               "caught": h.get("caught") or 0, "off": bool(h["disabled_at"]),
+               "where": str(Path(h["settings_path"]).parent.parent)} for h in store.habits()]
+    return {"trials": sorted(trials.values(), key=lambda t: (t["repo"] or "", t["trial"])), "roles": roles,
+            "notes": notes, "habits": habits}
+
+
+def learned_lines(found: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[str]:
+    lines = []
+    for t in found["trials"]:
+        state = "decided" if t["decided"] else "still trying"
+        lines.append(f"{t['trial']} in {_name(t['repo'])}: {state}, last arm {t['arm']} (#{t['task']}): {t['why']}")
+    for r in found["roles"]:
+        lines.append(f"role {r['role']} in {_name(r['repo'])}: {r['record']} {r['lessons']} lessons: {r['reason']}")
+    for n in found["notes"]:
+        lines.append(f"notes in {_name(n['repo'])}: {n['adopted']} adopted and {len(n['dropped'])} dropped by "
+                     f"their trial in this period, {n['waiting']} still candidates")
+        lines += [f"  dropped #{d['id']} {d['title']}: {d['reason']}" for d in n["dropped"]]
+    for h in found["habits"]:
+        lines.append(f"habit #{h['id']} {' → '.join(h['steps'])} in {h['where']}: {h['runs']} runs, "
+                     f"{h['caught']} found something" + (", turned itself off" if h["off"] else ""))
+    return lines
 
 
 def text(found: Mapping[str, Any]) -> str:
@@ -306,6 +370,9 @@ def text(found: Mapping[str, Any]) -> str:
         lines += [f"  #{c['id']} {c['line']}" for c in found["changes"]]
     else:
         lines.append("No standard changed in this period.")
+    said = learned_lines(found.get("learned") or {"trials": [], "roles": [], "notes": [], "habits": []})
+    if said:
+        lines += ["", "Decided by the record, beyond the standards:"] + [f"  {line}" for line in said]
     if found["standards"]:
         lines += ["", "Standards now:"] + [f"  {s['line']}" for s in found["standards"]]
     return "\n".join(lines)

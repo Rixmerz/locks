@@ -234,6 +234,25 @@ def test_a_claimed_pass_the_check_rejects_is_a_failure(git_repo, store):
     assert "checked by running: test -f proof.txt" in prompts[0]
 
 
+def test_a_committed_build_folder_the_check_rebuilt_is_left_as_at_the_base(git_repo, store):
+    (git_repo / "_fresh").mkdir()
+    (git_repo / "_fresh" / "app.js").write_text("build 1\n")
+    git(git_repo, "add", "-A")
+    git(git_repo, "commit", "-q", "-m", "a committed build")
+    report = run("add the route", git_repo, store, Options(verify="date +%N > _fresh/app.js && date > _fresh/c9.js"),
+                 registry={}, launcher=Script(ok(), write="src.py"), classifier=kind("implement"))
+    assert report.status == "done" and report.rebuilt == {"_fresh": 2}
+    assert report.changed == ["src.py"] and report.check_output == []
+    assert "build output left as at the base, not committed: _fresh/ (2 files)" in report.text()
+    assert store.last_event(report.task_id, "built_restored")["data"]["folders"] == {"_fresh": 2}
+    assert store.last_event(report.task_id, "finished")["data"]["rebuilt"] == {"_fresh": 2}
+    assert git(git_repo, "diff", "--name-only", "HEAD", report.branch).split() == ["src.py"]
+    # a task that names the folder keeps what its check built
+    named = run("rebuild _fresh/ for the deploy", git_repo, store, Options(verify="date +%N > _fresh/app.js"),
+                registry={}, launcher=Script(ok(), write="other.py"), classifier=kind("implement"))
+    assert named.rebuilt == {} and named.check_output == ["_fresh/app.js"]
+
+
 def test_files_the_check_itself_writes_are_said_and_marked_on_the_commit(git_repo, store):
     script = Script(ok(), write="src.py")
     report = run("build it", git_repo, store, Options(verify="mkdir -p out && date +%N > out/bundle.js"),

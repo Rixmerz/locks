@@ -349,6 +349,9 @@ class Report:
     changed: list[str] = field(default_factory=list)
     #: Files locks' own check wrote in the worktree (`isolate.rewritten`): committed as its output, and said.
     check_output: list[str] = field(default_factory=list)
+    #: Committed build folders the check rebuilt, put back as at the base (`isolate.restore_built`): by
+    #: folder, the files that differed. The branch keeps the source alone; whoever merges rebuilds.
+    rebuilt: dict[str, int] = field(default_factory=dict)
     #: Whether it worked in a worktree; outside one, its changes are in the checkout.
     isolated: bool = False
     #: The checkouts, by name from the folder the run started in, that a run with no worktree changed in
@@ -442,6 +445,11 @@ class Report:
                 wrote = ", ".join(self.check_output[:8]) + (f" and {more} more" if more > 0 else "")
                 lines.append(f"written by the check itself ({len(self.check_output)}, committed as its output; "
                              f"a check that rewrites tracked files may give other files in your checkout): {wrote}")
+            if self.rebuilt:
+                folders = ", ".join(f"{folder}/ ({n} file{'s' if n != 1 else ''})"
+                                    for folder, n in sorted(self.rebuilt.items()))
+                lines.append(f"build output left as at the base, not committed: {folders}; the check passed on "
+                             "the build it made, so rebuild after merging")
         at = f" (commit {self.commit[:12]})" if self.commit else ""
         if self.branch and self.status == "cancelled":
             lines.append(f"branch {self.branch} keeps what it did before the cancel, unverified: "
@@ -1902,9 +1910,20 @@ def run(
                 and _widen(store, task["id"], options.surfaces, result, workdir))
             if before is not None and workspace is not None and \
                     (wrote := isolate.rewritten(before, isolate.fingerprint(workspace.path))):
+                # A committed build folder the check rebuilt goes back to the base: the check passed on
+                # the build it made, and the branch keeps the source alone (`isolate.restore_built`).
+                rebuilt = isolate.restore_built(workspace, wrote, f"{task['body']} {' '.join(options.surfaces)}")
+                if rebuilt:
+                    report.rebuilt = {**report.rebuilt, **rebuilt}
+                    store.add_event(task["id"], "built_restored", command=options.verify, folders=rebuilt)
+                    inside = tuple(folder + "/" for folder in rebuilt)
+                    wrote = tuple(p for p in wrote if not p.startswith(inside))
+                    result = dataclasses.replace(result, changed_paths=tuple(
+                        p for p in result.changed_paths if not p.startswith(inside)))
                 report.check_output = sorted({*report.check_output, *wrote})
-                store.add_event(task["id"], "check_rewrote", command=options.verify, n=len(wrote),
-                                files=list(wrote[:200]))
+                if wrote:
+                    store.add_event(task["id"], "check_rewrote", command=options.verify, n=len(wrote),
+                                    files=list(wrote[:200]))
             check_s = time.monotonic() - mark
             strayed = surfaces_mod.outside(options.surfaces, result.changed_paths)
             if strayed:
@@ -2332,6 +2351,7 @@ def run(
                         tip=_tip(workspace, report.branch), base=workspace.base if workspace else None,
                         commit=report.commit, checked=report.checked, isolated=report.isolated,
                         **({"in_place": report.in_place} if report.in_place else {}), alerts=report.alerts,
+                        **({"rebuilt": report.rebuilt} if report.rebuilt else {}),
                         **({"specs": drifted.data()} if drifted else {}),
                         changed=report.changed[:CHANGED_KEPT], changed_n=len(report.changed),
                         stop=report.stop.data() if report.stop else None,

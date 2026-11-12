@@ -520,3 +520,46 @@ def test_a_staged_rename_names_both_paths_whole(tmp_path) -> None:  # type: igno
     state = launch._status(repo)
     assert state is not None
     assert sorted(p for p in state if not p.startswith("\0")) == ["src/pkg/auto.py", "src/pkg/line/auto.py"]
+
+
+def _built_repo(tmp_path):  # type: ignore[no-untyped-def]
+    import subprocess
+
+    repo = tmp_path / "site"
+    (repo / "_fresh").mkdir(parents=True)
+    (repo / "_fresh" / "app.js").write_text("build 1\n")
+    (repo / "routes.ts").write_text("export const a = 1;\n")
+    for argv in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"]):
+        subprocess.run(["git", *argv], cwd=repo, check=True)
+    base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    return repo, isolate.Workspace(repo_dir=repo, path=repo, branch="locks/task-1", base=base)
+
+
+def test_a_committed_build_folder_the_check_rebuilt_goes_back_to_the_base(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Every task whose check builds rewrote the committed `_fresh/`, and two such branches conflicted
+    there when merged. The source stays changed; the build is as at the base, its new files gone."""
+    repo, ws = _built_repo(tmp_path)
+    (repo / "routes.ts").write_text("export const a = 2;\n")
+    (repo / "_fresh" / "app.js").write_text("build 2\n")
+    (repo / "_fresh" / "chunk-9.js").write_text("new\n")
+
+    restored = isolate.restore_built(ws, ["_fresh/app.js", "_fresh/chunk-9.js"])
+
+    assert restored == {"_fresh": 2}
+    assert (repo / "_fresh" / "app.js").read_text() == "build 1\n"
+    assert not (repo / "_fresh" / "chunk-9.js").exists()
+    assert isolate.changed(ws) == ("routes.ts",)
+
+
+def test_a_build_folder_the_task_names_or_that_was_never_committed_is_kept(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    repo, ws = _built_repo(tmp_path)
+    (repo / "_fresh" / "app.js").write_text("build 2\n")
+    (repo / "dist").mkdir()
+    (repo / "dist" / "out.js").write_text("x\n")
+
+    assert isolate.restore_built(ws, ["_fresh/app.js"], "Rebuild and commit _fresh/ for the deploy") == {}
+    assert isolate.restore_built(ws, ["dist/out.js"]) == {}
+    assert (repo / "_fresh" / "app.js").read_text() == "build 2\n"
+    assert (repo / "dist" / "out.js").exists()
+    assert isolate.built_dirs(["src/build.py", "packages/web/dist/a.js"]) == ["packages/web/dist"]

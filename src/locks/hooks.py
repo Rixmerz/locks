@@ -969,6 +969,9 @@ def endings(store: Store, session_id: str, *, claim: str | None = None) -> tuple
         lines.append(f"#{t['id']} [{'work done, one decision open' if decided else t['status']}] {t['title']}")
         # A security problem the worker named goes first, on a line of its own, secrets masked.
         lines += [f"  ⚠ security: {alert}" for alert in data.get("alerts") or ()]
+        if data.get("rebuilt"):  # a committed build folder its check rebuilt: the branch holds the source alone
+            lines.append("  build output left as at the base, not committed ("
+                         + ", ".join(f"{folder}/" for folder in sorted(data["rebuilt"])) + "): rebuild after merging")
         # Said when it started, to a caller that may be gone by now: a queued step's above all.
         lines += [f"  it ran with a warning: {warning}" for warning in _warned(store, t["id"])]
         lines += _went_past(store, t)

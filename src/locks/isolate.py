@@ -743,6 +743,46 @@ def fingerprint(path: Path) -> dict[str, str] | None:
     return {p: blobs.get(p, "") for p in paths if not is_artifact(p)}
 
 
+#: Folders a build writes its output to. One that is tracked (a build committed so a static host can
+#: serve it) is rewritten by every task whose check builds, and two branches that both rebuilt it
+#: conflict there when merged, in files nobody wrote.
+BUILT_DIRS = frozenset({"_fresh", "dist", "build", ".next", ".nuxt", ".output", ".svelte-kit", "_site"})
+
+
+def built_dirs(wrote: Sequence[str], named: str = "") -> list[str]:
+    """The build folders among the files a check wrote: each path up to its first `BUILT_DIRS`
+    segment. One the task's own words or surfaces name (`named`) is its work and is left out."""
+    found: list[str] = []
+    for path in wrote:
+        parts = path.split("/")
+        at = next((i for i, part in enumerate(parts[:-1]) if part in BUILT_DIRS), None)
+        if at is None:
+            continue
+        folder = "/".join(parts[:at + 1])
+        if folder not in found and not re.search(rf"(?<![\w.-]){re.escape(parts[at])}(?![\w-])", named):
+            found.append(folder)
+    return sorted(found)
+
+
+def restore_built(ws: Workspace, wrote: Sequence[str], named: str = "") -> dict[str, int]:
+    """Put the committed build folders locks' own check rewrote back as they are at the task's base:
+    by folder, the files that differed. The check passed on the build it made; the branch keeps the
+    source alone, so it merges without a conflict in generated files, and whoever merges rebuilds.
+    Only a folder tracked at the base and written by the check, never one the task names."""
+    restored: dict[str, int] = {}
+    for folder in built_dirs(wrote, named):
+        if not _git(ws.path, "ls-tree", "-r", "--name-only", ws.base, "--", folder, check=False):
+            continue  # not committed at the base: the build's output is new here, and kept as any file
+        differed = sum(1 for path in changed(ws) if path.startswith(folder + "/"))
+        if not differed:
+            continue
+        _git(ws.path, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--", folder, check=False)
+        _git(ws.path, "clean", "-fdq", "--", folder, check=False)
+        _git(ws.path, "checkout", ws.base, "--", folder, check=False)
+        restored[folder] = differed
+    return restored
+
+
 def rewritten(before: Mapping[str, str] | None, after: Mapping[str, str] | None) -> tuple[str, ...]:
     """The files a check wrote: their content after it differs from before it."""
     if before is None or after is None:

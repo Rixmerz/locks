@@ -157,7 +157,7 @@ wheels = [
 
 [[package]]
 name = "locks"
-version = "0.99.1"
+version = "0.99.2"
 source = { editable = "." }
 
 [package.optional-dependencies]

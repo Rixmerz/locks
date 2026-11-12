@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.99.2] - 2026-11-12
+
+### Added
+- A committed build folder a task's check rebuilt is left as at the base. Where a repository commits its
+  build (`_fresh/`, `dist/`, `isolate.BUILT_DIRS`), every task whose check builds rewrote it, and two such
+  branches conflicted there when merged, in files nobody wrote. After the check, a folder tracked at the base
+  that the check wrote into goes back to the base (its new files removed): the check passed on the build it
+  made, the branch keeps the source alone, and the report and the ending say to rebuild after merging
+  (`built_restored`, `finished.rebuilt`). A folder the task's words or surfaces name is its work and is kept,
+  and so is one that was never committed.
+
 ### Fixed
 - A habits review's install is read from the text that quotes its command. The worker's evidence gave it bare
   and its report in backticks; the bare one was read first and the habit was skipped as "cut or not given in

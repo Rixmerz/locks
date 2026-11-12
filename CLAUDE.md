@@ -858,6 +858,11 @@ yields the default kind, not a guess.
   trailer. It is never a verdict, and the independent check is told which files
   they are (`verifier_brief`'s `generated`, the late check's too): a tracked
   coverage report the check rewrote was blocked as the worker's change in every round.
+- A committed build folder (`isolate.BUILT_DIRS`: `_fresh/`, `dist/`, …) that locks' own check wrote into is put
+  back as at the task's base after the check (`isolate.restore_built`, a `built_restored` event, `finished.rebuilt`):
+  the check passed on the build it made, the branch keeps the source alone, and the report and the ending say to
+  rebuild after merging. Only a folder tracked at the base and written by the check; one the task's words or
+  surfaces name is its work and is kept, and one never committed is kept as any file.
 - A repository's specs are kept alive, never written by locks (`locks.specs`): where `openspec/` exists, a
   writing worker is told a change of behaviour updates the spec it reaches in the same work, the plan says how
   far the specs are behind (said once a day), and an ending whose change wrote no spec, where they are

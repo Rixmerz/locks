@@ -957,3 +957,26 @@ def test_the_dossier_never_passes_its_limit_with_both_closing_lines(tmp_path, gi
         d = a.dossier("Fix charge_card and checkout in src/billing.py", git_repo, status,
                       paths=["src/billing.py", "src/api.py"], limit=limit)
         assert len(d.text) <= limit, limit
+
+
+def test_a_call_resolved_only_by_name_is_one_caller_in_the_brief_the_count_and_the_dossier(tmp_path, git_repo):
+    build(git_repo, rules=20)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    text = "Change apply_line in src/tally/rules.py"
+    with livespec_mod._connect(Path(status.data["db"])) as conn:
+        assert all(livespec_mod._describe(conn, 200 + i)["callers"] == 1 for i in range(21))
+        assert livespec_mod._describe(conn, 205)["caller_ids"] == [400]
+    b = a.brief(text, git_repo, status)
+    # five overrides matched (the name lookup's limit) plus the one call site that reaches them all
+    assert not any("callers" in r for r in b.reasons) and b.raise_rungs == 0
+    assert b.reached == 6
+    d = a.dossier(text, git_repo, status)
+    assert "1 caller(s): price (src/tally/checkout.py:5)" in d.text and "21 caller" not in d.text
+
+
+def test_widely_used_is_judged_on_distinct_calling_symbols(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    b = a.brief("Change parse_amount", git_repo, a.inspect(git_repo))
+    assert any("src.parse.parse_amount has 22 callers" in r for r in b.reasons) and b.raise_rungs == 1

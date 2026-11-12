@@ -222,3 +222,20 @@ def test_a_failed_or_refused_call_is_a_failed_call_in_the_log_and_the_trace(on: 
               for line in f.read_text().splitlines()]
     assert [e["ok"] for e in logged if e["session_id"] == "f"] == [0, 0]
     assert signature.entry({"tool_name": "Read", "tool_response": {}}, on)["ok"] == 1
+
+
+def test_a_transcript_replaced_by_one_that_starts_alike_is_copied_again(tmp_path, monkeypatch):
+    from locks import trace
+
+    env = {"LOCKS_HOME": str(tmp_path / "home"), "LOCKS_TRACE": "on"}
+    source = tmp_path / "t.jsonl"
+    head = '{"n": 0, "pad": "' + "x" * 300 + '"}\n'
+    source.write_text(head + '{"n": 1}\n', encoding="utf-8")
+    event = {"transcript_path": str(source), "session_id": "s1"}
+    copy = trace.keep_transcript(event, env)
+    assert copy.read_text(encoding="utf-8").count("\n") == 2
+    # another file, the same first bytes, a different body of at least the same length
+    source.write_text(head + '{"n": 2}\n{"n": 3}\n', encoding="utf-8")
+    copy = trace.keep_transcript(event, env)
+    text = copy.read_text(encoding="utf-8")
+    assert '"n": 1' not in text and '"n": 2' in text and '"n": 3' in text

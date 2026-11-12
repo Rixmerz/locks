@@ -236,7 +236,7 @@ def test_the_line_with_the_longest_keep_stays_under_the_bound(store: Store, git_
     turn(store, git_repo)
     asked = compaction.request(store, home(), session_id="s1", cwd=str(git_repo), keep="keep this " * 200,
                                transcript=Path("/nonexistent"))
-    assert len(compaction.line(999999, asked["instructions"])) <= 900 == compaction.INSTRUCTIONS_CHARS
+    assert len(compaction.line(999999, asked["instructions"])) <= 1050 == compaction.INSTRUCTIONS_CHARS
     assert asked["instructions"].endswith('…".') and compaction.HEAD in asked["instructions"]
 
 

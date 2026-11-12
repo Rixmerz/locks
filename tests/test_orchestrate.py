@@ -368,6 +368,7 @@ def _livespec(tmp_path, *, runner=None, popen=None):
 
 @pytest.mark.usefixtures("no_verifier")
 def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # this test reads the dossier: no arm may withhold it
     from .livespec_fixture import build
 
     build(git_repo)  # dated in the future, so never older than the last commit
@@ -455,6 +456,7 @@ class _Index:
 
 
 def test_a_task_waits_for_the_index_before_its_worker_starts(git_repo, store, tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # this test reads the dossier: no arm may withhold it
     monkeypatch.setenv("LOCKS_LIVESPEC_WAIT", "30")
     started = []
 

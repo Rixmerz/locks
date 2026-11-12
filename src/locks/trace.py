@@ -165,6 +165,14 @@ def _identity(source: Path) -> str:
         return hashlib.sha256(fh.read(HEAD_BYTES)).hexdigest()
 
 
+def _tail(source: Path, offset: int) -> str:
+    """The hash of the `HEAD_BYTES` before `offset`: a file that starts alike but was replaced
+    differs where the copy left off, and is copied again from the start."""
+    with source.open("rb") as fh:
+        fh.seek(max(0, offset - HEAD_BYTES))
+        return hashlib.sha256(fh.read(min(HEAD_BYTES, offset))).hexdigest()
+
+
 def keep_transcript(event: Mapping[str, Any], env: Mapping[str, str], *, budget_s: float | None = None,
                     clock: Callable[[], float] = time.monotonic) -> Path | None:
     """A copy of the session's transcript beside its trace (tokens per message are there), made
@@ -185,7 +193,8 @@ def keep_transcript(event: Mapping[str, Any], env: Mapping[str, str], *, budget_
     try:
         kept = json.loads(marker.read_text(encoding="utf-8"))
         if (kept["head"] == head and 0 < kept["source"] <= src.stat().st_size
-                and kept["target"] == target.stat().st_size):
+                and kept["target"] == target.stat().st_size
+                and kept.get("tail") == _tail(src, int(kept["source"]))):
             offset = int(kept["source"])
     except (OSError, ValueError, KeyError, TypeError):
         offset = 0  # no usable record: the copy is made again from the start
@@ -204,7 +213,7 @@ def keep_transcript(event: Mapping[str, Any], env: Mapping[str, str], *, budget_
         out.flush()
         size = out.tell()
     target.chmod(0o600)
-    _write_marker(marker, {"head": head, "source": offset, "target": size})
+    _write_marker(marker, {"head": head, "source": offset, "target": size, "tail": _tail(src, offset)})
     return target
 
 

@@ -4,6 +4,37 @@
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-11-12
+
+### Fixed
+- The Stop hook does its work again on a long session. With the trace on it copied the whole transcript
+  before it counted usage, ran the scribe and delivered endings; at 38 MB the copy took 7.6 to 9.5 s under
+  a 5 s timeout, so every Stop for a day was killed mid-copy: the session's own cost stayed at $430.04 in
+  every notice while its transcript said $540.67. Usage, the scribe and the endings run first; the copy is
+  last, incremental and bounded in time (PreCompact too). A stale count says when it was last counted, and
+  `locks doctor` names a transcript ahead of what usage ingested (`transcript-ahead-of-usage`).
+- A session's own turns are no longer listed as unfinished work at SessionStart, and a turn is closed
+  when a later one begins.
+- The automatic split: listed items that are all changes to one file or document are one task; pieces
+  identical in their own text are one task; a piece never gets a derived surface whose path is absent
+  from the repository. A request describing changes to one document had become six tasks, one with the
+  surface `word/**`.
+
+### Changed
+- The compaction digest leaves out a failed call the same command later passed, clips each failure and
+  gives the section a fifth of its budget (it had been 2,690 of 9,002 characters); the `/compact`
+  instruction names the newest requests by reference, under 1,050 characters. A dead end's `tried` and
+  `worked_instead` are clipped at 240 characters where they are shown.
+- livespec's dossier is on trial (`dossier_trial`, on by default): a repository's first briefs draw
+  `dossier` or `none` per nature of work, and it stays only where its arm passed first tries no less often
+  and no slower. Observed elsewhere it read 2 of 12 against 126 of 224, across releases and difficulty.
+
+### Added
+- `locks cancel --split N` cancels every piece of a split still queued or running; `locks dismiss N` on a
+  task already off the board succeeds and says so.
+- `locks show N --json` carries the release that ran the task, its cost, and each attempt's cell, cost
+  and outcome.
+
 ## [0.98.0] - 2026-11-12
 
 ### Changed

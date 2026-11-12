@@ -92,7 +92,7 @@ COOLDOWN_S = 30 * 60
 #: How long after a submitted `/compact` the hooks have to see it run.
 DETECT_S = 180
 #: The most the instructions take, marker included: the whole line fits a toast.
-INSTRUCTIONS_CHARS = 900
+INSTRUCTIONS_CHARS = 1050
 #: The most of one request the instructions quote (a decision), and how many of the newest requests
 #: the digest `locks.compact` puts back holds: those are named once, by reference, never repeated.
 REQUEST_CHARS = 240
@@ -107,7 +107,7 @@ MARKER_RE = re.compile(rf"\[(?:locks|{legacy.OLD})-compaction #(\d+)\]")  # an o
 NOTICE = "locks [compaction #{id}]: "
 NOTICE_RE = re.compile(rf"^(?:locks|{legacy.OLD}) \[compaction #\d+\]")  # legacy-name: a notice an old install sent
 #: The most of what the orchestrating session asks the summary to keep, and of its reason.
-KEEP_CHARS = 350
+KEEP_CHARS = 500
 WHY_CHARS = 200
 #: The most of what the session asks to go on with after the compaction (`then`).
 THEN_CHARS = 2000

@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-11-12
+
+### Added
+- `locks coverage`: which of locks' features this machine's records show ever ran, read only, no model. A table
+  of features by area (routing, checks, trials, workflows, memory, habits, evolution, session, neighbours), each
+  read from the events, fields and tables the code writes, every kind and every bundled workflow at zero too;
+  `--never` lists only what never ran, `--json` gives the report. On the machine it was written on 37 of 77 had
+  run after 140 tasks.
+- A workflow definition may name the paths a repository must hold before a run of it starts (`requires`), checked
+  with the inputs and by `--dry-run`. `tracer-slice` requires `docs/tracer`: run in a repository that keeps no
+  method, it spent a worker to be told so and stopped at its first step.
+- `bench/speed/matrix.py`: one real run of each bundled workflow the speed benches never start (`bugfix`,
+  `review-fix`, `dual-review`, `panel`, `design-review`, `drift`, `tracer-slice`), each ended with `locks doctor`.
+
+### Fixed
+- `bench/speed/flow.py` keeps a run's store (`LOCKS_BENCH_KEEP`) as a SQLite backup: a copy of the file alone
+  left out its write-ahead log and could not be read.
+
 ## [0.99.2] - 2026-11-12
 
 ### Added

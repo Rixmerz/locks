@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 from locks import coverage, forensics, matrix
@@ -117,14 +115,16 @@ def test_every_event_kind_the_table_names_is_written_in_the_source() -> None:
     assert not missing
 
 
-def test_cli_prints_groups_never_and_json_round_trips() -> None:
+def test_cli_prints_groups_never_and_json_round_trips(capsys) -> None:  # type: ignore[no-untyped-def]
+    from locks import cli
+
     store = Store(home() / "locks.db")
     store.add_event(_task(store), "check_flaky")
     store.close()
-    base = [sys.executable, "-m", "locks", "coverage"]
 
     def run(*args: str) -> str:
-        return subprocess.run([*base, *args], cwd=ROOT, text=True, capture_output=True, check=True).stdout
+        assert cli.main(["coverage", *args]) == 0
+        return capsys.readouterr().out
 
     text = run()
     assert "1 of" in text and "checks (1/" in text and "check-flaky" in text and "never:" in text
@@ -133,3 +133,35 @@ def test_cli_prints_groups_never_and_json_round_trips() -> None:
     info = json.loads(run("--json"))
     assert info["summary"]["used"] == 1 and _row(info, "check-flaky")["status"] == "used"
     assert json.loads(json.dumps(info)) == info
+
+
+def test_repo_and_days_narrow_every_way_a_feature_is_read() -> None:
+    """Tasks by kind and option, attempts by move, workflow runs and tables each keep their own filter."""
+    old = "2000-01-01T00:00:00+00:00"
+    move = next(f for f in coverage.FEATURES if f.how == "moves").source[0]
+    race = next(f for f in coverage.FEATURES if f.how == "moves").name
+    store = Store(home() / "locks.db")
+    conn = store._conn
+    for repo, stale in (("mine", False), ("other", True)):
+        task = _task(store, repo, kind="refactor", options=json.dumps({"part": {"id": "a"}}))
+        conn.execute("INSERT INTO attempts (task_id, seq, cell, max_turns, passed, summary, evidence, cost_usd, "
+                     "input_tokens, output_tokens, turns, duration_s, changed_paths, capabilities, move, created_at) "
+                     "VALUES (?, 1, 'sonnet/medium', 10, 1, '', '', 0, 0, 0, 1, 1, '[]', '[]', ?, datetime('now'))",
+                     (task, move))
+        conn.execute("INSERT INTO workflow_runs (name, scope, source, definition, inputs, options, repo, status, "
+                     "created_at, updated_at) VALUES ('drift', 'bundled', '', '{}', '{}', '{}', ?, 'done', "
+                     "datetime('now'), datetime('now'))", (repo,))
+        conn.execute("INSERT INTO calibrations (at, repo, kind, band, field, rule, evidence, version) "
+                     "VALUES (?, ?, 'bugfix', 1, 'start', 'rule', '{}', '1')",
+                     (old if stale else "2999-01-01T00:00:00+00:00", repo))  # append-only: dated as it is written
+        if stale:
+            conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (old, task))
+            conn.execute("UPDATE attempts SET created_at = ? WHERE task_id = ?", (old, task))
+            conn.execute("UPDATE workflow_runs SET created_at = ? WHERE repo = ?", (old, repo))
+    conn.commit()
+    names = ("kind:refactor", "parts", race, "workflow:drift", "calibration")
+    whole = _report(store)
+    recent = _report(Store(home() / "locks.db"), days=7)
+    mine = _report(Store(home() / "locks.db"), repo="mine")
+    for name in names:
+        assert (_row(whole, name)["runs"], _row(recent, name)["runs"], _row(mine, name)["runs"]) == (2, 1, 1), name

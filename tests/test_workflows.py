@@ -1755,3 +1755,20 @@ def test_the_bundled_design_review_has_four_lenses_and_a_refuter(git_repo, store
                      "--dry-run"]) == 0
     assert "nothing is queued" in capsys.readouterr().out
     assert store.list_runs() == []
+
+
+def test_a_run_whose_definition_requires_a_path_the_repository_lacks_starts_nothing(git_repo, store):
+    """tracer-slice in a repository with no docs/tracer/ spent a worker to hear the method was not there."""
+    with pytest.raises(workflows.WorkflowError, match=r"needs docs/tracer in this repository.*nothing was started"):
+        workflows.prepare(store, "tracer-slice", git_repo, {"slice": "add quote()"})
+    assert store.list_tasks() == []
+    (git_repo / "docs" / "tracer").mkdir(parents=True)
+    assert workflows.prepare(store, "tracer-slice", git_repo, {"slice": "add quote()"})["defn"]
+
+
+def test_requires_is_a_list_of_paths_inside_the_repository():
+    defn = {"name": "x", "inputs": ["goal"], "steps": [{"id": "a", "prompt": "do {goal}"}]}
+    assert workflows.normalize({**defn, "requires": ["docs/tracer/", "docs/tracer"]})["requires"] == ["docs/tracer"]
+    for wrong in (["/etc"], ["../up"], "docs", [3]):
+        with pytest.raises(workflows.WorkflowError, match="requires is a list of paths"):
+            workflows.normalize({**defn, "requires": wrong})

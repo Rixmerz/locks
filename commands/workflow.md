@@ -71,6 +71,9 @@ How to write the steps:
 
 - **Prompts:** write each one so a stranger could do it. `{goal}` and any
   other name listed under `inputs` is filled in at run time.
+- **What the repository must hold:** a top-level `requires` (a list of paths from the repository's
+  top, such as `["docs/tracer"]`) refuses a run, `--dry-run` included, while one of them is absent,
+  before any worker is spent.
 - **Order:** a step without `needs` waits on the step before it. `needs: []`
   makes a step a first step. Two steps that need the same step run side by
   side when the dispatcher finds them independent.

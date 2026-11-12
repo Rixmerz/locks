@@ -720,3 +720,23 @@ the work, which passed 67 tests, was undone twice. One run after the fix, same r
 | parallel-fresh, 0.99.1 | 529 s | $2.31 | 10 of 10 | 3 | 3 of 3 |
 
 One worker on the same request is still 67 to 75 s and $0.39 to $0.43 (AC): the plan alone took 219 s.
+
+## AE: every bundled workflow run once for real (`matrix.py`, 0.99.2)
+
+`locks coverage` showed two of nine bundled workflows had ever run on this machine. `matrix.py` ran the other
+seven once each on the plain build, each with what it reads planted (a bug in the order stage, a flawed
+`quote()`, a thin design document, documents that drifted from the code). One run each, so times are one sample.
+
+| workflow | ended | wall | cost | what happened |
+|---|---|---|---|---|
+| bugfix | done | 79 s | $0.19 | the planted line found and reverted; the review was clean, so refute, fix and recheck ran no worker |
+| review-fix | done | 253 s | $0.73 | 5 ledger rows; the fix took two attempts (more effort) |
+| dual-review | done | 195 s | $1.22 | review-b on opus/high was $0.63 of it |
+| panel | done | 148 s | $0.73 | four lenses side by side, fix and recheck |
+| design-review | done | 143 s | $0.68 | four readings and the refuter, no fix by design |
+| drift | done | 54 s | $0.02 | one Haiku step |
+| tracer-slice | stopped | 28 s | $0.07 | `spec_bug`: no `docs/tracer/` in the repository |
+
+`locks doctor` said nothing broken and nothing suspect after each. The one defect was `tracer-slice` spending a
+worker to learn its method was absent: its definition now requires `docs/tracer` and the run is refused first.
+

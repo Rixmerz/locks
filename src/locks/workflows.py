@@ -53,7 +53,7 @@ INPUT = re.compile(r"\{([a-z][a-z0-9_]{0,31})\}")
 #: An input's place in a step's `verify`, a shell command: `${name}` is the shell's own
 #: variable, never an input, and `{a,b}` or `{}` never match.
 CHECK_INPUT = re.compile(r"(?<!\$)\{([a-z][a-z0-9_]{0,31})\}")
-TOP_KEYS = frozenset({"name", "description", "inputs", "steps", "version"})
+TOP_KEYS = frozenset({"name", "description", "inputs", "steps", "version", "requires"})
 #: What a step may say. Nothing here widens what a worker may do: rules,
 #: approvals and capabilities are the person's flags on `run`, never a file's.
 STEP_KEYS = frozenset({"id", "title", "prompt", "kind", "needs", "verify", "start", "max_turns",
@@ -258,6 +258,17 @@ def normalize(defn: Mapping[str, Any], name: str | None = None) -> dict[str, Any
     data["version"] = version
     if not isinstance(data.get("description", ""), str):
         errors.append("description is text")
+    # Paths, from the repository's top, a run needs there before it starts (`prepare`): a workflow built on a
+    # method's files stopped at its first step, a worker spent, in a repository that kept none.
+    requires = data.get("requires", [])
+    if not isinstance(requires, list) or not all(
+            isinstance(r, str) and r.strip() and not r.startswith("/") and ".." not in r.split("/") for r in requires):
+        errors.append("requires is a list of paths inside the repository")
+        requires = []
+    if requires:
+        data["requires"] = list(dict.fromkeys(r.strip().rstrip("/") for r in requires))
+    else:
+        data.pop("requires", None)
     inputs = data.get("inputs", [])
     if not isinstance(inputs, list) or not all(isinstance(i, str) and INPUT.fullmatch("{" + i + "}") for i in inputs):
         errors.append("inputs is a list of names (lowercase, digits, '_')")
@@ -952,6 +963,11 @@ def fill_checks(defn: Mapping[str, Any], inputs: Mapping[str, str], verify: str 
     return out
 
 
+def _top(where: Path) -> Path:
+    """The top of the checkout `where` is in, else `where` itself: what a definition's `requires` is read from."""
+    return repo.toplevel(where) or where
+
+
 def prepare(store: Store, name: str, cwd: str | Path, inputs: Mapping[str, str] | None = None, *,
             scope: str | None = None) -> dict[str, Any]:
     """What a run is checked against before it starts, all at once: the inputs it
@@ -970,6 +986,10 @@ def prepare(store: Store, name: str, cwd: str | Path, inputs: Mapping[str, str] 
     extra = sorted(set(given) - set(defn["inputs"]))
     if extra:
         problems.append(f"{name} takes no input {', '.join(extra)}; it takes {defn['inputs'] or 'none'}")
+    absent = [r for r in defn.get("requires") or () if not (_top(where) / r).exists()]
+    if absent:
+        problems.append(f"{name} needs {', '.join(absent)} in this repository, and "
+                        f"{'it is' if len(absent) == 1 else 'they are'} not there: nothing was started")
     key = repo.key(where)
     # The workflows its sub-workflow steps run, read now and frozen with the run (`subflows`).
     flows: dict[str, dict[str, Any]] = {}

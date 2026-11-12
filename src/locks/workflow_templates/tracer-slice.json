@@ -4,6 +4,9 @@
   "inputs": [
     "slice"
   ],
+  "requires": [
+    "docs/tracer"
+  ],
   "steps": [
     {
       "id": "build",

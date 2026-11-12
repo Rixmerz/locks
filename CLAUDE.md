@@ -73,6 +73,8 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/racing.py` | whether racing a first try paid, per repository and kind: each race read from its attempts (rung, start, neither), the rung's wins and the time to pass against climbs, the judgement `race_cell` and `locks stats` read; no model |
 | `src/locks/cells.py` | where a lesson belongs: the area a path or a change is in, the role that met it, or everyone (`scope`); the text a failure is kept and matched by (a workflow step's goal, never its template); the cell's primer (how its workers got oriented) and its trial; no model |
 | `src/locks/cells_by_kind.py` | `locks cells`: per kind, the cell locks starts it on here and each cell's first tries, the cheapest proven one named; for the delegating session's own choices, never a rule; read only, no model |
+| `src/locks/coverage.py` | `locks coverage`: which features this machine's records show ever ran (`FEATURES`: the events, fields and tables that mean each one did, every kind and bundled workflow at zero too); read from a copy of the store, no model |
+| `bench/speed/matrix.py` | one real run of each bundled workflow the speed benches never start, each ended with `locks doctor` (real money: run on purpose) |
 | `src/locks/doctor.py` | `locks doctor`: states the store should never hold, each a bug that shipped turned into a query (broken: stuck now; suspect: over the last days); read only, no model; SessionStart names what is broken |
 | `bench/review/` | the review benchmark: real review chains (one review, two blind ones, two with different purposes, a classifier before a quality check) on a change with planted bugs, matched by `analyze.py`; what it measured is in its README |
 | `bench/speed/kinds.py` | whether Haiku does `refactor` and `test` work as right as their first rung: real workers on the memory bench's pricing engine, a refactor judged by its layout and prices kept, tests judged by mutants killed (real money: run on purpose) |
@@ -1715,6 +1717,9 @@ yields the default kind, not a guess.
   definition an active run uses (in any project) is held: a change becomes a
   pending revision that applies when the last such run ends or is cancelled,
   unless a person passes `--now`; removing it needs `--force`.
+- A definition may name paths its repository must hold (`requires`, from the checkout's top, never absolute or
+  upward): `workflows.prepare` refuses the run, `--dry-run` included, while one is absent. `tracer-slice` requires
+  `docs/tracer`. A feature that writes a new event kind gets its line in `coverage.FEATURES`.
 - A step's `verify` gets the run's inputs as its prompt does (never a brace
   after `$`); one left holding a `{name}` refuses the run before it starts,
   `--dry-run` included.

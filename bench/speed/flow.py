@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -206,7 +207,12 @@ def workflow(where: Path, request: str, arm: str) -> dict[str, Any]:
     if os.environ.get(KEEP):  # the run's store, kept to read why a step stopped
         kept = Path(os.environ[KEEP])
         kept.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(home / "locks.db", kept / f"{arm}-{int(time.time())}.db")
+        # A backup, never a copy of the file: what the store still holds in its write-ahead log comes too.
+        source, target = sqlite3.connect(home / "locks.db"), sqlite3.connect(kept / f"{arm}-{int(time.time())}.db")
+        with target:
+            source.backup(target)
+        source.close()
+        target.close()
     shutil.rmtree(home, ignore_errors=True)
     if branch and subprocess.run(["git", "rev-parse", "--verify", "-q", branch], cwd=where,
                                  capture_output=True).returncode == 0:

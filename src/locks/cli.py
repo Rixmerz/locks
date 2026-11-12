@@ -2921,6 +2921,31 @@ def cmd_forensics(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coverage(args: argparse.Namespace) -> int:
+    """`locks coverage`: which of locks' features this machine's records show ever ran."""
+    from locks import coverage
+
+    conn, _path = _store_copy(args)
+    try:
+        info = coverage.report(conn, days=args.days, repo=repo.key(Path(args.repo)) if args.repo else None)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps(info, ensure_ascii=False))
+        return 0
+    s = info["summary"]
+    print(f"{s['used']} of {s['total']} features ran" + (f" in the last {args.days} days" if args.days else ""))
+    for area, items in coverage.grouped(info, never_only=args.never).items():
+        a = s["areas"][area]
+        print(f"{area} ({a['used']}/{a['total']})")
+        for r in items:
+            if r["status"] == "used":
+                print(f"  {r['name']:<24} {r['runs']:>5} runs on {r['tasks']} tasks, last {r['last']}")
+            else:
+                print(f"  {r['name']:<24} never: {clip(r['line'], 90, one_line=True)}")
+    return 0
+
+
 def cmd_footprint(args: argparse.Namespace) -> int:
     """`locks footprint`: the median brief per kind and release, and the releases that grew it."""
     from locks import footprint
@@ -3382,6 +3407,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=12)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_forensics)
+
+    p = sub.add_parser("coverage", help="which of locks' features this machine's records show ever ran "
+                                        "(read from a copy of the store)")
+    p.add_argument("--db", help="a copy of the store to read; default: a fresh backup of the live one")
+    p.add_argument("--days", type=int)
+    p.add_argument("--repo", help="only this repository's records")
+    p.add_argument("--never", action="store_true", help="only the features that never ran")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_coverage)
 
     p = sub.add_parser("footprint", help="the median brief per kind and release, and the releases that grew it")
     p.add_argument("--db")

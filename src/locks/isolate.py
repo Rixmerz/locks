@@ -423,7 +423,24 @@ def dirty(top: Path) -> list[str]:
     """What a checkout holds that is not committed: changed, added, deleted or untracked
     (ignored files aside)."""
     status = _git(top, "status", "--porcelain", "-uall", "-z", check=False, strip=False)
-    return sorted({e[3:] for e in status.split("\0") if len(e) > 3 and e[2] == " " and not is_artifact(e[3:])})
+    return sorted({p for p in status_paths(status) if not is_artifact(p)})
+
+
+def status_paths(status: str) -> list[str]:
+    """The paths of a `git status --porcelain -z`: a rename or copy is `XY new\\0old`, its old name an
+    entry of its own with no status before it. Read as any entry, it lost its first three characters
+    and named a file that never existed (`src/a.py` read as `/a.py`); both names are paths it changed."""
+    paths: list[str] = []
+    old_name = False
+    for entry in status.split("\0"):
+        if old_name:
+            old_name = False
+            if entry:
+                paths.append(entry)
+        elif len(entry) > 3 and entry[2] == " ":
+            paths.append(entry[3:])
+            old_name = entry[0] in "RC" or entry[1] in "RC"
+    return paths
 
 
 def named_in(text: str, paths: Sequence[str]) -> list[str]:
@@ -628,7 +645,7 @@ def changed(ws: Workspace) -> tuple[str, ...]:
     # A status that never takes the index lock: a watcher's read must not fail the
     # worker's own `git add`, nor locks' commit at the end of the run.
     status = _git(ws.path, "--no-optional-locks", "status", "--porcelain", "-uall", "-z", strip=False)
-    paths = {e[3:] for e in status.split("\0") if len(e) > 3}
+    paths = set(status_paths(status))
     paths |= set(_git(ws.path, "diff", "--name-only", ws.base, "HEAD").splitlines())
     return tuple(sorted(p for p in paths if p and not _linked(ws, p) and not is_artifact(p)))
 

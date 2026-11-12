@@ -168,6 +168,9 @@ def drive(env: dict[str, str], where: Path, home: Path, run_id: int, deadline: f
         time.sleep(min(POLL_S, max(deadline - time.monotonic(), 0)))
 
 
+KEEP = "LOCKS_BENCH_KEEP"  # a folder: each workflow run's store is copied there before its home goes
+
+
 def workflow(where: Path, request: str, arm: str) -> dict[str, Any]:
     """A `locks workflow run` of the arm's workflow in the copy, driven to its end; the branch it kept is checked
     out so the hidden tests judge it. `error` instead of a hang when the run does not end in time."""
@@ -200,6 +203,10 @@ def workflow(where: Path, request: str, arm: str) -> dict[str, Any]:
         branch = branch_of(store, run_id)
     finally:
         store.close()
+    if os.environ.get(KEEP):  # the run's store, kept to read why a step stopped
+        kept = Path(os.environ[KEEP])
+        kept.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(home / "locks.db", kept / f"{arm}-{int(time.time())}.db")
     shutil.rmtree(home, ignore_errors=True)
     if branch and subprocess.run(["git", "rev-parse", "--verify", "-q", branch], cwd=where,
                                  capture_output=True).returncode == 0:

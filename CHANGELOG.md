@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.99.1] - 2026-11-12
+
+### Fixed
+- A worker that moved files with `git mv` no longer has its work undone as a wrong approach. `git status -z`
+  gives a staged rename as `R  new\0old`, the old name an entry of its own with no status before it; read as
+  any entry it lost three characters (`src/tally/rules/auto.py` as `/tally/rules/auto.py`), a path outside
+  every surface, so the attempt was undone, the next model did the same, and the task stopped as a `replan`.
+  It stopped the first part of `feature-parallel` on the harder bench in six runs of six; with the fix the
+  same run ends: 10 of 10 hidden tests, 529 s, $2.31. Both names are now read whole, in the changed files,
+  in what a checkout holds uncommitted and in a worktree's changes (`isolate.status_paths`).
+
+### Added
+- `bench/speed/flow.py` keeps each workflow run's store in the folder `LOCKS_BENCH_KEEP` names, so a step that
+  stopped can be read after the run.
+
 ## [0.99.0] - 2026-11-12
 
 ### Fixed

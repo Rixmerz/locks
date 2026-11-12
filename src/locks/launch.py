@@ -1479,9 +1479,15 @@ def _status(directory: Path) -> dict[str, str] | None:
     if proc.returncode != 0:
         return None
     state: dict[str, str] = {}
+    old_name = False
     for entry in proc.stdout.split("\0"):
-        if len(entry) > 3:
+        if old_name:  # `-z` gives a rename or copy as `XY new\0old`: the old name has no status before it
+            old_name = False
+            if entry:
+                state.setdefault(entry, "D ")
+        elif len(entry) > 3:
             state[entry[3:]] = entry[:2]
+            old_name = entry[0] in "RC" or entry[1] in "RC"
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(directory),
                           capture_output=True, text=True, check=False)
     state["\0HEAD"] = head.stdout.strip()

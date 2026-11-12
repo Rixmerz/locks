@@ -706,3 +706,17 @@ segment, two more runs planned on their first answer (224 s and 227 s, $0.89 and
 been 480 to 570 s and $4 to $5). Both then stopped at their first part: sonnet/high, then the next
 model, then "the approach was wrong", 186 s and 204 s, the other parts never started. Why that part
 fails is not established; `feature-parallel` on this build has yet to end clean.
+
+## AD: `feature-parallel` ends once a rename is read whole (`flow.py`, 0.99.1)
+
+The first part of `feature-parallel` on the harder variant stopped as "the approach was wrong" in six runs of
+six. Its store, kept with `LOCKS_BENCH_KEEP`, showed why: the part moved 30 rule files with `git mv`, and each
+old name of `git status -z` was read with three characters cut (`/tally/rules/auto.py`), outside its surfaces;
+the work, which passed 67 tests, was undone twice. One run after the fix, same request and hidden tests:
+
+| arm | wall | cost | hidden | parts | first tries passed |
+|---|---|---|---|---|---|
+| parallel-fresh, before | 414 s (stopped) | $1.89 | 2 of 10 | 2 | 0 of 1 |
+| parallel-fresh, 0.99.1 | 529 s | $2.31 | 10 of 10 | 3 | 3 of 3 |
+
+One worker on the same request is still 67 to 75 s and $0.39 to $0.43 (AC): the plan alone took 219 s.

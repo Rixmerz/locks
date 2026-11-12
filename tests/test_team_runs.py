@@ -24,7 +24,8 @@ def test_a_worker_is_told_its_role_and_carries_its_skills(git_repo, store):
                  classifier=kind("test"))
     spec = script.specs[0]
     assert spec.append_system_prompt.startswith("You work as the `tester` role")
-    assert "## Skill `engineering-baseline`" in spec.append_system_prompt
+    assert "## Skill `ponytail`" in spec.append_system_prompt
+    assert "## Skill `engineering-baseline`" not in spec.append_system_prompt  # writing roles no longer carry it
     assert "browser: open the page" in spec.append_system_prompt  # the role names it; its `when` does not
     assert set(spec.mcp_servers) == {"browser"} and "mcp__browser" in spec.allowed_tools
     assert f"Read(/{roles.bundled_skills_dir().resolve()}/**)" in spec.allowed_tools

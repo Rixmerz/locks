@@ -89,7 +89,7 @@ def test_a_run_is_ended_only_when_nothing_is_queued_or_running(store: Store):
 def test_a_run_that_does_not_end_in_time_is_an_error_not_a_hang(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(flow, "TIMEOUT_S", 0)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("no process runs past the deadline"))
-    assert "timed out" in flow.drive({}, tmp_path, tmp_path, 1, flow.time.monotonic())
+    assert "timed out" in flow.drive({}, tmp_path, tmp_path, 1, flow.time.monotonic())[0]
 
 
 def test_a_row_carries_arm_variant_version_and_the_hidden_score(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -99,3 +99,48 @@ def test_a_row_carries_arm_variant_version_and_the_hidden_score(monkeypatch: pyt
     row = flow.one("feature", "hard")
     assert row["arm"] == "feature" and row["variant"] == "hard" and row["version"] == flow.__version__
     assert (row["hidden"], row["of"], row["wall_s"], row["cost"], row["status"]) == (6, 10, 12.3, 1.5, "done")
+
+
+def test_a_step_in_parts_is_running_while_any_part_runs(store: Store):
+    run = make_run(store)
+    step(store, run, "build", status="running", part="a")
+    step(store, run, "build", status="done", part="b")
+    assert flow.ended(store, run) is None
+
+
+def test_a_step_in_parts_with_a_stopped_part_and_none_running_is_stopped(store: Store):
+    run = make_run(store)
+    step(store, run, "build", status="blocked", part="a")
+    step(store, run, "build", status="done", part="b")
+    assert flow.ended(store, run) == "stopped"
+
+
+def test_a_step_keeps_why_it_stopped_its_moves_and_a_plans_failures(store: Store):
+    run = make_run(store)
+    task = step(store, run, "plan", status="blocked", kind="plan", tries=2)
+    store.add_event(task, "moved", move="more_effort")
+    store.add_event(task, "attempt_finished", seq=1, failure="inconclusive")
+    store.add_event(task, "finished", status="blocked", stop={"cause": "parts", "reason": "x" * 20})
+    got = flow.row_of(store, run)["steps"][0]
+    assert got["stop_cause"] == "parts" and got["stop_reason"] == "x" * 20
+    assert got["moves"] == 1 and got["move_names"] == ["more_effort"]
+    assert got["failures"] == ["inconclusive"]
+
+
+def test_drive_stops_on_a_paused_lane_and_sleeps_between_polls(store: Store, tmp_path, monkeypatch):
+    run = make_run(store)
+    step(store, run, "build", status="queued")
+    calls = {"work": 0, "sleep": 0}
+    monkeypatch.setattr(flow.subprocess, "run", lambda *a, **k: calls.__setitem__("work", calls["work"] + 1))
+    monkeypatch.setattr(flow.time, "sleep", lambda s: calls.__setitem__("sleep", calls["sleep"] + 1))
+    monkeypatch.setattr(flow, "Store", lambda path: store)
+    monkeypatch.setattr(store, "close", lambda: None)
+    paused = [False]
+    monkeypatch.setattr(store, "lanes", lambda: [{"paused": paused[0]}])
+    ticks = iter(range(100))
+    monkeypatch.setattr(flow.time, "monotonic", lambda: next(ticks) * 1.0)
+    got = flow.drive({}, tmp_path, tmp_path, run, 6.5)
+    assert got[0] and calls["sleep"] == calls["work"] > 1  # not paused: it slept every poll, then timed out
+    paused[0] = True
+    calls.update(work=0, sleep=0)
+    assert flow.drive({}, tmp_path, tmp_path, run, 1000) == (None, "lane_paused") and calls["work"] == 1

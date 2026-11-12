@@ -40,8 +40,9 @@ sys.path.insert(0, str(HERE))
 import build  # noqa: E402
 import versus  # noqa: E402
 
-from locks import __version__, trunks  # noqa: E402
+from locks import __version__, trunks, workflows  # noqa: E402
 from locks.store import Store  # noqa: E402
+from locks.text import clip  # noqa: E402
 
 OUT = HERE / "results-flow.jsonl"
 ARMS = ("single", "feature", "parallel-fork", "parallel-fresh")
@@ -83,7 +84,8 @@ def ended(store: Store, run_id: int) -> str | None:
         return "missing"
     if run["status"] in ("done", "cancelled"):
         return run["status"]
-    latest = {t["workflow_step"]: t for t in store.run_tasks(run_id)}
+    # Each step's newest try, a step built in parts as its parts together, as the engine reads a run.
+    latest = workflows._latest(store, run_id)
     if any(t["status"] in ("queued", "running") for t in latest.values()):
         return None
     return "stopped"
@@ -98,13 +100,21 @@ def row_of(store: Store, run_id: int) -> dict[str, Any]:
     for t in tasks:
         done = store.final_event(t["id"]) if t["status"] != "queued" else None
         part = _options(t).get("part")
+        stop = _data(done).get("stop") or {}
+        moves = [_data(e).get("move") for e in store.events_of(t["id"], "moved")]
         steps.append({"step": t["workflow_step"], "task": t["id"], "kind": t.get("kind"),
                       "cell": t.get("final_cell") or t.get("start_cell"), "status": t["status"],
                       "attempts": len(store.attempts(t["id"])),
                       "wall_s": round(float(_data(done).get("wall_s") or 0), 1),
                       "cost": round(float(t.get("cost_usd") or 0), 4),
                       **({"part": part["id"]} if isinstance(part, dict) and part.get("id") else {}),
-                      **({"skipped": True} if _options(t).get("skipped") else {})})
+                      **({"skipped": True} if _options(t).get("skipped") else {}),
+                      **({"stop_cause": stop.get("cause"), "stop_reason": clip(str(stop.get("reason") or ""), 300)}
+                         if stop else {}),
+                      "moves": len(moves), "move_names": moves,
+                      # Why each attempt of a plan step failed: the failure kind, in order.
+                      **({"failures": [_data(e).get("failure") for e in store.events_of(t["id"], "attempt_finished")]}
+                         if t.get("kind") == "plan" else {})})
     rows = sum(len(_data(store.final_event(t["id"])).get("findings") or ())
                for t in tasks if t["workflow_step"] == "review")
     fixes = [s for s in steps if s["step"] == "fix"]
@@ -131,26 +141,31 @@ def branch_of(store: Store, run_id: int) -> str | None:
     return None
 
 
-def drive(env: dict[str, str], where: Path, home: Path, run_id: int, deadline: float) -> str | None:
-    """Run the queue in the foreground until the run ends; an error text when the deadline passes first."""
+def drive(env: dict[str, str], where: Path, home: Path, run_id: int, deadline: float) -> tuple[str | None, str | None]:
+    """Run the queue in the foreground until the run ends. Returns (error, status): an error text when the
+    deadline passes first, or a status (`lane_paused`) when nothing is running and the lane is paused, which
+    only a person clears. Sleeps between polls so a lane that starts nothing is never spun on."""
     while True:
         left = deadline - time.monotonic()
         if left <= 0:
-            return f"timed out after {TIMEOUT_S:.0f}s"
+            return f"timed out after {TIMEOUT_S:.0f}s", None
         try:
-            done = subprocess.run([str(ROOT / "bin" / "locks"), "work", "--repo", str(where), "--max", WORK_MAX],
-                                  cwd=where, env=env, capture_output=True, text=True, timeout=left)
+            subprocess.run([str(ROOT / "bin" / "locks"), "work", "--repo", str(where), "--max", WORK_MAX],
+                           cwd=where, env=env, capture_output=True, text=True, timeout=left)
         except subprocess.TimeoutExpired:
-            return f"timed out after {TIMEOUT_S:.0f}s"
+            return f"timed out after {TIMEOUT_S:.0f}s", None
         store = Store(home / "locks.db")
         try:
             state = ended(store, run_id)
+            running = any(t["status"] == "running" for t in store.run_tasks(run_id))
+            paused = any(lane["paused"] for lane in store.lanes())
         finally:
             store.close()
         if state is not None:
-            return None
-        if "already runs" in done.stdout:  # another dispatcher (the run's own kick) holds the lane: wait for it
-            time.sleep(min(POLL_S, max(left, 0)))
+            return None, None
+        if paused and not running:  # a part stopped and paused its lane: nothing startable is left
+            return None, "lane_paused"
+        time.sleep(min(POLL_S, max(deadline - time.monotonic(), 0)))
 
 
 def workflow(where: Path, request: str, arm: str) -> dict[str, Any]:
@@ -172,7 +187,7 @@ def workflow(where: Path, request: str, arm: str) -> dict[str, Any]:
     except (ValueError, KeyError, IndexError):
         shutil.rmtree(home, ignore_errors=True)
         return {"error": (started.stderr or started.stdout)[-300:]}
-    error = drive(env, where, home, run_id, deadline)
+    error, status = drive(env, where, home, run_id, deadline)
     wall = time.monotonic() - began
     if error:
         subprocess.run([str(ROOT / "bin" / "locks"), "workflow", "cancel", str(run_id)], cwd=where, env=env,
@@ -180,6 +195,8 @@ def workflow(where: Path, request: str, arm: str) -> dict[str, Any]:
     store = Store(home / "locks.db")
     try:
         got = row_of(store, run_id)
+        if status:
+            got["status"] = status
         branch = branch_of(store, run_id)
     finally:
         store.close()

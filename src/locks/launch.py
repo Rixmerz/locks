@@ -329,6 +329,12 @@ def instructions(spec: LaunchSpec) -> str:
 #: cache are its own already, so only the contract is said again.
 CONTINUE_PROMPT = ("You ran out of turns before you finished. Continue from where you are: your work so far is in "
                    "this directory, and the task is the one you were given. Check it before you answer.")
+#: What the session of a worker whose process died is told when its task is resumed: its context
+#: holds its brief and what it found, so it goes on instead of a new worker reading it all again.
+INTERRUPTED_PROMPT = ("Your process was stopped before you finished; nothing was wrong with your work. Continue "
+                      "from where you are: your work so far is in this directory, and the task is the one you "
+                      "were given. A command that was running when you were stopped did not finish: run it again "
+                      "if you need its result. Check your work before you answer.")
 #: What a session given more effort on the same model is told: its approach stands
 #: and its context is its own; what it lacked was depth, and what failed is said below.
 DEEPER_PROMPT = ("Your last answer to this task did not pass; what failed it is below. Your work so far is in this "

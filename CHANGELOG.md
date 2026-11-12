@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-11-12
+
+### Changed
+- A task resumed after its worker died goes on in that worker's own Claude Code session instead of briefing a new
+  worker that reads everything again: the sweep keeps the session on the `attempt_lost` event, and the resume
+  continues it when it starts at the same cell and model and the transcript is still there, told it was stopped
+  and to go on. Anything else starts fresh and says why (`attempt_started.fresh`, `after_death` when it continued).
+
 ## [0.102.1] - 2026-11-12
 
 ### Fixed

@@ -678,3 +678,31 @@ Added up, the briefed runs read 22% fewer input tokens (4.34M against 5.56M) and
 is on the two questions about a symbol's callers, which is what the dossier holds, and nothing on the
 question about an event name, which it does not. The briefed run of the third question left no report
 block.
+
+## AC: one worker against the `feature` and `feature-parallel` workflows (`flow.py`, 0.97.0)
+
+The hard build of `versus.py`, the same request and hidden tests, each run in its own locks home, four
+runs at once in the first batch and two in the second. "Ended" is the run reaching its last step.
+
+| arm | runs | ended | all hidden tests right | wall | $ |
+|---|---|---|---|---|---|
+| `single` (`locks run`) | 2 | 2 | 2/2 | 67 s, 75 s | 0.39, 0.43 |
+| `feature` (build, review, refute, fix, recheck) | 2 | 1 (one stopped at its refuter, for the person) | 2/2 | 151 s, 259 s | 0.52, 0.85 |
+| `feature-parallel` (plan, parts, integrate, review chain) | 6 | 1 (one more stopped at its second re-check) | 2/6 | 844 s and 937 s where it built; 99 to 518 s where it stopped | 5.29 and 6.29; 0.51 to 7.56 |
+
+One worker passed every hidden test in a quarter to a half of the `feature` chain's time, and the chain
+found nothing the hidden tests needed: its build step alone had already passed them. The review opened
+2 and 5 rows; whether those rows were worth 80 to 190 s is not judged here, since the hidden tests do
+not read what a review reads. `feature-parallel` is not for a build this small, and it showed a defect
+besides: in six of six runs the plan's first answers were refused (`inconclusive`, twice, then a pass at
+opus/xhigh in four runs; stopped in two), 480 to 570 s and $4 to $5 on the plan alone. Forked against
+fresh first tries (`LOCKS_TRUNK_ARM`) cannot be told apart on these rows: one run each got as far as its
+build, 100 s forked and 94 s fresh.
+
+The plan's refusals had one cause, read from a kept store: `surfaces.disjoint` called
+`tests/test_rule_*.py` and `tests/test_receipt.py` overlapping, since both sit under `tests/`, so a
+correct plan was sent back twice and then climbed. With surfaces in one folder read apart segment by
+segment, two more runs planned on their first answer (224 s and 227 s, $0.89 and $0.90, where it had
+been 480 to 570 s and $4 to $5). Both then stopped at their first part: sonnet/high, then the next
+model, then "the approach was wrong", 186 s and 204 s, the other parts never started. Why that part
+fails is not established; `feature-parallel` on this build has yet to end clean.

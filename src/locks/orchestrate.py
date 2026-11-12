@@ -85,6 +85,7 @@ from locks import specs as specs_mod
 from locks import surfaces as surfaces_mod
 from locks import tracer as tracer_mod
 from locks.adapters import ABSENT, UNREADABLE, Adapter, Status, default_adapters
+from locks.adapters.livespec import is_test_path
 from locks.classify import Classification, by_rules, classify, narrow, opens_with_change
 from locks.escalate import (
     MAX_TURNS_CEILING,
@@ -318,6 +319,12 @@ def in_place_files(names: Sequence[str], changed: Sequence[str]) -> dict[str, li
     return dict(sorted(found.items()))
 
 
+#: The most plan reasons `locks run` prints for a task; the rest by count (`locks show N` has them all).
+PLAN_REASONS_SHOWN = 3
+#: The most characters of a writing worker's answer `locks run` prints; the rest is kept whole on the task.
+REPORT_ANSWER_SHOWN = 800
+
+
 @dataclass
 class Report:
     task_id: int | None
@@ -380,12 +387,19 @@ class Report:
         return "unverified"
 
     def text(self) -> str:
+        # Warnings first; a task's reasons past the first few are counted, and `locks show N` keeps them all.
+        # A dry run has no task to show them from, so it says them all.
+        heard = [r for r in self.plan.reasons if r not in self.plan.quiet]
+        ordered = [*warnings(heard), *(r for r in heard if not r.startswith(WARNINGS))]
+        shown = ordered if self.task_id is None else ordered[:PLAN_REASONS_SHOWN]
+        start = f"start {self.plan.start.label}" + "".join(f"\n  · {r}" for r in shown)
+        if len(ordered) > len(shown):
+            start += f"\n  · {len(ordered) - len(shown)} more reason(s): `locks show {self.task_id}` has them"
         lines = [
             f"task #{self.task_id}: {self.status}" if self.task_id else f"plan: {self.status}",
             f"kind {self.plan.kind} ({self.plan.classification.source}: {self.plan.classification.reason})",
             f"ladder {' → '.join(c.label for c in self.plan.ladder)}",
-            f"start {self.plan.start.label}" + "".join(f"\n  · {r}" for r in self.plan.reasons
-                                                       if r not in self.plan.quiet),
+            start,
         ]
         if self.plan.role is not None:
             lines.append(f"role {self.plan.role.name} ({self.plan.role.scope}) of the {self.plan.team} team: "
@@ -462,7 +476,12 @@ class Report:
                 f"{'kept' if n['new'] else 'already known as'} #{n['id']} [{n['topic']}] {n['title']}"
                 for n in self.noted))
         if self.summary:
-            lines.append(self.summary)
+            # A reading kind's report is its deliverable, whole; a writing worker's answer is cut, its rest kept.
+            if self.task_id is None or self.plan.kind in READ_ONLY_KINDS or len(self.summary) <= REPORT_ANSWER_SHOWN:
+                lines.append(self.summary)
+            else:
+                lines.append(clip(self.summary, REPORT_ANSWER_SHOWN))
+                lines.append(f"the worker's whole answer is kept on the task: `locks show {self.task_id}` prints it")
         if self.stop is not None and self.task_id:
             lines.append(f"stopped by {stops.WHO.get(self.stop.who, self.stop.who)}: {stops.what_to_do(self.stop)}")
             command = stops.next_step(self.task_id, self.stop)
@@ -868,6 +887,8 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
             dossier_stats = {"chars": found.chars, "symbols": found.symbols, "specs": found.specs}
             neighbour_notes.append(f"{adapter.name}: {found.symbols} symbol(s) and {found.specs} spec(s) "
                                    "from its index are in the brief")
+    if options.surfaces:
+        reasons += _tests_left_out(options.surfaces, repo_dir, active)
     selected = _with_role(caps.select(registry, kind, workdir=repo_dir, paths=touched_paths(text, options),
                                       reading=kind in READ_ONLY_KINDS,
                                       asked=asks_to_browse(text, options)), role, registry, repo_dir)
@@ -901,6 +922,35 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 probation={"arm": arm, "cell": PROBATION[kind].label} if arm else None,
                 withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None,
                 dossier=dossier_stats, predicted=predicted)
+
+
+#: The most tests outside a task's surfaces its plan names.
+LEFT_OUT_TESTS = 6
+
+
+def _tests_left_out(surfaces: Sequence[str], repo_dir: Path,
+                    active: Sequence[tuple[Any, Any]]) -> list[str]:
+    """The plan's warning when the index says tests exercise the files in a task's surfaces and
+    the surfaces leave them out: a change of behaviour there fails them, and a worker cannot fix
+    them. Nothing without an index or such a test. A surface that is a glob or a folder names no
+    file the index can be asked about."""
+    files = {s for s in surfaces if not any(c in s for c in "*?[")}
+    tests: list[str] = []
+    for adapter, status in active:
+        reach = getattr(adapter, "_reach", None)
+        found: Any = ()
+        if reach is not None and files:
+            with contextlib.suppress(Exception):  # an index that cannot say costs the plan nothing
+                found = reach(files, status)
+        if not isinstance(found, str) and found:
+            tests += [p for (p,) in found[1] if is_test_path(p) and not surfaces_mod.allows(surfaces, p)]
+    tests = list(dict.fromkeys(tests))
+    if not tests:
+        return []
+    more = len(tests) - LEFT_OUT_TESTS
+    return [f"this task's surfaces leave out {len(tests)} test(s) the index says exercise them: "
+            + ", ".join(tests[:LEFT_OUT_TESTS]) + (f" and {more} more" if more > 0 else "")
+            + "; a change of behaviour there needs them in its surfaces"]
 
 
 #: A start whose first tries passed less often than this here, over at least `RACE_SAMPLES`
@@ -1126,7 +1176,7 @@ def turns_from_history(runs: Sequence[Sequence[tuple[int, bool, str | None]]], k
 #: How the plan's reasons a person should hear before the work starts begin: what
 #: the task needs and workers lack, and what stopped workers here before.
 WARNINGS = ("this task needs", "this task mentions", "this task spans", "workers here were refused before", "task #",
-            "CI also runs", "this task's check", "base: ")
+            "CI also runs", "this task's check", "base: ", "this task's surfaces leave out")
 
 
 def warnings(reasons: Sequence[str]) -> list[str]:
@@ -1854,6 +1904,12 @@ def run(
                     check_tail=result.check_tail if keeps else "")
                 store.add_event(task["id"], "outside_surfaces", seq=nth, paths=strayed[:50],
                                 surfaces=list(options.surfaces), undone=workspace is not None)
+            # A check that fails only in tests the surfaces leave out, on work that changed files and whose
+            # failures are not the base's (the comparison ran in `_verified`): a climb cannot touch them.
+            outside_tests = tuple(surfaces_mod.failing_outside(options.surfaces, result.failing)) if (
+                not result.passed and not strayed and result.failure is Failure.CODE_BUG and not result.denied
+                and (isolate.has_changes(workspace) if workspace else bool(result.changed_paths))
+                and result.check_tail) else ()
             if result.passed and spec_first and (owed := specs_mod.owed(the_plan.kind, sorted(
                     {*changed, *(isolate.changed(workspace) if workspace else result.changed_paths)}))):
                 # A spec-first repository takes no build without its spec: the first such pass goes
@@ -2050,7 +2106,8 @@ def run(
                               transient=result.transient, findings=result.findings, network=result.network,
                               load=result.load, failing=result.failing, base_unknown=result.base_unknown,
                               shape=result.shape, limited=result.limited, retry_after_s=result.retry_after_s,
-                              blockers=open_blockers, stands=(bool(stands) or widened) and result.failure in REPLAN)
+                              blockers=open_blockers, stands=(bool(stands) or widened) and result.failure in REPLAN,
+                              outside=outside_tests)
             attempts.append(attempt)
             if raced is not None and not raced_first:
                 # The start's try went on: the rung's, stopped or failed, is recorded after it.
@@ -2135,7 +2192,9 @@ def run(
                     extra=({"checked": report.checked} if decision.move is Move.DECIDE
                            else _limit_extra(store, attempt) if _cause(decision, attempt) == "limit" else {})
                     | ({"widen": widen} if _cause(decision, attempt) in ("spec", "decision")
-                       and (widen := _widen(store, task["id"], options.surfaces, result, workdir)) else {}))
+                       and (widen := list(dict.fromkeys([
+                           *(p for p in outside_tests if _existing(workdir, p)),
+                           *_widen(store, task["id"], options.surfaces, result, workdir)]))[:WIDEN_MAX]) else {}))
                 break
             if decision.move is Move.NEXT_MODEL and workspace is not None and carries_work(attempt):
                 # Work locks' own check failed on is work, not a lost bet: the next model starts on it

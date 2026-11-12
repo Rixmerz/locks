@@ -214,7 +214,7 @@ def test_a_check_that_answers_clean_and_read_nothing_twice_leaves_the_pass_and_s
     card = store.last_event(report.task_id, "finished")["data"]["verdict"]["independent"]
     assert card["ran"] is True and card["unread"] is True and card["passed"] is False and card["blocking"] == 0
     lines = hooks.verdict_lines(store.last_event(report.task_id, "finished")["data"]["verdict"])
-    assert "  independent check: read nothing twice; the pass stands on locks' own check" in lines
+    assert "independent check read nothing twice, the pass stands on locks' own check" in lines[0]
     assert "open the diff only where it says something was not checked" in lines[-1]
 
 

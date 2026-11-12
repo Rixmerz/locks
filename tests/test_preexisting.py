@@ -566,7 +566,8 @@ def test_the_ending_says_how_many_runs_a_flake_fix_passed():
 
     lines = hooks.verdict_lines({"criteria": [], "check": {"command": "npm test", "passed": True, "runs": 3},
                                  "independent": {"ran": False, "why": "x"}, "attempts": 1})
-    assert any("passed, run by locks in its worktree 3 times, every run" in line for line in lines)
+    assert lines[0] == ("  locks' check `npm test` passed 3 times, every run, since this work fixes a flake, "
+                        "independent check not run (x)")
 
 
 # --- the base's run is sized from the check's own duration ------------------------------------
@@ -922,4 +923,4 @@ def test_the_ending_names_each_repository_s_base_of_a_folder_whole():
     lines = hooks.verdict_lines({"criteria": [], "check": {"command": "cd web && npm test", "state": "failing at base",
                                                            "base": base, "failures": 1},
                                  "independent": {"ran": False, "why": "x"}, "attempts": 1})
-    assert f"it fails at the base api@{'a' * 12}, web@{'b' * 12} too" in lines[0]
+    assert f"it fails at the base api@{'a' * 12}, web@{'b' * 12} too" in "\n".join(lines)

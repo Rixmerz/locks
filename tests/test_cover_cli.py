@@ -1128,7 +1128,7 @@ def test_an_ending_says_a_lane_of_the_session_s_is_paused_after_the_endings(stor
 def test_a_verdict_summary_with_no_independent_check_says_nothing_of_one():
     said = hooks.verdict_summary({"check": {"command": "pytest -q"}, "criteria": [{"met": True}],
                                   "independent": {}})
-    assert said == "`pytest -q` passed, 1/1 criteria met"
+    assert said == "locks' check `pytest -q` passed, 1/1 criteria met"
 
 
 def test_what_moved_since_is_empty_when_git_cannot_say(store, git_repo, monkeypatch):

@@ -222,7 +222,13 @@ def _lost_cost(store: Store, task: dict) -> None:
         seq = (started.get("data") or {}).get("seq")
         cost = usage.running_cost(task["id"], seq, since=started["ts"])
         _keep_lost_transcript(task["id"], seq)
+        # Its session, read while today's log still holds its calls: the resume goes on in it
+        # (`orchestrate._dead_session`).
+        from locks import phase
+
+        session = phase.session_of(task["id"], seq if isinstance(seq, int) else None)
         store.add_event(task["id"], "attempt_lost", seq=seq, cell=(started.get("data") or {}).get("cell"),
+                        **({"session": session} if session else {}),
                         cost_usd=round(cost, 4) if cost is not None else None)
         if cost:
             store.update_task(task["id"], cost_usd=round(float(task.get("cost_usd") or 0) + cost, 4))

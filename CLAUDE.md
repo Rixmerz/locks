@@ -1313,6 +1313,9 @@ yields the default kind, not a guess.
   `attempt_lost` event, added to the task's cost; unreadable is kept as unknown, never $0), and
   the next attempt takes a number past every one started (`Store.next_attempt`), so a dead
   attempt's tool calls are never read as the next one's.
+  A resume after a death goes on in the dead worker's own session (`orchestrate._dead_session`, the session the
+  sweep kept on `attempt_lost`, `launch.INTERRUPTED_PROMPT`, `attempt_started.after_death`): only at the same cell
+  and model, in its worktree, its transcript still there; else it starts fresh and says why.
 - Each request is read for its way (`locks.route`, the `route` setting), with no model:
   the session itself (a turn, reading, what points back into the conversation), parts
   side by side (`PARALLEL_POINTS`, `PARALLEL_AREAS` or `PARALLEL_PIECES`), else the

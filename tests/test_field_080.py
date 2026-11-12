@@ -75,3 +75,21 @@ def test_a_dead_workers_transcript_is_kept_beside_the_trace(tmp_path, monkeypatc
     kept.unlink()
     flow._keep_lost_transcript(7, 1)
     assert not kept.exists()
+
+
+def test_the_sweep_keeps_the_dead_worker_s_session_for_the_resume_to_go_on_in(store: Store, monkeypatch, tmp_path):
+    from locks import orchestrate, phase
+    from locks.matrix import Cell
+
+    monkeypatch.setattr(usage, "running_cost", lambda *a, **k: 0.4)
+    monkeypatch.setattr(phase, "session_of", lambda *a, **k: "sess-swept")
+    config = tmp_path / "claude-config"
+    (config / "projects" / "wt").mkdir(parents=True)
+    (config / "projects" / "wt" / "sess-swept.jsonl").write_text("{}\n")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    task = store.create_task("t", status="running", source="locks", repo="r", kind="feature", pid=999_999)
+    store.add_event(task["id"], "attempt_started", seq=1, cell="sonnet/high", model="sonnet")
+    flow.sweep(store, is_alive=lambda _pid: False)
+    assert store.last_event(task["id"], "attempt_lost")["data"]["session"] == "sess-swept"
+    monkeypatch.setattr(phase, "session_of", lambda *a, **k: None)  # the log moved on: the event still says it
+    assert orchestrate._dead_session(store, task["id"], Cell("sonnet", "high")) == ("sess-swept", "")

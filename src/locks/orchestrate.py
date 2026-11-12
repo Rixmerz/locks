@@ -1521,7 +1521,8 @@ def run(
         # given or withheld by their trial, and kept either way so the arms can be compared.
         # The notes the brief carries are kept too, so a worker-learned one is proven or dropped by
         # the tasks that read it (`notes.weigh`), never by a guess.
-        context.extend(resume_context(store, task, key))
+        resumed_with = resume_context(store, task, key)
+        context.extend(resumed_with)
         instruction = resume_instruction(store, task)
         worn: dict[str, Any] = {}
         held_files = roles.languages(repo_dir) if the_plan.role is not None else None
@@ -1653,6 +1654,11 @@ def run(
         session: WorkerSession | None = None
         # The session the next attempt continues, or why one due starts fresh: decided with the move.
         resume, fresh = "", ""
+        # A resume after its worker died goes on in that worker's session (`_dead_session`).
+        interrupted = False
+        if workspace is not None and resumed:
+            resume, fresh = _dead_session(store, task["id"], cell)
+            interrupted = bool(resume)
         # The commit's subject: the last line a worker proposed for the change.
         # In the checkout itself, one run at a time: the work and its check share the
         # person's files. A run in a worktree has its own.
@@ -1797,8 +1803,11 @@ def run(
                                            base=workspace.base if workspace else None) if branch
                                else launch.DEEPER_PROMPT if fork
                                else _reshape_prompt([*history, *attempts], base_commit)
-                               if decision is not None and decision.reshape else launch.CONTINUE_PROMPT),
-                resume_note=prompt if branch else continuation_note([*history, *attempts][-1]) if resume else "",
+                               if decision is not None and decision.reshape
+                               else launch.INTERRUPTED_PROMPT if interrupted and decision is None
+                               else launch.CONTINUE_PROMPT),
+                resume_note=prompt if branch else "\n\n".join(resumed_with) if interrupted and decision is None
+                else continuation_note([*history, *attempts][-1]) if resume else "",
             )
             store.update_task(task["id"], current_cell=cell.label)
             say(f"locks: #{task['id']} attempt {nth} at {cell.label}")
@@ -1818,9 +1827,13 @@ def run(
                             **({"role": the_plan.role.name, "team": the_plan.team,
                                 "skills": list(briefing.skills)} if briefing else {}),
                             **({"resumed": resume} if resume else {}), **({"fresh": fresh} if fresh else {}),
+                            **({"after_death": True} if resume and interrupted and decision is None else {}),
                             **({"forked_trunk": {k: branch.get(k) for k in ("task", "step", "session")}}
                                if branch else {}))
-            if resume:
+            if resume and interrupted and decision is None:
+                say(f"locks: #{task['id']} attempt {nth} goes on in the session of the attempt whose worker died "
+                    f"({resume})")
+            elif resume:
                 say(f"locks: #{task['id']} attempt {nth} continues attempt {nth - 1}'s session ({resume})"
                     + (f" at {cell.label}" if fork else ""))
             elif fresh:
@@ -2738,6 +2751,39 @@ def _continues(decision: Decision, session: WorkerSession | None) -> tuple[str, 
     if (decision.move is Move.MORE_TURNS or decision.reshape) and session.cell != decision.cell:
         return "", f"attempt {before} ran at {session.cell.label}, this one at {decision.cell.label}"
     return session.id, ""
+
+
+def _dead_session(store: Store, task_id: int, cell: Cell,
+                  env: Mapping[str, str] | None = None) -> tuple[str, str]:
+    """The session a resume goes on in when the task's last attempt lost its worker (an
+    `attempt_lost` event, written by the sweep that found the process gone), and why not when
+    one was due: the worker's context holds its brief and everything it read, and a fresh worker
+    in the same worktree read it all again. Only the same cell on the same model, as more turns
+    are; its id is the one the sweep kept on the event, else read from its own calls
+    (`phase.session_of`), and its transcript must still be there. The CLI refusing it starts fresh as any continuation does (`launch.run`)."""
+    from locks import phase, usage
+
+    started, lost = store.last_event(task_id, "attempt_started"), store.last_event(task_id, "attempt_lost")
+    if started is None or lost is None or lost["id"] < started["id"]:
+        return "", ""
+    ended = store.last_event(task_id, "attempt_finished")
+    if ended is not None and ended["id"] > started["id"]:
+        return "", ""
+    data = started["data"]
+    seq = data.get("seq")
+    if data.get("cell") != cell.label:
+        return "", f"attempt {seq}'s worker died at {data.get('cell')}, this one runs at {cell.label}"
+    if data.get("model") != (models.pinned(cell.model) or cell.model):
+        return "", f"attempt {seq}'s worker died on {data.get('model')}, this one runs on another model"
+    try:
+        session = str(lost["data"].get("session") or "") or phase.session_of(
+            task_id, seq if isinstance(seq, int) else None, env)
+        found = usage.transcript_of(session, env) if session else None
+    except Exception:  # reading it never fails a run: it starts fresh
+        session, found = None, None
+    if not session or found is None:
+        return "", f"attempt {seq}'s worker died and left no session to go on in"
+    return session, ""
 
 
 def _continuation(decision: Decision, resume: str, fresh: str) -> dict[str, object]:

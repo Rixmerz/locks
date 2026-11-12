@@ -2557,3 +2557,54 @@ def test_the_kind_and_the_neighbours_indexes_are_found_side_by_side(git_repo, st
 ])
 def test_a_request_asks_to_browse_by_its_words_or_a_service(text, services, expected):
     assert orchestrate.asks_to_browse(text, orchestrate.Options(services=services)) is expected
+
+
+def _died(store, git_repo, tmp_path, monkeypatch, *, session="sess-dead", cell="sonnet/medium"):
+    """A task whose first attempt's worker died in its worktree, as the sweep leaves it."""
+    first = run("create the routes", git_repo, store, registry={}, launcher=Script(refused(), write="routes.js"),
+                classifier=kind("implement"))
+    store.add_event(first.task_id, "attempt_started", seq=2, cell=cell, model="sonnet")
+    store.add_event(first.task_id, "attempt_lost", seq=2, cell=cell, cost_usd=0.5,
+                    **({"session": session} if session else {}))
+    config = tmp_path / "claude-config"
+    (config / "projects" / "wt").mkdir(parents=True)
+    (config / "projects" / "wt" / "sess-dead.jsonl").write_text("{}\n")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    return first
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_a_resume_after_its_worker_died_goes_on_in_that_worker_s_session(git_repo, store, tmp_path, monkeypatch):
+    first = _died(store, git_repo, tmp_path, monkeypatch)
+    lines = []
+    script = Script(ok("finished the routes"))
+    report = run("create the routes", git_repo, store, Options(kind="implement", start=Cell("sonnet", "medium")),
+                 registry={}, launcher=script, task_id=first.task_id, progress=lines.append)
+    spec = script.specs[0]
+    assert report.status == "done"
+    assert spec.resume_session == "sess-dead" and not spec.fork_session
+    assert spec.resume_prompt == launch.INTERRUPTED_PROMPT and spec.resume_note == ""
+    started = store.last_event(first.task_id, "attempt_started")["data"]
+    assert started["seq"] == 3 and started["resumed"] == "sess-dead" and started["after_death"] is True
+    assert any("goes on in the session of the attempt whose worker died (sess-dead)" in x for x in lines)
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_a_dead_worker_s_session_is_left_where_the_cell_differs_or_nothing_kept_it(git_repo, store, tmp_path,
+                                                                                    monkeypatch):
+    first = _died(store, git_repo, tmp_path, monkeypatch, cell="sonnet/low")
+    script = Script(ok())
+    run("create the routes", git_repo, store, Options(kind="implement", start=Cell("sonnet", "medium")),
+        registry={}, launcher=script, task_id=first.task_id)
+    assert script.specs[0].resume_session == ""
+    started = store.last_event(first.task_id, "attempt_started")["data"]
+    assert "died at sonnet/low" in started["fresh"] and "after_death" not in started
+    # No session on the event and none in the log, or a transcript that is gone: fresh, and said.
+    assert orchestrate._dead_session(store, first.task_id, Cell("sonnet", "low"))[0] == ""
+    store.add_event(first.task_id, "attempt_started", seq=9, cell="sonnet/low", model="sonnet")
+    store.add_event(first.task_id, "attempt_lost", seq=9, cell="sonnet/low", session="sess-gone")
+    assert orchestrate._dead_session(store, first.task_id, Cell("sonnet", "low")) == (
+        "", "attempt 9's worker died and left no session to go on in")
+    # An attempt that finished after the loss is no dead worker's.
+    store.add_event(first.task_id, "attempt_finished", seq=9, cell="sonnet/low")
+    assert orchestrate._dead_session(store, first.task_id, Cell("sonnet", "low")) == ("", "")

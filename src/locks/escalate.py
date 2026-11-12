@@ -146,6 +146,9 @@ class Attempt:
     #: The work stands though the worker reported a failure: it changed files and the
     #: check that shows them passed (locks', or with none given the worker's own).
     stands: bool = False
+    #: The test files outside the task's surfaces that are the only place locks' check fails
+    #: (`surfaces.failing_outside`): a climb cannot fix what its surfaces keep it from.
+    outside: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -393,6 +396,19 @@ def _decide(
 
     if (unknown := _unknown_base(last, seen)) is not None:
         return unknown
+
+    if last.outside and failure is Failure.CODE_BUG:
+        # The check fails only in tests the task's surfaces leave out, and the base does not fail
+        # them: more effort or another model meets the same wall (and its continued worker only
+        # answers a spec_bug naming that test). The work is kept and the surfaces are the decision.
+        return Decision(
+            Move.DECIDE,
+            reason=f"the check fails only in tests outside its surfaces ({few(list(last.outside))}); its work is "
+                   "kept: widen the surfaces to include them, or leave them",
+            because=(seen, f"every failing test of locks' check is in a file outside the task's surfaces "
+                           f"({few(list(last.outside))}), and the base does not fail them",
+                     "a climb cannot change a file its surfaces keep it from: it repeats the same failure",
+                     "the work stays on its branch; a resume with those files as surfaces goes on from it"))
 
     if failure is Failure.ENVIRONMENT and last.network:
         # The network dropped under the work: no fault of the work, the cell or the

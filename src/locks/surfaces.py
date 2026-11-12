@@ -98,6 +98,29 @@ def outside(surfaces: Sequence[str], changed: Iterable[str]) -> list[str]:
     return [p for p in changed if not allows(surfaces, p)] if surfaces else []
 
 
+#: The file of a failing test line (`launch.check_failures`): pytest's `FAILED tests/a.py::test_x`
+#: and `ERROR tests/a.py`, jest's and vitest's `FAIL src/a.test.ts > suite > test`.
+_TEST_FILE = re.compile(r"^(?:FAILED|ERROR|FAIL)\s+(\S+?\.\w+)(?:::|\s|$)")
+
+
+def failing_outside(surfaces: Sequence[str], failing: Iterable[str]) -> list[str]:
+    """The files of the failing tests of a check when every one of them is outside `surfaces`;
+    empty when there are no surfaces or no failing line, when any line cannot be read to a file,
+    or when any failing test is inside them (the work's own tests: a climb may fix them)."""
+    files: list[str] = []
+    for line in sorted(failing):
+        hit = _TEST_FILE.match(line)
+        if hit is None:
+            return []
+        path = hit.group(1)
+        while path.startswith("./"):
+            path = path[2:]
+        if allows(surfaces, path):
+            return []
+        files.append(path)
+    return list(dict.fromkeys(files)) if surfaces else []
+
+
 def _prefix(surface: str) -> str:
     """The literal directory a surface starts with, before any glob."""
     head = _GLOB.split(surface, 1)[0]

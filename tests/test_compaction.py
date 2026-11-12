@@ -211,8 +211,9 @@ def test_the_instructions_keep_the_person_s_words_and_the_open_work_within_one_l
     assert "\n" not in text and text.startswith(compaction.HEAD)
     assert "Open work: #12 [blocked] the export, next: locks resume 12." in text
     assert "Branches waiting to merge: locks/task-7 (#7 the login fix)." in text
-    assert '"request 2 second line" "request 3 second line" "request 4 second line" "request 5 second line"' in text
-    assert "request 1" not in text
+    # The newest requests are the digest's: named once by count, never quoted a second time.
+    assert compaction.DIGEST_HOLDS.format(n=compaction.RECENT_REQUESTS) in text
+    assert "request 5" not in text and "request 2" not in text
     assert 'Decisions the person made (oldest first): "no, never touch the billing table".' in text
     line = compaction.line(42, text)
     assert line.startswith(compact.ASKED) and line.startswith("/compact [locks-compaction #42] ")
@@ -227,7 +228,16 @@ def test_the_instructions_are_bounded_and_mask_secrets():
     assert "Open work: #0 [running]" in text and "hunter" not in text  # what is most needed comes first
     alone = compaction.instructions(requests=requests, open_work=[], branches=[])
     assert len(alone) <= compaction.INSTRUCTIONS_CHARS - 36
-    assert "hunter" not in alone and alone.count("[secret]") == compaction.RECENT_REQUESTS
+    assert "hunter" not in alone and alone.count(compaction.DIGEST_HOLDS.format(n=4)) == 1
+    assert "(+" in text  # what the line left out is said by count
+
+
+def test_the_line_with_the_longest_keep_stays_under_the_bound(store: Store, git_repo):
+    turn(store, git_repo)
+    asked = compaction.request(store, home(), session_id="s1", cwd=str(git_repo), keep="keep this " * 200,
+                               transcript=Path("/nonexistent"))
+    assert len(compaction.line(999999, asked["instructions"])) <= 900 == compaction.INSTRUCTIONS_CHARS
+    assert asked["instructions"].endswith('…".') and compaction.HEAD in asked["instructions"]
 
 
 def test_open_work_carries_its_next_command_and_only_unmerged_branches_wait(store: Store, git_repo):
@@ -272,7 +282,7 @@ def test_stop_decides_at_a_break_and_records_the_line_s_instructions(store: Stor
     [event] = decided(store)
     data = event["data"]
     assert data["now"] and data["mode"] == "orchestrator" and data["cwd"] == str(git_repo)
-    assert '"fix the login redirect and keep `?next=`"' in data["instructions"]  # as the transcript has it
+    assert compaction.DIGEST_HOLDS.format(n=1) in data["instructions"]  # the digest has the words
     assert any("a natural break" in b for b in data["because"])
 
 

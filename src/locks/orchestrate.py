@@ -3972,11 +3972,12 @@ def brief(
                  "Do not repeat one without saying why it would work this time:"]
         for d in dead_ends:
             where = f"{d['repo']}, {_SCOPE_SAID[d['scope']]}" if d.get("scope") in _SCOPE_SAID else d["repo"]
-            line = f"- ({where}) {d['problem']}: tried {clip(d['tried'], 200, one_line=True)}"
+            line = f"- ({where}) {d['problem']}: tried {clip(d['tried'], cells.DEAD_END_CHARS, one_line=True)}"
             if d["why"]:
                 line += f"; failed because {clip(d['why'], 200, one_line=True)}"
             if d["worked_instead"]:
-                line += f"; what worked: {clip(d['worked_instead'], 200, one_line=True)}"
+                line += f"; what worked: {clip(d['worked_instead'], cells.DEAD_END_CHARS, one_line=True)}"
+            line += cells.whole_line(d)
             lines.append(line)
         parts.append("\n".join(lines))
     if attempts:

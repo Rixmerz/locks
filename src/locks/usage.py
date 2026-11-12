@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterator, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,32 @@ def _records(path: Path, offset: int) -> Iterator[tuple[int, dict[str, Any] | No
                 yield position, json.loads(line)
             except ValueError:
                 yield position, None
+
+
+#: Where a session's last count is kept (in the store's meta): when, by which release, and the transcript.
+COUNTED_KEY = "usage-counted:"
+#: A session cost figure counted longer ago than this is said with its age, never presented as current.
+STALE_MINUTES = 10
+#: A transcript this many bytes past what was ingested (and idle for `STALE_MINUTES`) is a Stop that did
+#: not do its work (`locks doctor`).
+BEHIND_BYTES = 1024 * 1024
+
+
+def mark_counted(store: Store, session_id: str, transcript: str | Path, *, now: datetime | None = None) -> None:
+    """Record that this session's usage was counted now, for the cost line and `locks doctor`."""
+    from locks import __version__
+
+    store.set_meta(COUNTED_KEY + session_id, json.dumps(
+        {"at": (now or datetime.now(UTC)).isoformat(), "version": __version__, "transcript": str(transcript)}))
+
+
+def counted(store: Store, session_id: str) -> dict[str, Any] | None:
+    """The record `mark_counted` kept, or None when the session has none."""
+    try:
+        found = json.loads(store.meta(COUNTED_KEY + session_id) or "")
+    except ValueError:
+        return None
+    return found if isinstance(found, dict) and found.get("at") else None
 
 
 def ingest(store: Store, transcript: str | Path, *, session_id: str, task_id: int | None, repo: str | None) -> int:

@@ -326,3 +326,22 @@ def test_the_primer_s_trial_is_tallied_per_nature_and_old_records_still_read(sto
     assert arm == "primer" and "won" in why
     arm, why = cells.primer_arm(store, "r", 908, "read")
     assert arm == "control" and "lost" in why
+
+
+def test_a_long_dead_end_is_clipped_where_it_is_shown_and_kept_with_its_problem(store: Store):
+    from locks import hooks
+
+    problem = store.open_problem("dashboard chart tooltip clipped inside the card", repo="r")
+    store.add_fix(problem, "tried " + "a very long attempt " * 60, "failed", repo="r", task_id=1,
+                  role="implementer", areas=("ui",), why="no")
+    store.add_fix(problem, "worked " + "a long cure " * 60, "worked", repo="r", task_id=2,
+                  role="implementer", areas=("ui",))
+    text = "the dashboard chart tooltip is clipped inside the card again"
+    [dead] = cells.dead_ends(store, text, repo="r", role="implementer", areas=("ui",))
+    assert len(dead["tried"]) <= cells.DEAD_END_CHARS and len(dead["worked_instead"]) <= cells.DEAD_END_CHARS
+    assert dead["tried"].endswith("…") and dead["clipped"] == ["tried", "worked_instead"]
+    assert dead["problem_id"] == problem
+    said = hooks._dead_end_text([dead], "intro")
+    assert f"problem {problem}" in said and "locks memory list" in said and len(said) < 800
+    short = cells.shown([{"tried": "a", "worked_instead": "", "problem_id": 3}])
+    assert "clipped" not in short[0] and cells.whole_line(short[0]) == ""

@@ -35,7 +35,7 @@ from locks import arms as arms_mod
 from locks import capabilities, risk
 from locks.matrix import READ_ONLY_KINDS
 from locks.store import Store
-from locks.text import fold
+from locks.text import clip, fold
 
 #: A failure met by this many tasks in cells with no area in common is shared: every
 #: worker, and the orchestrator, may meet it.
@@ -146,6 +146,35 @@ def _across(fixes: Iterable[Mapping[str, Any]]) -> bool:
     return not set.intersection(*by_task.values())
 
 
+#: The most of what a dead end tried, and of what worked instead, a brief, a prompt or the event shows.
+DEAD_END_CHARS = 240
+
+
+def shown(dead: Iterable[Mapping[str, Any]]) -> list[dict]:
+    """Dead ends as they are shown and kept on the event: `tried` and `worked_instead` clipped at
+    `DEAD_END_CHARS`, `clipped` naming which, and the `problem_id` the whole is read by."""
+    out = []
+    for d in dead:
+        row, cut = dict(d), []
+        for field in ("tried", "worked_instead"):
+            text = str(row.get(field) or "")
+            if len(text) > DEAD_END_CHARS:
+                row[field] = clip(text, DEAD_END_CHARS, one_line=True)
+                cut.append(field)
+        if cut:
+            row["clipped"] = cut
+        out.append(row)
+    return out
+
+
+def whole_line(d: Mapping[str, Any]) -> str:
+    """What a shown dead end adds when it was clipped: where the whole is."""
+    if not d.get("clipped"):
+        return ""
+    return (f" (cut: {' and '.join(d['clipped'])}; problem {d.get('problem_id')}, "
+            "`locks memory list --json` has it whole)")
+
+
 def dead_ends(store: Store, text: str, *, repo: str | None, role: str | None = None,
               areas: Sequence[str] = (), shared_only: bool = False, limit: int = 5) -> list[dict]:
     """The dead ends a worker (or, `shared_only`, the orchestrating session) is shown: a
@@ -161,13 +190,13 @@ def dead_ends(store: Store, text: str, *, repo: str | None, role: str | None = N
             # orchestrating session still hears them all.
             return None
         return found
-    return store.dead_ends(text, repo=repo, limit=limit, strict=True, scope=keep)
+    return shown(store.dead_ends(text, repo=repo, limit=limit, strict=True, scope=keep))
 
 
 def recent_shared(store: Store, *, repo: str | None, limit: int = 5) -> list[dict]:
     """The recent dead ends in a repository that are everyone's: what a session starts with."""
-    return store.dead_ends(repo=repo, limit=limit,
-                           scope=lambda p: "shared" if scope(p, role=None, areas=()) == "shared" else None)
+    return shown(store.dead_ends(repo=repo, limit=limit,
+                                 scope=lambda p: "shared" if scope(p, role=None, areas=()) == "shared" else None))
 
 
 def backfill(store: Store) -> int:

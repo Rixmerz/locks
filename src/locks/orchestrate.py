@@ -13,6 +13,7 @@ file says so.
 """
 from __future__ import annotations
 
+import collections
 import concurrent.futures
 import contextlib
 import dataclasses
@@ -3721,8 +3722,16 @@ def _reread(verdict: launch.WorkerResult, check: launch.LaunchSpec, launcher: La
     again = _merged(verdict, launcher(check))
     second = _read_by(again, store, task_id, begun, _stamp()) if again.passed and _clean_answer(again) else None
     # The log keeps whole seconds in a window: the first run's calls may share the second it ended in.
-    gone = {(c["ts"], c["sig"], c["arg_hash"]) for c in made}
-    second = [c for c in second or () if (c["ts"], c["sig"], c["arg_hash"]) not in gone]
+    # Taken away one for one: a second run that repeats the first's call within that second made its own.
+    gone = collections.Counter((c["ts"], c["sig"], c["arg_hash"]) for c in made)
+    mine = []
+    for c in second or ():
+        key = (c["ts"], c["sig"], c["arg_hash"])
+        if gone[key] > 0:
+            gone[key] -= 1
+        else:
+            mine.append(c)
+    second = mine
     if not second or behavior.read_calls(second):
         return again, False
     store.add_event(task_id, "review_unread", seq=nth, **behavior.unread_record("verifier", again=True,

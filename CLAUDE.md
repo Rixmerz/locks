@@ -1320,7 +1320,8 @@ yields the default kind, not a guess.
   worker attempt's measured input (`Store.worker_footprint`); with no measure, size and
   a full context decide. The prompt hook says it only when it is not the session, keeps
   every decision as a `routed` event to be measured (`locks stats` says how often the session sent
-  locks work after each advice, `Store.routed_followed`), and never costs the turn. It is
+  locks work after each advice, `Store.routed_followed`), and never costs the turn. A bug sent to a
+  worker is also told of the `bugfix` workflow (`route.WORKFLOW_FOR`, the event's `workflow`). It is
   advice: the session decides. A turn that read `route.READ_HEAVY_CHARS` or more of tool output
   with the session's own tools (the scribe's count per turn, `scribe.READ_TOOLS`, `state["read"]`)
   is said at the next prompt beside the route's advice (`route.read_advice`): what it read stays in
@@ -1426,7 +1427,10 @@ yields the default kind, not a guess.
   side has `notes.NOTE_TRIAL` first tries; then `notes.weigh`, in `evolution.settle` and
   never in a GET, makes it current where the tasks that carried it passed their first try
   no less often than the ones without it, and drops it, with both rates, where they did
-  worse; one with no pass after `notes.DISPROVE_AFTER` failed is dropped at once. With
+  worse; one with no pass after `notes.DISPROVE_AFTER` failed is dropped at once. A verdict one
+  task would turn is none: where the carried arm lost by a single failed first try the arms go on to
+  `NOTE_TRIAL_LONG` each; and a candidate recalled too seldom to fill them in `NOTE_TRIAL_DAYS` is left
+  out no more and settled by the passes of the tasks that carried it. With
   the trial off, `notes.PROVE_AFTER` passes make it current. A later attempt's brief
   also carries the notes anchored to the files the work changed so far
   (`orchestrate._later_notes`). When the code a task touches and its words find different

@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.102.0] - 2026-11-12
+
+### Changed
+- A worker's candidate note is no longer dropped on a verdict one task would turn: where the tasks that carried it
+  did worse than the ones left without it by a single failed first try, its arms go on to six first tries each
+  before the rates decide. On this machine a note was dropped at 75% against 100%, three tasks against four.
+- A candidate note recalled too seldom to fill its arms in 14 days is left out of no more briefs and is settled by
+  the passes of the tasks that carried it; its reason says the trial did not fill and with what counts.
+- `locks evolution` says how many of the candidate notes no brief has recalled yet: they wait and cost no brief.
+
+### Added
+- The route's advice for a bug that goes to a worker also names the `bugfix` workflow (reproduce with a failing
+  test, fix, blind review); the `routed` event keeps it as `workflow`. Said, never chosen for the session.
+
 ## [0.101.0] - 2026-11-12
 
 ### Added

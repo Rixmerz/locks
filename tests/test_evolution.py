@@ -245,10 +245,10 @@ def test_the_report_says_what_the_record_decided_beyond_the_standards(store: Sto
     found = evolution.report(store, days=0)["learned"]
     assert [(t["trial"], t["arm"], t["decided"], t["task"]) for t in found["trials"]] == [
         ("primer", "primer", False, two), ("recall", "fused", True, two)]
-    assert found["notes"] == [{"repo": "r", "waiting": 1, "adopted": 0, "dropped": [
+    assert found["notes"] == [{"repo": "r", "waiting": 1, "unrecalled": 1, "adopted": 0, "dropped": [
         {"id": note, "title": "a title", "reason": "disproven: 67% against 100%"}]}]
     text = evolution.text(evolution.report(store, days=0))
     assert "recall in r: decided, last arm fused" in text and "primer in r: still trying" in text
-    assert "1 still candidates" in text and "7 runs, 2 found something" in text
+    assert "1 still candidates (1 of them no brief recalled yet)" in text and "7 runs, 2 found something" in text
     assert evolution.learned(store, repo="elsewhere") == {"trials": [], "roles": [], "notes": [],
                                                           "habits": found["habits"]}

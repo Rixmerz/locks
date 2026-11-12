@@ -592,3 +592,14 @@ def test_an_allowed_variable_may_precede_the_program():
     cand = habits.Candidate(("edit:.py", "bash:ruff"), 3, 2, 1.0, 1, 6.0)
     assert habits.shaped('NO_COLOR=1 ruff check "$LOCKS_EDITED"', cand) is None
     assert habits.shaped('CI=1 TERM=dumb ruff check "$LOCKS_EDITED"', cand) is None
+
+
+def test_an_install_bare_in_one_text_is_read_from_the_text_that_quotes_it() -> None:
+    """The evidence gave the command without backticks and the report quoted it: the bare one came first
+    and the habit was skipped as cut."""
+    bare = 'install 913c3597: .venv/bin/ruff check "$LOCKS_EDITED" -> All checks passed! exit 0'
+    quoted = '- install 913c3597: `.venv/bin/ruff check "$LOCKS_EDITED"`\n- skip 94519639: too slow'
+    installs, skips = habits.review_verdicts([bare, quoted], ["913c3597", "94519639"])
+    assert installs == {"913c3597": '.venv/bin/ruff check "$LOCKS_EDITED"'}
+    assert skips == {"94519639": "too slow"}
+    assert "cut or not given" in habits.review_verdicts([bare], ["913c3597"])[1]["913c3597"]

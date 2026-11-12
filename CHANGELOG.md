@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- A habits review's install is read from the text that quotes its command. The worker's evidence gave it bare
+  and its report in backticks; the bare one was read first and the habit was skipped as "cut or not given in
+  backticks", so a reviewed `ruff` hook (0.011 s on the edited file) was never installed.
+
 ## [0.99.1] - 2026-11-12
 
 ### Fixed

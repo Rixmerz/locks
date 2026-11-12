@@ -966,13 +966,20 @@ def test_a_call_resolved_only_by_name_is_one_caller_in_the_brief_the_count_and_t
     text = "Change apply_line in src/tally/rules.py"
     with livespec_mod._connect(Path(status.data["db"])) as conn:
         assert all(livespec_mod._describe(conn, 200 + i)["callers"] == 1 for i in range(21))
-        assert livespec_mod._describe(conn, 205)["caller_ids"] == [400]
+        # the 21 callers that reach it by name are still the symbols that reach it: `reached` counts them once
+        assert len(livespec_mod._describe(conn, 205)["caller_ids"]) == 21
     b = a.brief(text, git_repo, status)
-    # five overrides matched (the name lookup's limit) plus the one call site that reaches them all
     assert not any("callers" in r for r in b.reasons) and b.raise_rungs == 0
-    assert b.reached == 6
+    assert b.reached == 5 + 21
     d = a.dossier(text, git_repo, status)
     assert "1 caller(s): price (src/tally/checkout.py:5)" in d.text and "21 caller" not in d.text
+
+
+def test_a_call_resolved_to_one_method_is_a_whole_caller_even_at_a_low_weight(tmp_path, git_repo):
+    build(git_repo, rules=20)
+    with livespec_mod._connect(Path(adapter(tmp_path).inspect(git_repo).data["db"])) as conn:
+        only = livespec_mod._describe(conn, 501)
+        assert only["callers"] == 1 and only["caller_ids"] == [500]
 
 
 def test_widely_used_is_judged_on_distinct_calling_symbols(tmp_path, git_repo):

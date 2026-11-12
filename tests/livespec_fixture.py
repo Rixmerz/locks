@@ -38,9 +38,8 @@ def build(root: Path, *, indexed_at: str = "2999-01-01 00:00:00", project_root: 
           rules: int = 0) -> Path:
     """An index of a small payments codebase: a parser everyone calls, a charge
     function behind a critical spec, and tests. With `rules`, also a base class `Rule` and that many
-    subclasses each defining `apply_line`, called once from `price` as `rule.apply_line(...)`; as the
-    indexer stores it, that call is one `calls` edge of weight 0.5 from `price` to every method of that
-    name, and each override's `super().apply_line(...)` fans out the same way to its same-named siblings."""
+    subclasses each defining `apply_line`, called once from `price` as `rule.apply_line(...)` and once from a
+    test each; the indexer stores such a call as one weight-0.5 `calls` edge to every method of that name."""
     db = root / ".mcp-docs" / "docs.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db)
@@ -84,20 +83,32 @@ def build(root: Path, *, indexed_at: str = "2999-01-01 00:00:00", project_root: 
 
 
 def _rules(conn: sqlite3.Connection, count: int) -> None:
-    """`Rule.apply_line` and `count` overrides, one caller `price` that reaches them all by bare name."""
-    for fid, path in ((5, "src/tally/rules.py"), (6, "src/tally/checkout.py")):
+    """`Rule.apply_line` and `count` overrides, as the indexer stores their callers: `price` calls
+    `rule.apply_line(...)` once and each test calls its own rule's `apply_line`, and every one of those calls,
+    resolved by bare name, is one weight-0.5 edge from the caller to every method of that name. Methods never
+    call one another here: the index holds no same-name method-to-method edge."""
+    files = [(5, "src/tally/rules.py"), (6, "src/tally/checkout.py")]
+    files += [(10 + i, f"tests/test_rule_{i}.py") for i in range(count)]
+    for fid, path in files:
         conn.execute("INSERT INTO file (id, project_id, path, language, content_hash, line_count, mtime) "
                      "VALUES (?, 1, ?, 'python', 'h', 10, 0)", (fid, path))
-    methods = [(200 + i, 5, f"src.tally.rules.{'Rule' if i == 0 else f'Rule{i}'}.apply_line") for i in range(count + 1)]
-    for sid, fid, qname in methods:
+    methods = [200 + i for i in range(count + 1)]
+    for sid in methods:
         conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
-                     "VALUES (?, ?, 'apply_line', ?, 'method', ?, ?)", (sid, fid, qname, sid, sid + 1))
+                     "VALUES (?, 5, 'apply_line', ?, 'method', ?, ?)",
+                     (sid, f"src.tally.rules.{'Rule' if sid == 200 else f'Rule{sid - 200}'}.apply_line", sid, sid + 1))
+    callers = [(400, 6, "src.tally.checkout.price")]
+    callers += [(401 + i, 10 + i, f"tests.test_rule_{i}.test_lines") for i in range(count)]
+    for sid, fid, qname in callers:
+        conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                     "VALUES (?, ?, ?, ?, 'function', 5, 9)", (sid, fid, qname.rsplit(".", 1)[-1], qname))
+        for dst in methods:
+            conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type, weight) "
+                         "VALUES (?, ?, 'calls', 0.5)", (sid, dst))
+    # a wrapper of a method no other shares its name: a call the index resolved to one, a whole caller
     conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
-                 "VALUES (400, 6, 'price', 'src.tally.checkout.price', 'function', 5, 9)")
-    for sid, _fid, _q in methods:
-        conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type, weight) "
-                     "VALUES (400, ?, 'calls', 0.5)", (sid,))
-        for other, _f, _q in methods:
-            if other != sid:
-                conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type, weight) "
-                             "VALUES (?, ?, 'calls', 0.5)", (sid, other))
+                 "VALUES (500, 6, 'wrap', 'src.tally.checkout.wrap', 'function', 12, 14)")
+    conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                 "VALUES (501, 5, 'only', 'src.tally.rules.Rule.only', 'method', 30, 31)")
+    conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type, weight) "
+                 "VALUES (500, 501, 'calls', 0.6)")

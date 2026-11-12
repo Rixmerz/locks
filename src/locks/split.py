@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from locks import criteria, launch, points, route, surfaces
+from locks.text import clip
 
 #: The most pieces a split proposes: past this, a feature workflow plans it.
 MAX_PIECES = 6
@@ -80,23 +81,49 @@ def _head(text: str, items: Sequence[str]) -> str:
     return " ".join(" ".join(lines).split())
 
 
-def _surfaces(item: str) -> list[str]:
-    """The folders a piece's item names, as surfaces: a file's folder, a folder itself."""
-    out = []
+def _exists(where: Path | None, surface: str) -> bool:
+    """Whether a surface names something in the work directory: the path itself, or for a glob
+    its literal folder (the part before the first wildcard). Unknown directory: kept."""
+    if where is None:
+        return True
+    literal = PurePosixPath(surface).parts
+    keep = []
+    for part in literal:
+        if any(c in part for c in "*?["):
+            break
+        keep.append(part)
+    return (where / Path(*keep)).exists() if keep else True
+
+
+def _surfaces(item: str, where: Path | None = None) -> tuple[list[str], list[str]]:
+    """The folders a piece's item names, as surfaces (a file's folder, a folder itself), and the
+    ones left out because the repository does not have that path (`_exists`)."""
+    out, absent = [], []
     for path in points.named(item):
         p = PurePosixPath(path.strip("/"))
         folder = p if not p.suffix else p.parent
-        if str(folder) not in (".", ""):
-            out.append(f"{folder}/**")
-    return sorted(dict.fromkeys(out))
+        if str(folder) in (".", ""):
+            continue
+        (out if _exists(where, f"{folder}/**") else absent).append(f"{folder}/**")
+    return sorted(dict.fromkeys(out)), sorted(dict.fromkeys(absent))
 
 
-def by_items(text: str, done: Sequence[str] = ()) -> Proposal:
-    """A request that lists its items, split by them with no model: each item a piece."""
+def same_text(texts: Sequence[str]) -> bool:
+    """Whether pieces are one task asked several times: every text is the same once spaces are
+    folded. Their surfaces do not make them different work."""
+    return len({" ".join(str(t).split()) for t in texts}) < 2
+
+
+def by_items(text: str, done: Sequence[str] = (), where: Path | None = None) -> Proposal:
+    """A request that lists its items, split by them with no model: each item a piece. `where` is
+    the work directory: a surface derived from an item is kept only when it exists there."""
     listed = criteria.items(text)
     items = route.pieces_of(text)
     if len(items) < 2:
         return Proposal(problem="it lists fewer than two items")
+    if route.one_file(text, items):
+        return Proposal(problem=f"its {len(items)} listed items are all changes to one file or document: it "
+                                "is one task", source="whole")
     if len(items) > MAX_PIECES:
         return Proposal(problem=f"it lists {len(items)} items, more than {MAX_PIECES} pieces: plan it as a "
                                 "feature (`locks workflow run feature`), whose plan groups them")
@@ -107,15 +134,20 @@ def by_items(text: str, done: Sequence[str] = ()) -> Proposal:
             f"- {rule}" for rule in rules)
     already = (" Part of this request was already worked on, on the branch this task starts from: finish what "
                "is left of this piece.") if done else ""
-    found = [_surfaces(item) for item in items]
+    derived = [_surfaces(item, where) for item in items]
+    found = [mine for mine, _ in derived]
     # Pieces whose folders collide would be held one behind the other by their surfaces alone, even when
     # they name different files (the field reports' sequential autosplit): those go without surfaces, and
     # the dispatcher judges them by what each names (`dispatch.named_surfaces`).
     crowded = {n for n, mine in enumerate(found) if mine and any(
         other and not surfaces.disjoint(mine, other) for m, other in enumerate(found) if m != n)}
     parts = tuple({"id": f"p{n}", "prompt": (f"{head}\n\n" if head else "") + f"This task is one piece of that "
-                   f"request: {item}{already}", "surfaces": [] if n - 1 in crowded else mine}
-                  for n, (item, mine) in enumerate(zip(items, found, strict=True), 1))
+                   f"request: {item}{already}", "surfaces": [] if n - 1 in crowded else mine,
+                   **({"absent": gone} if gone else {})}
+                  for n, (item, mine, (_, gone)) in enumerate(zip(items, found, derived, strict=True), 1))
+    if same_text(items):
+        return Proposal(problem=f"its {len(items)} pieces are the same text but for their surfaces: it is one "
+                                "task", source="whole")
     return Proposal(parts=parts, source="items", done=tuple(done))
 
 
@@ -157,17 +189,33 @@ def by_model(text: str, where: Path | None, *, done: Sequence[str] = (), ask: As
         parts, contract, problem = launch.read_parts(answer) if answer is not None else ((), "", why)
     if problem:
         return Proposal(problem=f"the model's split does not read: {problem}", source="haiku", cost_usd=cost)
-    if len(parts) < 2:
+    if len(parts) < 2 or same_text([str(p["prompt"]) for p in parts]):
         return Proposal(problem="the model found one piece: it is one task", source="haiku", cost_usd=cost)
     return Proposal(parts=parts, contract=contract, source="haiku", cost_usd=cost, done=tuple(done))
 
 
 def propose(text: str, where: Path | None, *, done: Sequence[str] = (), ask: Ask | None = None) -> Proposal:
     """The pieces a request splits into: by its listed items when it has them, else by Haiku."""
-    listed = by_items(text, done)
-    if listed.parts or len(criteria.items(text)) > MAX_PIECES:
+    listed = by_items(text, done, where)
+    if listed.parts or listed.source == "whole" or len(criteria.items(text)) > MAX_PIECES:
         return listed
     return by_model(text, where, done=done, ask=ask)
+
+
+def siblings(store: Any, number: int) -> list[int]:
+    """The pieces of the split a task belongs to, oldest first: `number` is a piece (its
+    `split_from` event names the task it was split from, and the group it was queued in) or
+    the task they were split from. Empty when it is neither."""
+    events = store.events_of_kinds(["split_from"])
+    mine = next((e for e in events if e["task_id"] == number), None)
+    if mine is not None:
+        data = mine["data"]
+        key = ("group", data["group"]) if data.get("group") is not None else ("task", data.get("task"))
+        if key[1] is None:
+            return [number]
+    else:
+        key = ("task", number)
+    return sorted({e["task_id"] for e in events if e["data"].get(key[0]) == key[1]})
 
 
 def brief(part: Mapping[str, Any], contract: str) -> str:
@@ -187,6 +235,8 @@ def lines(proposal: Proposal) -> list[str]:
             + (f", ${proposal.cost_usd:.3f}" if proposal.cost_usd else "") + "):"]
     for part in proposal.parts:
         where = ", ".join(part.get("surfaces") or ()) or "no surfaces: the dispatcher decides what runs beside it"
+        if part.get("absent"):
+            where += f" ({clip(', '.join(part['absent']), 80)} left out: not in the repository)"
         after = f", after {part['after']}" if part.get("after") else ""
         said.append(f"  {part['id']}{after} [{where}]: {' '.join(str(part['prompt']).split())[:300]}")
     if proposal.contract:

@@ -506,6 +506,7 @@ def review_verdicts(texts: Sequence[str], reviewed: Sequence[str]) -> tuple[dict
     it was asked about, the first verdict for each."""
     installs: dict[str, str] = {}
     skips: dict[str, str] = {}
+    unread: set[str] = set()
     for text in texts:
         for verb, cid, command, why in VERDICT.findall(text or ""):
             if cid not in reviewed or cid in installs or cid in skips:
@@ -513,9 +514,13 @@ def review_verdicts(texts: Sequence[str], reviewed: Sequence[str]) -> tuple[dict
             if verb == "install" and command.strip():
                 installs[cid] = command.strip()
             elif verb == "install":
-                skips[cid] = "its command was cut or not given in backticks (`locks show` has the worker's words)"
+                # An install whose command one text gives without backticks decides nothing yet: the
+                # same verdict may be whole in another (the evidence had it bare, the report quoted).
+                unread.add(cid)
             else:
                 skips[cid] = clip((command or why).strip(), SKIP_CHARS)
+    for cid in sorted(unread - installs.keys() - skips.keys()):
+        skips[cid] = "its command was cut or not given in backticks (`locks show` has the worker's words)"
     return installs, skips
 
 

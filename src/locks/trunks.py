@@ -39,6 +39,11 @@ EARLY, EARLY_MARGIN = 5, 0.2
 ARMS = ("fork", "fresh")
 #: The key the arm is kept under, on the task's first `briefed` event.
 KEY = "trunk_arm"
+#: The environment variable that forces the arm for one process (`fork` or `fresh`; any other value is ignored):
+#: a bench measuring whole runs sets it. A forced step is in no arm of the trial.
+FORCE = "LOCKS_TRUNK_ARM"
+#: What the `trunk_why` of a forced step starts with, the mark `trial` reads (the brief keeps no other field).
+FORCED_WHY = "forced by the environment"
 
 
 def problems(steps: Sequence[Mapping[str, Any]], ids: Sequence[str]) -> list[str]:
@@ -142,7 +147,7 @@ def trial(store: Store, repo: str | None) -> dict[str, dict[str, Any]]:
     """Each arm's tasks in a repository (None: in every one): how many, how many passed their
     first try, and the medians of the calls before its first change, its input tokens and its
     duration."""
-    rows = store.arm_trial(repo, KEY)
+    rows = [r for r in store.arm_trial(repo, KEY) if not forced(store, r["task_id"])]
     out: dict[str, dict[str, Any]] = {}
     for arm in ARMS:
         mine = [r for r in rows if r["arm"] == arm]
@@ -153,14 +158,28 @@ def trial(store: Store, repo: str | None) -> dict[str, dict[str, Any]]:
     return out
 
 
+def forced(store: Store, task_id: int) -> bool:
+    """Whether the task's first brief took its trunk arm from `FORCE`, not from the trial."""
+    first = next(iter(store.events_of(task_id, "briefed")), None)
+    return str(((first or {}).get("data") or {}).get("trunk_why") or "").startswith(FORCED_WHY)
+
+
+def _forced_arm(env: Mapping[str, str]) -> str | None:
+    value = str(env.get(FORCE, "")).strip().lower()
+    return value if value in ARMS else None
+
+
 def _p50(values: Any) -> Any:
     got = sorted(v for v in values if v is not None)
     return got[(len(got) - 1) // 2] if got else None
 
 
-def arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
+def arm(store: Store, repo: str | None, task_id: int, env: Mapping[str, str] | None = None) -> tuple[str, str]:
     """Whether this step's first attempt forks its trunk, and why. During the trial the arms
-    alternate (the one with fewer tasks first); after it, forking stays where it won."""
+    alternate (the one with fewer tasks first); after it, forking stays where it won. `FORCE` in
+    the environment decides before the trial, and says so in its why (`FORCED_WHY`)."""
+    if (forcing := _forced_arm(os.environ if env is None else env)) is not None:
+        return forcing, f"{FORCED_WHY} ({FORCE}={forcing}); left out of the trial"
     if repo is None:
         return "fork", "no repository to run a trial in"
     found = trial(store, repo)

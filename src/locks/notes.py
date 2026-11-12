@@ -42,6 +42,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,13 @@ WITHHELD = "notes_withheld"
 #: it was recalled for alternate between carrying it and going without it, until each arm has this
 #: many first tries; it becomes current only when the tasks that carried it passed no less often.
 NOTE_TRIAL = 3
+#: A verdict one task would turn is none: a candidate whose carried arm did worse by a single failed
+#: first try goes on in arms until each has this many, and is decided there by the rates as they are.
+NOTE_TRIAL_LONG = 2 * NOTE_TRIAL
+#: A candidate recalled too seldom to fill its arms in this many days stops being left out, and is
+#: settled as with no trial (`PROVE_AFTER` passes of the tasks that carried it): withholding it from
+#: half its few briefs bought no verdict.
+NOTE_TRIAL_DAYS = 14
 #: How the reason of a candidate made current begins (`doctor` reads it).
 PROVEN = "proven: "
 AUTHORS = ("person", "worker", "session")
@@ -464,13 +472,27 @@ def trials_on(env: Mapping[str, str] | None = None) -> bool:
     return config.enabled("note_trials", os.environ if env is None else env)
 
 
-def arms(store: Store, found: Sequence[Mapping[str, Any]]) -> tuple[list[dict], list[dict]]:
+def _trial_over(note: Mapping[str, Any], now: datetime | None = None) -> bool:
+    """Whether a candidate has waited `NOTE_TRIAL_DAYS` since it last changed. Unreadable is no."""
+    try:
+        since = datetime.fromisoformat(str(note.get("updated_at") or note.get("created_at") or ""))
+    except ValueError:
+        return False
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=UTC)
+    return (now or datetime.now(UTC)) - since >= timedelta(days=NOTE_TRIAL_DAYS)
+
+
+def arms(store: Store, found: Sequence[Mapping[str, Any]],
+         now: datetime | None = None) -> tuple[list[dict], list[dict]]:
     """The notes a brief carries and the candidates it leaves out by their trial: each worker
     candidate (never a constraint, whose breaking is a finding) goes without in turn, the arm with
-    fewer tasks next, until it was left out `NOTE_TRIAL` times. With `note_trials` off, all carried."""
+    fewer tasks next, until it was left out `NOTE_TRIAL_LONG` times (`weigh` settles it at `NOTE_TRIAL`
+    unless one task would turn the verdict) or waited `NOTE_TRIAL_DAYS`. With `note_trials` off, all carried."""
     if not trials_on():
         return list(found), []
-    trial = [n for n in found if n.get("state") == CANDIDATE and n.get("kind") != CONSTRAINT]
+    trial = [n for n in found if n.get("state") == CANDIDATE and n.get("kind") != CONSTRAINT
+             and not _trial_over(n, now)]
     if not trial:
         return list(found), []
     took, left = carried(store), withheld(store)
@@ -479,7 +501,7 @@ def arms(store: Store, found: Sequence[Mapping[str, Any]]) -> tuple[list[dict], 
         nid = int(note["id"])
         with_it = sum(1 for ids in took.values() if nid in ids)
         without = sum(1 for ids in left.values() if nid in ids)
-        if without < NOTE_TRIAL and without < with_it:
+        if without < NOTE_TRIAL_LONG and without < with_it:
             out_ids.add(nid)
     return ([n for n in found if int(n["id"]) not in out_ids], [n for n in found if int(n["id"]) in out_ids])
 
@@ -523,10 +545,13 @@ def anchored_to(store: Store, project: str, paths: Iterable[str], skip: Iterable
     return expand(store, [int(n["id"]) for n in rows], {int(n["id"]): "about a file the work changed" for n in rows})
 
 
-def weigh(store: Store) -> dict[str, list[int]]:
+def weigh(store: Store, now: datetime | None = None) -> dict[str, list[int]]:
     """Settle the candidates by the tasks whose first brief carried them, other than the one
     that wrote them, once those ended: current after `PROVE_AFTER` passed their first try
     (`standards.samples`), dropped after `DISPROVE_AFTER` failed theirs with none passing.
+    With the trial on, by its arms instead: at `NOTE_TRIAL` first tries each, unless the carried arm
+    lost by one failed task (then at `NOTE_TRIAL_LONG`); a candidate whose arms did not fill in
+    `NOTE_TRIAL_DAYS` is settled by the first rule.
     From `evolution.settle`, never from a GET. Which notes moved, by the state they took."""
     moved: dict[str, list[int]] = {"current": [], "dropped": []}
     candidates = [n for p in store.note_projects() for n in store.notes(p, states=[CANDIDATE], limit=100_000)]
@@ -556,6 +581,7 @@ def weigh(store: Store) -> dict[str, list[int]]:
     with store.immediate():
         for note in candidates:
             passed, failed = firsts(briefs, note)
+            late = ""
             if trials and note.get("kind") != CONSTRAINT:
                 # Weighed against its absence: the tasks that carried it against the ones its trial
                 # left without it. A note that never failed a reader still waits for its arm to fill.
@@ -565,6 +591,9 @@ def weigh(store: Store) -> dict[str, list[int]]:
                     pass  # dropped below, as without a trial: every reader failed
                 elif carried_n >= NOTE_TRIAL and without_n >= NOTE_TRIAL:
                     with_rate, without_rate = len(passed) / carried_n, len(w_passed) / without_n
+                    if (with_rate < without_rate and len(failed) - len(w_failed) <= 1
+                            and min(carried_n, without_n) < NOTE_TRIAL_LONG and not _trial_over(note, now)):
+                        continue  # one task would turn it: the arms go on to `NOTE_TRIAL_LONG`
                     said = (f"the {carried_n} tasks that carried it passed their first try {with_rate:.0%}, the "
                             f"{without_n} its trial left without it {without_rate:.0%}")
                     if with_rate >= without_rate:
@@ -574,11 +603,14 @@ def weigh(store: Store) -> dict[str, list[int]]:
                         store.update_note(note["id"], state="dropped", state_reason="disproven: " + said)
                         moved["dropped"].append(int(note["id"]))
                     continue
-                else:
+                elif not _trial_over(note, now):
                     continue
+                else:
+                    late = (f"; its trial did not fill in {NOTE_TRIAL_DAYS} days ({carried_n} carried it, "
+                            f"{without_n} went without)")
             if len(passed) >= PROVE_AFTER:
                 store.update_note(note["id"], state="current", state_reason=PROVEN + "in the brief of "
-                                  + ", ".join(f"#{t}" for t in passed) + ", which passed their first try")
+                                  + ", ".join(f"#{t}" for t in passed) + ", which passed their first try" + late)
                 moved["current"].append(int(note["id"]))
             elif not passed and len(failed) >= DISPROVE_AFTER:
                 store.update_note(note["id"], state="dropped", state_reason="unproven: in the brief of "

@@ -144,6 +144,11 @@ def asks(text: str) -> bool:
     return bool(_ASKS.search(text) or _FIRST_ASKS.search(text)) and not opens_with_change(text)
 
 
+#: The bundled workflow a worker-bound request of a kind is also told of (`Route.workflow`): the
+#: chain made for that kind of work. Said, and kept on the `routed` event; the session decides.
+WORKFLOW_FOR = {"debug-repro": "bugfix", "debug-unclear": "bugfix"}
+
+
 @dataclass(frozen=True)
 class Route:
     mode: str
@@ -152,13 +157,21 @@ class Route:
     points: int = 0
     areas: tuple[str, ...] = field(default=())
 
+    @property
+    def workflow(self) -> str:
+        """The bundled workflow made for this request's kind, when it goes to a worker: said beside
+        the queue line as the other way to send it, never chosen for the session."""
+        return WORKFLOW_FOR.get(self.kind, "") if self.mode == WORKER else ""
+
     def advice(self) -> str:
         """What the orchestrating session is told; nothing when the session does it, the default."""
         why = "; ".join(self.reasons)
         if self.mode == WORKER:
+            chain = (f" A bug has a chain of its own: `locks workflow run {self.workflow} \"<the bug>\"` reproduces "
+                     "it with a failing test, fixes it and has the fix reviewed blind." if self.workflow else "")
             return (f"locks route: a worker ({why}). Queue it (locks' `queue` tool, or `locks queue add`) with "
                     "the request written in full and its check, and go on here; do it yourself instead if it turns "
-                    "out to need this conversation.")
+                    "out to need this conversation." + chain)
         if self.mode == PARALLEL:
             return (f"locks route: in parts, side by side ({why}). Run `locks workflow run feature \"<the request>\"` "
                     "(it splits by itself), or queue one task per independent piece, each with its own `--surface`, "
@@ -167,7 +180,7 @@ class Route:
 
     def data(self) -> dict:
         return {"mode": self.mode, "reasons": list(self.reasons), "kind": self.kind, "points": self.points,
-                "areas": list(self.areas)}
+                "areas": list(self.areas), **({"workflow": self.workflow} if self.workflow else {})}
 
 
 #: A build request listing this many items, in at least `SPLIT_WORDS` words, is several tasks:

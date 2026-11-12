@@ -243,3 +243,13 @@ def test_listed_rules_are_no_pieces_and_one_module_is_one_task():
     five = ("Build the platform:\n- add api/users.py endpoint\n- add web/users.tsx screen\n- add docs/users.md page\n"
             "- add db/users.sql table\n- add jobs/users.py worker")
     assert route.split_first(five, "feature") == "5 pieces in folders of their own"
+
+
+def test_a_bug_sent_to_a_worker_is_told_of_the_bugfix_workflow():
+    bug = ("Arregla el error: al aplicar dos cupones el total queda negativo en src/pricing/engine.py y el pedido "
+           "se guarda igual en la base de datos sin validar nada")
+    found = route.choose(bug, context_share=0.9)
+    assert found.mode == route.WORKER and found.workflow == "bugfix" and found.data()["workflow"] == "bugfix"
+    assert "locks workflow run bugfix" in found.advice()
+    build = route.choose(MEDIUM, context_share=0.9)
+    assert build.workflow == "" and "workflow" not in build.data() and "workflow run" not in build.advice()

@@ -4,7 +4,7 @@ pre-mortem handed to the checks after it, and a loop's round that moved nothing 
 from __future__ import annotations
 
 from dataclasses import replace as dataclasses_replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -39,7 +39,7 @@ def test_a_candidate_goes_without_in_turn_until_its_trial_is_full(store: Store, 
     _briefed(store, finished(store, ("sonnet/medium", 1)), carried=[note])
     carried, left = notes.arms(store, found)
     assert carried == [] and [n["id"] for n in left] == [note]
-    for _ in range(notes.NOTE_TRIAL):
+    for _ in range(notes.NOTE_TRIAL_LONG):
         _briefed(store, finished(store, ("sonnet/medium", 1)), withheld=[note])
         _briefed(store, finished(store, ("sonnet/medium", 1)), carried=[note])
     assert notes.arms(store, found) == (found, [])  # left out its full share: carried from now on
@@ -432,3 +432,35 @@ def test_a_worker_handed_nothing_still_has_its_logged_calls_read_at_the_attempt_
         launcher=Script(ok()))
     done = store.last_event(store.list_tasks(status=["done"], limit=1)[0]["id"], "attempt_finished")["data"]
     assert done["tools_logged"] is True and "capability_calls" not in done
+
+
+def test_a_verdict_one_task_would_turn_waits_for_longer_arms(store: Store, monkeypatch):
+    monkeypatch.setenv("LOCKS_NOTE_TRIALS", "on")
+    note = _candidate(store)
+    for n in range(notes.NOTE_TRIAL):
+        _briefed(store, finished(store, ("sonnet/medium", int(n > 0), "code_bug")), carried=[note])
+        _briefed(store, finished(store, ("sonnet/medium", 1)), withheld=[note])
+    assert notes.weigh(store) == {"current": [], "dropped": []}  # 67% against 100%: one failed task apart
+    found = notes.expand(store, [note])
+    _briefed(store, finished(store, ("sonnet/medium", 1)), carried=[note])
+    assert notes.arms(store, found)[1] == found  # the arms go on past NOTE_TRIAL
+    for _ in range(notes.NOTE_TRIAL):
+        _briefed(store, finished(store, ("sonnet/medium", 1)), withheld=[note])
+        _briefed(store, finished(store, ("sonnet/medium", 1)), carried=[note])
+    assert notes.weigh(store) == {"current": [], "dropped": [note]}  # full long arms: the rates decide
+    assert "passed their first try 86%" in store.get_note(note)["state_reason"]
+
+
+def test_a_candidate_too_seldom_recalled_is_settled_without_its_trial(store: Store, monkeypatch):
+    monkeypatch.setenv("LOCKS_NOTE_TRIALS", "on")
+    note, quiet = _candidate(store), _candidate(store, "The cache is warmed by a cron job")
+    for _ in range(notes.PROVE_AFTER):
+        _briefed(store, finished(store, ("sonnet/medium", 1)), carried=[note])
+    found = notes.expand(store, [note])
+    assert notes.arms(store, found)[1] == found and notes.weigh(store) == {"current": [], "dropped": []}
+    later = datetime.now().astimezone() + timedelta(days=notes.NOTE_TRIAL_DAYS + 1)
+    assert notes.arms(store, found, now=later) == (found, [])  # left out no more
+    assert notes.weigh(store, now=later) == {"current": [note], "dropped": []}
+    assert f"its trial did not fill in {notes.NOTE_TRIAL_DAYS} days (2 carried it, 0 went without)" in (
+        store.get_note(note)["state_reason"])
+    assert store.get_note(quiet)["state"] == notes.CANDIDATE  # never recalled: it waits, and costs no brief

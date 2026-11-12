@@ -317,6 +317,10 @@ def learned(store: Store, *, repo: str | None = None, since: str = "") -> dict[s
     roles = [{"repo": r["repo"], "role": r["role"], "record": r["record"], "reason": r["reason"], "at": r["at"],
               "lessons": len(r["lessons"])} for r in store.role_revisions(repo=repo, since=since)]
     notes: list[dict[str, Any]] = []
+    from locks import notes as notes_mod
+
+    recalled = {i for held in (notes_mod.carried(store), notes_mod.withheld(store)) for ids in held.values()
+                for i in ids}
     for project in store.note_projects():
         if repo is not None and project != repo:
             continue
@@ -326,6 +330,8 @@ def learned(store: Store, *, repo: str | None = None, since: str = "") -> dict[s
         waiting = sum(1 for n in found if n["state"] == "candidate")
         if moved or waiting:
             notes.append({"repo": project, "waiting": waiting,
+                          "unrecalled": sum(1 for n in found if n["state"] == "candidate"
+                                            and n["id"] not in recalled),
                           "adopted": sum(1 for n in moved if n["state"] == "current"),
                           "dropped": [{"id": n["id"], "title": n["title"], "reason": n["state_reason"]}
                                       for n in moved if n["state"] == "dropped"]})
@@ -345,7 +351,8 @@ def learned_lines(found: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[str]
         lines.append(f"role {r['role']} in {_name(r['repo'])}: {r['record']} {r['lessons']} lessons: {r['reason']}")
     for n in found["notes"]:
         lines.append(f"notes in {_name(n['repo'])}: {n['adopted']} adopted and {len(n['dropped'])} dropped by "
-                     f"their trial in this period, {n['waiting']} still candidates")
+                     f"their trial in this period, {n['waiting']} still candidates"
+                     + (f" ({n['unrecalled']} of them no brief recalled yet)" if n.get("unrecalled") else ""))
         lines += [f"  dropped #{d['id']} {d['title']}: {d['reason']}" for d in n["dropped"]]
     for h in found["habits"]:
         lines.append(f"habit #{h['id']} {' → '.join(h['steps'])} in {h['where']}: {h['runs']} runs, "

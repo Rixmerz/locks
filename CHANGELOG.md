@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.103.1] - 2026-11-12
+
+### Fixed
+- A task that names a file without its folder ("in `launch.py` add …") now waits for work ahead that names the
+  same file with its folder: the two were read as different files and could start side by side on one file.
+- A queued task waited for work ahead over paths its text did not ask to change: a folder named beside files
+  inside it (the files now stand for it), and paths under "no part edits …", "nor …" or a negation after them
+  that points back ("… CLAUDE.md, AGENTS.md … never edit those files", the wording of every ledger fix step).
+  Replayed on one machine's 17 waits decided by names or surfaces: every one whose tasks went on to change the
+  same file still waits, and 3 of the 6 that changed none in common no longer do.
+
 ## [0.103.0] - 2026-11-12
 
 ### Changed

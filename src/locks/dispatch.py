@@ -110,18 +110,22 @@ def declared_surfaces(task: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 #: A clause that tells what not to touch: the paths it names are no surface of the task.
-_NEGATES = re.compile(r"\b(?:not|never|don'?t|without)\b", re.IGNORECASE)
+_NEGATES = re.compile(r"\b(?:not|never|don'?t|without|nor|no\s+\w+\s+(?:edit|touch|chang|modif|rewrit)\w*)\b",
+                      re.IGNORECASE)
 _LEFT_ALONE = re.compile(r"\bleave\b[^,;]*\balone\b|\buntouched\b", re.IGNORECASE)
+#: A negation after the paths that points back at them ("… CLAUDE.md, AGENTS.md … never edit those files").
+_THOSE = re.compile(r"\b(?:not|never|don'?t)\b[^.;]*\b(?:those|these)\s+(?:files|paths|folders)\b", re.IGNORECASE)
 #: Where a clause ends. A dot inside a file name ("CHANGELOG.md") is no end.
 _CLAUSE = re.compile(r"(?<=[.!?;])\s+|\n+")
 
 
 def _negated(text: str, at: int) -> bool:
     """Whether the path at `at` sits in a sentence that negates it: a `not`, `never`, `do not`,
-    `don't` or `without` before it, or `leave … alone` / `untouched` in the sentence."""
+    `don't`, `without`, `nor` or "no part edits" before it, `leave … alone` / `untouched` in the
+    sentence, or a negation after it that points back ("never edit those files")."""
     start = max((m.end() for m in _CLAUSE.finditer(text, 0, at)), default=0)
     end = next((m.start() for m in _CLAUSE.finditer(text, at)), len(text))
-    return bool(_NEGATES.search(text[start:at])
+    return bool(_NEGATES.search(text[start:at]) or _THOSE.search(text[at:end])
                 or any(m.start() <= at - start < m.end() or m.group(0).lower() == "untouched"
                        for m in _LEFT_ALONE.finditer(text[start:end])))
 
@@ -139,7 +143,24 @@ def named_surfaces(task: Mapping[str, Any]) -> tuple[str, ...]:
         clean = match.group(0).strip("/")
         if clean and "*" not in clean and not _negated(text, match.start()):
             found.append(clean if "." in clean.rsplit("/", 1)[-1] else f"{clean}/**")
-    return tuple(dict.fromkeys(found))
+    # A folder named beside files inside it is where those files are, not the whole tree
+    # ("fix both in src/locks/a.py … one module of `src/`"): the files stand for it.
+    files = [f for f in found if not f.endswith("/**")]
+    return tuple(dict.fromkeys(f for f in found if not f.endswith("/**")
+                               or not any(x.startswith(f[:-2]) for x in files)))
+
+
+def names_touch(named: Sequence[str], theirs: Sequence[str]) -> bool:
+    """Whether what one task names may be what another names or declares: surfaces that may
+    touch, or a bare file name ("launch.py") on one side that is the name of a file on the other
+    ("src/locks/launch.py"), since a request often names a file without its folder."""
+    from locks import surfaces
+
+    if not surfaces.disjoint(named, theirs):
+        return True
+    bare = lambda xs: {x for x in xs if "/" not in x and "*" not in x}  # noqa: E731
+    last = lambda xs: {x.rsplit("/", 1)[-1] for x in xs if "*" not in x}  # noqa: E731
+    return bool(bare(named) & last(theirs) or bare(theirs) & last(named))
 
 
 def _clip(line: str, at: int) -> str:

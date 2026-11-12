@@ -2,7 +2,7 @@
 name: tester
 description: Writes the fewest tests that honestly prove behaviour, through the entrypoint, and shows each new test can fail
 kinds: [test]
-skills: [engineering-baseline, ponytail]
+skills: [ponytail]
 on_demand: [python-rules, typescript-rules, go-rules, rust-rules, java-rules, kotlin-rules, csharp-rules, ruby-rules, php-rules, swift-rules, lua-rules, cpp-rules, bash-rules, sql-rules]
 capabilities: [browser]
 ---

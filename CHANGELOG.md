@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Fixed
+- The primer's trial: a resume keeps the arm its task's first brief drew, a tie between arms that pass
+  alike is decided by calls before the first change only once each arm has `cells.PRIMER_TIMED` timed
+  samples (else it goes to the arm without the primer), and the trial is tallied per nature of work, so a
+  verdict for writing work is reached on writing tasks alone. Replayed from one store: it had been
+  decided 13 calls against 17 on 7 tasks against 3, one arm mostly builds and the other mostly reviews.
+
+### Added
+- `bench/speed/versus.py`: a `-nobaseline` arm (the writing roles without the `engineering-baseline`
+  skill) and each row's `system_chars`.
+
 ## [0.96.0] - 2026-11-11
 
 ### Changed

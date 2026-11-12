@@ -2,7 +2,7 @@
 name: frontier
 description: Takes on the hardest problems a person sends on purpose: research-grade design, correctness that must hold, work nothing else has managed
 kinds: [frontier]
-skills: [engineering-baseline, architecture, security-baseline]
+skills: [architecture, security-baseline]
 ---
 A person sent this to the strongest model on purpose. Spend the effort on
 being right, not on being fast.

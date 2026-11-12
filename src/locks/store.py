@@ -1191,15 +1191,18 @@ class Store:
         """The tasks of a repository (None: of every one) whose first `briefed` event put them in an arm
         under `key` (`primer_arm`, `trunk_arm`): the arm, whether the first try passed, its input
         tokens, its duration, and how many tool calls it made before its first change (None when
-        it made none)."""
+        it made none). `nature` is the kind of work its first brief kept beside the arm (`primer_nature`
+        for `primer_arm`), None for a record written before it was kept."""
         rows = self._conn.execute(
             "SELECT e.task_id, e.data FROM events e JOIN tasks t ON t.id = e.task_id "
             "WHERE e.kind = 'briefed' AND (? IS NULL OR t.repo = ?) ORDER BY e.id", (repo, repo)).fetchall()
         out: dict[int, dict] = {}
         for task_id, raw in rows:
-            arm = json.loads(raw).get(key)
+            data = json.loads(raw)
+            arm = data.get(key)
             if arm and task_id not in out:
-                out[task_id] = {"task_id": task_id, "arm": arm}
+                out[task_id] = {"task_id": task_id, "arm": arm,
+                                "nature": data.get(f"{key.removesuffix('_arm')}_nature")}
         for task_id, row in out.items():
             first = self._conn.execute(
                 "SELECT passed, input_tokens, duration_s FROM attempts WHERE task_id = ? AND seq = 1",

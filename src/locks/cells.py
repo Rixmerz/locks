@@ -33,6 +33,7 @@ from typing import Any
 
 from locks import arms as arms_mod
 from locks import capabilities, risk
+from locks.matrix import READ_ONLY_KINDS
 from locks.store import Store
 from locks.text import fold
 
@@ -203,6 +204,12 @@ PRIMER_MARGIN = 0.1
 #: A trial ends early when, over this many first tries each, the primed ones pass worse by more than
 #: this: a primer that costs that much is not kept waiting for the full trial.
 PRIMER_EARLY, PRIMER_EARLY_MARGIN = 6, 0.2
+#: Timed samples (tasks that edited) each arm needs before its median calls before the first change may
+#: decide a tie in first tries: the same minimum `arms` asks of a time.
+PRIMER_TIMED = arms_mod.TIME_SAMPLES
+#: The natures of work the trial is tallied apart by (`nature_of`): reading kinds never edit, so their
+#: tasks cannot fill an arm of writing work.
+NATURES = ("read", "write")
 #: The arms a task's brief is in (`briefed` event's `primer_arm`).
 ARMS = ("primer", "control")
 
@@ -246,37 +253,51 @@ def primer_text(lines: Sequence[str]) -> str:
             + "\n".join(f"- {line}" for line in lines))
 
 
-def trial(store: Store, repo: str | None) -> dict[str, dict[str, Any]]:
+def nature_of(kind: str) -> str:
+    """The nature of a kind of work: `read` for the reading kinds, `write` for the others."""
+    return "read" if kind in READ_ONLY_KINDS else "write"
+
+
+def trial(store: Store, repo: str | None, nature: str | None = None) -> dict[str, dict[str, Any]]:
     """Each arm's tasks in a repository (None: in every one): how many, how many passed their first try, the
-    median calls before the first change, and the median input tokens of the first try."""
+    median calls before the first change (and from how many tasks that edited, `calls_samples`), and the
+    median input tokens of the first try. With a `nature` only the tasks of that nature of work count; None
+    counts every task, those recorded before the nature was kept included."""
     out: dict[str, dict[str, Any]] = {}
-    rows = store.primer_trial(repo)
+    rows = [r for r in store.primer_trial(repo) if nature is None or r.get("nature") == nature]
     for arm in ARMS:
         mine = [r for r in rows if r["arm"] == arm]
         calls = sorted(r["calls_before_edit"] for r in mine if r["calls_before_edit"] is not None)
         tokens = sorted(r["input_tokens"] for r in mine if r["input_tokens"])
         out[arm] = {"tasks": len(mine), "passed_first": sum(bool(r["passed_first"]) for r in mine),
                     "calls_before_edit_p50": calls[(len(calls) - 1) // 2] if calls else None,
+                    "calls_samples": len(calls),
                     "input_tokens_p50": tokens[(len(tokens) - 1) // 2] if tokens else None}
     return out
 
 
-def primer_arm(store: Store, repo: str | None, task_id: int) -> tuple[str, str]:
+def primer_arm(store: Store, repo: str | None, task_id: int, nature: str | None = None) -> tuple[str, str]:
     """Whether this task's brief gets the primer, and why. During the trial the arms
-    alternate by task; after it the primer stays where it won and goes where it lost."""
+    alternate by task; after it the primer stays where it won and goes where it lost. The trial is
+    tallied per `nature` of work (None: all together); a task keeps the arm its first brief had."""
     if repo is None:
         return "primer", "no repository to run a trial in"
-    found = trial(store, repo)
+    first = next((e["data"]["primer_arm"] for e in store.events_of(task_id, "briefed")
+                  if e["data"].get("primer_arm") in ARMS), None)
+    if first is not None:
+        return first, "the arm this task's first brief had"
+    found = trial(store, repo, nature)
     p, c = found["primer"], found["control"]
     if (got := _verdict(found)) is not None:
         return got
-    here = f"the trial here has {p['tasks']} primed, {c['tasks']} without, {PRIMER_TRIAL} each"
-    if (everywhere := _verdict(trial(store, None), where="everywhere")) is not None:
+    kind = f"{nature} " if nature else ""
+    here = f"the {kind}trial here has {p['tasks']} primed, {c['tasks']} without, {PRIMER_TRIAL} each"
+    if (everywhere := _verdict(trial(store, None, nature), where="everywhere")) is not None:
         # The repository's arms are short and every repository's are full: that verdict decides here.
         return everywhere[0], arms_mod.pooled_why(everywhere[1], here)
     # The arm with fewer tasks once they drift apart, so both fill at the same pace; else the
     # task's hash, salted with this trial, so no other trial lands its arms on the same tasks.
-    arm = ARMS[arms_mod.side("primer", repo, task_id, p["tasks"], c["tasks"])]
+    arm = ARMS[arms_mod.side(f"primer:{nature}" if nature else "primer", repo, task_id, p["tasks"], c["tasks"])]
     return arm, f"the primer's trial here ({p['tasks']} primed, {c['tasks']} without, {PRIMER_TRIAL} each)"
 
 
@@ -292,10 +313,13 @@ def _verdict(found: Mapping[str, Mapping[str, Any]], *, where: str = "here") -> 
         return "control", (f"the primer lost its trial {where} early: primed first tries passed {rate_p:.0%}, "
                            f"without {rate_c:.0%}, worse by more than {PRIMER_EARLY_MARGIN:.0%} over "
                            f"{PRIMER_EARLY} or more each")
-    faster = (p["calls_before_edit_p50"] is not None and c["calls_before_edit_p50"] is not None
+    timed = min(p.get("calls_samples", 0), c.get("calls_samples", 0)) >= PRIMER_TIMED
+    faster = (timed and p["calls_before_edit_p50"] is not None and c["calls_before_edit_p50"] is not None
               and p["calls_before_edit_p50"] < c["calls_before_edit_p50"])
     said = (f"primed first tries passed {rate_p:.0%}, without {rate_c:.0%}; calls before the first change p50 "
-            f"{p['calls_before_edit_p50']} against {c['calls_before_edit_p50']}")
+            f"{p['calls_before_edit_p50']} against {c['calls_before_edit_p50']}"
+            + ("" if timed else f", too few tasks that edited to decide ({p.get('calls_samples', 0)} primed, "
+               f"{c.get('calls_samples', 0)} without, {PRIMER_TIMED} each needed){arms_mod.TIE}"))
     if faster and rate_p >= rate_c - PRIMER_MARGIN:
         return "primer", f"the primer won its trial {where}: {said}"
     return "control", f"the primer lost its trial {where}: {said}"

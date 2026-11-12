@@ -162,16 +162,17 @@ def test_a_primer_holds_each_line_once_and_at_most_its_size(store: Store):
     assert len(found) == cells.PRIMER_LINES and sum("same line" in x.lower() for x in found) == 1
 
 
-def _trial_task(store: Store, arm: str, *, passed: bool, calls: int, repo="r"):
+def _trial_task(store: Store, arm: str, *, passed: bool, calls: int, repo="r", nature=None, edits=True):
     task = store.create_task("t", status="done", source="locks", repo=repo)
-    store.add_event(task["id"], "briefed", primer_arm=arm)
+    store.add_event(task["id"], "briefed", primer_arm=arm, **({"primer_nature": nature} if nature else {}))
     store.add_event(task["id"], "briefed", primer_arm="ignored")  # a resume's brief: the first one counts
     store.add_attempt(task["id"], cell="sonnet/medium", max_turns=80, passed=int(passed), input_tokens=1000 + calls)
     for i in range(calls):
         store._conn.execute("INSERT INTO tool_events (session_id, task_id, attempt, ts, tool, sig, arg_hash, ok) "
                             "VALUES ('w', ?, 1, '2026-10-20T00:00:00Z', 'read', 'read', ?, 1)", (task["id"], str(i)))
-    store._conn.execute("INSERT INTO tool_events (session_id, task_id, attempt, ts, tool, sig, arg_hash, ok) "
-                        "VALUES ('w', ?, 1, '2026-10-20T00:00:00Z', 'edit', 'edit', 'e', 1)", (task["id"],))
+    if edits:
+        store._conn.execute("INSERT INTO tool_events (session_id, task_id, attempt, ts, tool, sig, arg_hash, ok) "
+                            "VALUES ('w', ?, 1, '2026-10-20T00:00:00Z', 'edit', 'edit', 'e', 1)", (task["id"],))
     return task
 
 
@@ -186,14 +187,15 @@ def test_the_primer_s_trial_alternates_then_keeps_the_winner(store: Store):
         _trial_task(store, "control", passed=True, calls=20)
     found = cells.trial(store, "r")
     assert found["primer"] == {"tasks": cells.PRIMER_TRIAL, "passed_first": cells.PRIMER_TRIAL,
-                               "calls_before_edit_p50": 8, "input_tokens_p50": 1008}
-    arm, why = cells.primer_arm(store, "r", 7)
+                               "calls_before_edit_p50": 8, "calls_samples": cells.PRIMER_TRIAL,
+                               "input_tokens_p50": 1008}
+    arm, why = cells.primer_arm(store, "r", 907)
     assert arm == "primer" and "won" in why
     # Elsewhere, a primer that made first tries fail more lost.
     for _ in range(cells.PRIMER_TRIAL):
         _trial_task(store, "primer", passed=False, calls=5, repo="other")
         _trial_task(store, "control", passed=True, calls=20, repo="other")
-    arm, why = cells.primer_arm(store, "other", 8)
+    arm, why = cells.primer_arm(store, "other", 908)
     assert arm == "control" and "lost" in why
     assert cells.trial(store, None)["primer"]["tasks"] == 2 * cells.PRIMER_TRIAL
 
@@ -248,18 +250,18 @@ def test_a_run_leaves_its_orientation_and_the_next_run_s_brief_follows_its_arm(g
 def test_the_primer_s_arms_fill_evenly_and_a_primer_far_worse_loses_early(store: Store):
     for _ in range(3):
         _trial_task(store, "primer", passed=True, calls=8)
-    assert cells.primer_arm(store, "r", 7)[0] == "control" and cells.primer_arm(store, "r", 8)[0] == "control"
+    assert cells.primer_arm(store, "r", 907)[0] == "control" and cells.primer_arm(store, "r", 908)[0] == "control"
     for _ in range(cells.PRIMER_EARLY):
         _trial_task(store, "primer", passed=False, calls=8, repo="early")
         _trial_task(store, "control", passed=True, calls=8, repo="early")
-    arm, why = cells.primer_arm(store, "early", 8)
+    arm, why = cells.primer_arm(store, "early", 908)
     assert arm == "control" and why.startswith("the primer lost its trial here early")
     for _ in range(cells.PRIMER_EARLY):
         _trial_task(store, "primer", passed=True, calls=8, repo="close")
         _trial_task(store, "control", passed=True, calls=8, repo="close")
     # No gap here, so no early loss; every repository's arms are full by now, and their verdict decides
     # for this one while its own trial runs short (`arms.pooled_why`).
-    arm, why = cells.primer_arm(store, "close", 8)
+    arm, why = cells.primer_arm(store, "close", 908)
     assert "early" not in why.split(";")[0] or "everywhere" in why
     assert why.endswith("pooled from every repository while the trial here has 6 primed, 6 without, 12 each")
 
@@ -284,7 +286,43 @@ def test_the_primer_s_trial_short_here_takes_every_repository_s_verdict(store: S
     for _ in range(cells.PRIMER_TRIAL):
         _trial_task(store, "primer", passed=False, calls=5, repo="other")
         _trial_task(store, "control", passed=True, calls=20, repo="other")
-    arm, why = cells.primer_arm(store, "r", 8)
+    arm, why = cells.primer_arm(store, "r", 908)
     assert arm == "control" and "lost its trial everywhere" in why
     assert why.endswith("pooled from every repository while the trial here has 0 primed, 0 without, "
                         f"{cells.PRIMER_TRIAL} each")
+
+
+def test_a_resumed_task_keeps_the_primer_arm_its_first_brief_drew(store: Store):
+    task = store.create_task("t", status="done", source="locks", repo="r")
+    # The task's own hash would say the other arm; the first brief's arm stands.
+    other = "control" if cells.ARMS[arms.side("primer", "r", task["id"], 0, 0)] == "primer" else "primer"
+    store.add_event(task["id"], "briefed", primer_arm=other)
+    assert cells.primer_arm(store, "r", task["id"]) == (other, "the arm this task's first brief had")
+
+
+def test_a_tie_in_first_tries_needs_timed_samples_in_each_arm_before_the_median_decides(store: Store):
+    for _ in range(cells.PRIMER_TRIAL):
+        _trial_task(store, "primer", passed=True, calls=3)
+    for i in range(cells.PRIMER_TRIAL):
+        # Only PRIMER_TIMED - 1 of the control's tasks edited: its median is not a sample to decide by.
+        _trial_task(store, "control", passed=True, calls=20, edits=i < cells.PRIMER_TIMED - 1)
+    arm, why = cells.primer_arm(store, "r", 907)
+    assert arm == "control" and "too few tasks that edited" in why and why.endswith(arms.TIE)
+    assert cells.PRIMER_TIMED == arms.TIME_SAMPLES
+
+
+def test_the_primer_s_trial_is_tallied_per_nature_and_old_records_still_read(store: Store):
+    assert cells.nature_of("explore") == "read" and cells.nature_of("implement") == "write"
+    for _ in range(cells.PRIMER_TRIAL):
+        _trial_task(store, "primer", passed=True, calls=3, nature="write")
+        _trial_task(store, "control", passed=True, calls=20, nature="write")
+        _trial_task(store, "primer", passed=False, calls=3, nature="read", edits=False)
+        _trial_task(store, "control", passed=True, calls=3, nature="read", edits=False)
+    _trial_task(store, "primer", passed=True, calls=1)  # written before the nature was kept
+    assert cells.trial(store, "r", "write")["primer"]["tasks"] == cells.PRIMER_TRIAL
+    assert cells.trial(store, "r", "read")["primer"]["passed_first"] == 0
+    assert cells.trial(store, "r")["primer"]["tasks"] == 2 * cells.PRIMER_TRIAL + 1
+    arm, why = cells.primer_arm(store, "r", 907, "write")
+    assert arm == "primer" and "won" in why
+    arm, why = cells.primer_arm(store, "r", 908, "read")
+    assert arm == "control" and "lost" in why

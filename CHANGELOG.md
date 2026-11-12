@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.101.0] - 2026-11-12
+
 ### Added
 - `locks evolution` says what the record decided beyond the standards: where each trial of a repository stands
   (the last reason a brief there kept beside its arm: decided, or still trying with its counts), a role's lessons

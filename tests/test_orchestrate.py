@@ -2164,7 +2164,7 @@ def test_the_symbols_livespec_reaches_weigh_on_the_points(git_repo, store, tmp_p
     build(git_repo)
     dry = run("parse_amount rounds wrong", git_repo, store, Options(dry_run=True), registry={},
               classifier=kind("implement"), adapters=[_livespec(tmp_path)])
-    assert dry.plan.points.reasons == ("reaches 23 symbols",) and dry.plan.points.points == 3
+    assert dry.plan.points.reasons == ("reaches 22 symbols",) and dry.plan.points.points == 3
     unread = run("parse_amount rounds wrong", git_repo, store, Options(dry_run=True), registry={},
                  classifier=kind("implement"), adapters=[])
     assert unread.plan.points.points == 1

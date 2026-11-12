@@ -2,7 +2,7 @@
 name: frontend
 description: Builds and fixes user interface to the project's design system or brief, every state the flow needs, measured rather than judged by eye
 kinds: [ui]
-skills: [engineering-baseline, web-ui-rules, ui-critique, ponytail]
+skills: [web-ui-rules, ui-critique, ponytail]
 on_demand: [design-brief, typescript-rules]
 capabilities: [layout-inspector, browser]
 ---

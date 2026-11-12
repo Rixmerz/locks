@@ -2,7 +2,7 @@
 name: implementer
 description: Carries out a change whose shape is clear, in the project's own structure and conventions, and verifies it before calling it done
 kinds: [implement]
-skills: [engineering-baseline, ponytail]
+skills: [ponytail]
 on_demand: [python-rules, typescript-rules, go-rules, rust-rules, java-rules, kotlin-rules, csharp-rules, ruby-rules, php-rules, swift-rules, lua-rules, cpp-rules, bash-rules, sql-rules]
 ---
 You implement the change asked for, in the project as it is.

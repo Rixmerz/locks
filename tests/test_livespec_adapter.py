@@ -282,8 +282,8 @@ def test_the_briefing_says_how_many_symbols_the_request_reaches(tmp_path, git_re
     build(git_repo)
     a = adapter(tmp_path)
     status = a.inspect(git_repo)
-    # parse_amount and its 22 callers
-    assert a.brief("parse_amount rounds wrong", git_repo, status).reached == 23
+    # parse_amount and its 21 callers outside tests
+    assert a.brief("parse_amount rounds wrong", git_repo, status).reached == 22
     assert a.brief("nothing here matches zzzz", git_repo, status).reached == 0
     # no index to read says nothing, rather than zero
     assert a.brief("x", git_repo, a.inspect(tmp_path)).reached is None
@@ -957,3 +957,34 @@ def test_the_dossier_never_passes_its_limit_with_both_closing_lines(tmp_path, gi
         d = a.dossier("Fix charge_card and checkout in src/billing.py", git_repo, status,
                       paths=["src/billing.py", "src/api.py"], limit=limit)
         assert len(d.text) <= limit, limit
+
+
+def test_a_call_resolved_only_by_name_is_one_caller_in_the_brief_the_count_and_the_dossier(tmp_path, git_repo):
+    build(git_repo, rules=20)
+    a = adapter(tmp_path)
+    status = a.inspect(git_repo)
+    text = "Change apply_line in src/tally/rules.py"
+    with livespec_mod._connect(Path(status.data["db"])) as conn:
+        assert all(livespec_mod._describe(conn, 200 + i)["callers"] == 1 for i in range(21))
+        # the twenty tests that call it are their own list, not callers
+        assert livespec_mod._describe(conn, 205)["caller_ids"] == [400]
+        assert len(livespec_mod._describe(conn, 205)["tests"]) == 20
+    b = a.brief(text, git_repo, status)
+    assert not any("callers" in r for r in b.reasons) and b.raise_rungs == 0
+    assert b.reached == 5 + 1
+    d = a.dossier(text, git_repo, status)
+    assert "1 caller(s): price (src/tally/checkout.py:5)" in d.text and "21 caller" not in d.text
+
+
+def test_a_call_resolved_to_one_method_is_a_whole_caller_even_at_a_low_weight(tmp_path, git_repo):
+    build(git_repo, rules=20)
+    with livespec_mod._connect(Path(adapter(tmp_path).inspect(git_repo).data["db"])) as conn:
+        only = livespec_mod._describe(conn, 501)
+        assert only["callers"] == 1 and only["caller_ids"] == [500]
+
+
+def test_widely_used_is_judged_on_distinct_calling_symbols(tmp_path, git_repo):
+    build(git_repo)
+    a = adapter(tmp_path)
+    b = a.brief("Change parse_amount", git_repo, a.inspect(git_repo))
+    assert any("src.parse.parse_amount has 21 callers" in r for r in b.reasons) and b.raise_rungs == 1

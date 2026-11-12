@@ -1431,8 +1431,9 @@ def run(
         if config.enabled("primer", os.environ):
             lines = cells.primer(store, key, role=role_name, areas=reach)
             if lines:
-                arm, why = cells.primer_arm(store, key, task["id"])
-                primed = {"primer_arm": arm, "primer_lines": len(lines), "primer_why": why}
+                arm, why = cells.primer_arm(store, key, task["id"], cells.nature_of(the_plan.kind))
+                primed = {"primer_arm": arm, "primer_lines": len(lines), "primer_why": why,
+                          "primer_nature": cells.nature_of(the_plan.kind)}
                 if arm == "primer":
                     context.append(cells.primer_text(lines))
         # Which role and which version of its text this worker wears, and the role's lessons here:

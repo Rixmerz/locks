@@ -34,9 +34,12 @@ CREATE TABLE index_run (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL,
 """
 
 
-def build(root: Path, *, indexed_at: str = "2999-01-01 00:00:00", project_root: Path | None = None) -> Path:
+def build(root: Path, *, indexed_at: str = "2999-01-01 00:00:00", project_root: Path | None = None,
+          rules: int = 0) -> Path:
     """An index of a small payments codebase: a parser everyone calls, a charge
-    function behind a critical spec, and tests."""
+    function behind a critical spec, and tests. With `rules`, also a base class `Rule` and that many
+    subclasses each defining `apply_line`, called once from `price` as `rule.apply_line(...)` and once from a
+    test each; the indexer stores such a call as one weight-0.5 `calls` edge to every method of that name."""
     db = root / ".mcp-docs" / "docs.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db)
@@ -68,6 +71,8 @@ def build(root: Path, *, indexed_at: str = "2999-01-01 00:00:00", project_root: 
     for src, dst in edges:
         conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type) VALUES (?, ?, 'calls')",
                      (src, dst))
+    if rules:
+        _rules(conn, rules)
     conn.execute("INSERT INTO spec (id, project_id, spec_id, title, priority) VALUES "
                  "(1, 1, 'SPEC-7', 'Card charges are idempotent', 'critical')")
     conn.execute("INSERT INTO spec_symbol (spec_id, symbol_id) VALUES (1, 2)")
@@ -75,3 +80,35 @@ def build(root: Path, *, indexed_at: str = "2999-01-01 00:00:00", project_root: 
     conn.commit()
     conn.close()
     return db
+
+
+def _rules(conn: sqlite3.Connection, count: int) -> None:
+    """`Rule.apply_line` and `count` overrides, as the indexer stores their callers: `price` calls
+    `rule.apply_line(...)` once and each test calls its own rule's `apply_line`, and every one of those calls,
+    resolved by bare name, is one weight-0.5 edge from the caller to every method of that name. Methods never
+    call one another here: the index holds no same-name method-to-method edge."""
+    files = [(5, "src/tally/rules.py"), (6, "src/tally/checkout.py")]
+    files += [(10 + i, f"tests/test_rule_{i}.py") for i in range(count)]
+    for fid, path in files:
+        conn.execute("INSERT INTO file (id, project_id, path, language, content_hash, line_count, mtime) "
+                     "VALUES (?, 1, ?, 'python', 'h', 10, 0)", (fid, path))
+    methods = [200 + i for i in range(count + 1)]
+    for sid in methods:
+        conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                     "VALUES (?, 5, 'apply_line', ?, 'method', ?, ?)",
+                     (sid, f"src.tally.rules.{'Rule' if sid == 200 else f'Rule{sid - 200}'}.apply_line", sid, sid + 1))
+    callers = [(400, 6, "src.tally.checkout.price")]
+    callers += [(401 + i, 10 + i, f"tests.test_rule_{i}.test_lines") for i in range(count)]
+    for sid, fid, qname in callers:
+        conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                     "VALUES (?, ?, ?, ?, 'function', 5, 9)", (sid, fid, qname.rsplit(".", 1)[-1], qname))
+        for dst in methods:
+            conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type, weight) "
+                         "VALUES (?, ?, 'calls', 0.5)", (sid, dst))
+    # a wrapper of a method no other shares its name: a call the index resolved to one, a whole caller
+    conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                 "VALUES (500, 6, 'wrap', 'src.tally.checkout.wrap', 'function', 12, 14)")
+    conn.execute("INSERT INTO symbol (id, file_id, name, qualified_name, kind, start_line, end_line) "
+                 "VALUES (501, 5, 'only', 'src.tally.rules.Rule.only', 'method', 30, 31)")
+    conn.execute("INSERT INTO symbol_edge (src_symbol_id, dst_symbol_id, edge_type, weight) "
+                 "VALUES (500, 501, 'calls', 0.6)")

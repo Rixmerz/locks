@@ -1210,18 +1210,18 @@ worker's system prompt (`--append-system-prompt`), beside Claude Code's own.
 |---|---|---|
 | `answerer` | chat | — |
 | `researcher` | explore | engineering-baseline |
-| `docs-writer` | docs | engineering-baseline, ponytail |
-| `tester` | test | engineering-baseline, ponytail; the browser capability |
-| `refactorer` | refactor | engineering-baseline, ponytail, architecture |
-| `implementer` | implement | engineering-baseline, ponytail |
-| `frontend` | ui | engineering-baseline, web-ui-rules, ui-critique, ponytail; layout-inspector, browser |
-| `feature-builder` | feature | engineering-baseline, ponytail, architecture |
-| `debugger` | debug-repro | engineering-baseline, ponytail |
-| `investigator` | debug-unclear | engineering-baseline, ponytail |
+| `docs-writer` | docs | ponytail |
+| `tester` | test | ponytail; the browser capability |
+| `refactorer` | refactor | ponytail, architecture |
+| `implementer` | implement | ponytail |
+| `frontend` | ui | web-ui-rules, ui-critique, ponytail; layout-inspector, browser |
+| `feature-builder` | feature | ponytail, architecture |
+| `debugger` | debug-repro | ponytail |
+| `investigator` | debug-unclear | ponytail |
 | `reviewer` | review-routine | engineering-baseline, security-baseline, ponytail |
 | `security-auditor` | review-critical | **Cloudflare's security-audit**, security-baseline, engineering-baseline |
 | `architect` | plan | architecture, engineering-baseline |
-| `frontier` | frontier | engineering-baseline, architecture, security-baseline |
+| `frontier` | frontier | architecture, security-baseline |
 
 The roles that write code are also told where each language's rules are
 (`python-rules`, `typescript-rules` and twelve more) and read the one for the

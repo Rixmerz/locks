@@ -35,8 +35,9 @@ def test_memory_text_falls_back_to_the_body_when_the_run_is_gone_or_has_no_goal(
 
 def test_the_primer_loses_its_trial_when_it_did_not_reach_the_first_change_sooner(store: Store, monkeypatch):
     arm = {"tasks": cells.PRIMER_TRIAL, "passed_first": cells.PRIMER_TRIAL, "calls_before_edit_p50": 5,
+           "calls_samples": cells.PRIMER_TIMED,
            "input_tokens_p50": 10}
-    monkeypatch.setattr(cells, "trial", lambda store, repo: {"primer": dict(arm), "control": dict(arm)})
+    monkeypatch.setattr(cells, "trial", lambda store, repo, nature=None: {"primer": dict(arm), "control": dict(arm)})
     side, why = cells.primer_arm(store, "r", 1)
     assert side == "control"
     assert why.startswith("the primer lost its trial here: primed first tries passed 100%")

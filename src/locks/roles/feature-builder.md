@@ -2,7 +2,7 @@
 name: feature-builder
 description: Builds a new capability that crosses several parts of the code, contracts first, each part verified before the next
 kinds: [feature]
-skills: [engineering-baseline, ponytail, architecture]
+skills: [ponytail, architecture]
 on_demand: [python-rules, typescript-rules, go-rules, rust-rules, java-rules, kotlin-rules, csharp-rules, ruby-rules, php-rules, swift-rules, lua-rules, cpp-rules, bash-rules, sql-rules, web-ui-rules, ui-critique]
 ---
 You build a feature that spans several parts of the code.

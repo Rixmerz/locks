@@ -1171,22 +1171,37 @@ def _matching_symbols(conn: sqlite3.Connection, project: int, text: str) -> tupl
     return picked[:MAP_SYMBOLS], named_ids
 
 
+# The indexer resolves a call on an object of unknown type (`rule.apply_line(...)`) by bare name: one `calls`
+# edge from the call site to every method of that name, at weight 0.5 (0.6 with an untyped receiver), and no
+# edge between the methods themselves. A symbol's callers are therefore the distinct symbols with an edge into
+# it, counted once whatever the number of edges they hold, and a call site is a caller of each same-named
+# method it reaches. The number everything states (`brief`, `_describe`, `reached`, the dossier) leaves tests
+# out: the tests that call a symbol are their own list.
+
+
+def _callers(conn: sqlite3.Connection, symbol_id: int) -> list[sqlite3.Row]:
+    """The distinct symbols that call this one, once each. Tests are in it, by path."""
+    return conn.execute(
+        "SELECT s.id AS id, s.qualified_name AS name, f.path AS path, s.start_line AS line "
+        "FROM symbol_edge e JOIN symbol s ON s.id = e.src_symbol_id JOIN file f ON f.id = s.file_id "
+        "WHERE e.dst_symbol_id = ? AND e.edge_type = 'calls' "
+        "GROUP BY s.id ORDER BY f.path, s.start_line, s.id", (symbol_id,)).fetchall()
+
+
 def _describe(conn: sqlite3.Connection, symbol_id: int) -> dict[str, Any]:
     row = conn.execute(
         "SELECT s.qualified_name, s.kind, s.start_line, f.path FROM symbol s JOIN file f ON f.id = s.file_id "
         "WHERE s.id = ?", (symbol_id,)).fetchone()
-    callers = conn.execute(
-        "SELECT DISTINCT f.path, s.id FROM symbol_edge e JOIN symbol s ON s.id = e.src_symbol_id "
-        "JOIN file f ON f.id = s.file_id WHERE e.dst_symbol_id = ? AND e.edge_type = 'calls'",
-        (symbol_id,)).fetchall()
+    callers = _callers(conn, symbol_id)
     specs = conn.execute(
         "SELECT sp.spec_id, sp.title, sp.priority FROM spec_symbol ss JOIN spec sp ON sp.id = ss.spec_id "
         "WHERE ss.symbol_id = ? AND ss.relation = 'implements' ORDER BY sp.spec_id", (symbol_id,)).fetchall()
     tests = sorted({r["path"] for r in callers if is_test_path(r["path"])})
+    callers = [r for r in callers if not is_test_path(r["path"])]
     return {
         "qname": row["qualified_name"], "kind": row["kind"], "line": row["start_line"], "path": row["path"],
-        "callers": len({r["id"] for r in callers}),
-        "caller_ids": sorted({r["id"] for r in callers}),
+        "callers": len(callers),
+        "caller_ids": sorted(r["id"] for r in callers),
         "specs": [dict(s) for s in specs],
         "tests": tests,
     }
@@ -1209,7 +1224,7 @@ def _detail(conn: sqlite3.Connection, symbol_id: int) -> dict[str, Any] | None:
            "JOIN symbol o ON o.id = e.{other}_symbol_id JOIN file f ON f.id = o.file_id " \
            "WHERE e.{mine}_symbol_id = ? AND e.edge_type = 'calls' ORDER BY f.path, o.start_line"
     calls = conn.execute(near.format(other="dst", mine="src"), (symbol_id,)).fetchall()
-    callers = conn.execute(near.format(other="src", mine="dst"), (symbol_id,)).fetchall()
+    callers = _callers(conn, symbol_id)
     specs = conn.execute(
         "SELECT sp.spec_id, sp.title, sp.priority FROM spec_symbol ss JOIN spec sp ON sp.id = ss.spec_id "
         "WHERE ss.symbol_id = ? AND ss.relation = 'implements' ORDER BY sp.spec_id", (symbol_id,)).fetchall()

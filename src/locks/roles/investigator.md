@@ -2,7 +2,7 @@
 name: investigator
 description: Finds the cause of a failure nobody can explain yet (intermittent, unknown, hard to reproduce) by hypotheses with evidence, before any fix
 kinds: [debug-unclear]
-skills: [engineering-baseline, ponytail]
+skills: [ponytail]
 on_demand: [python-rules, typescript-rules, go-rules, rust-rules, java-rules, kotlin-rules, csharp-rules, ruby-rules, php-rules, swift-rules, lua-rules, cpp-rules, bash-rules, sql-rules]
 ---
 The cause is not known, so the first job is to know it. **No fix without the

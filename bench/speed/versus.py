@@ -16,6 +16,10 @@ result (`build.hidden`). Arms:
   (no history: every start comes from locks' rules), the work judged on the branch it kept. Its
   wall time ends when the command exits; a late independent check (`late_verifier`) that runs after
   it is waited for and kept apart (`late_s`, `late_passed`), never in the wall time.
+  `-noverify` (no independent check) and `-baseline` (`engineering-baseline` put back in the writing
+  roles, which no longer carry it: it was slower, so the old default stays measurable) are suffixes of a
+  locks arm; a row whose arm says `-nobaseline` is history from when the baseline was the default;
+  every locks row carries the size of the system prompt its first worker was briefed with (`system_chars`).
 
 The wall time is the whole command's, from start to its exit; the cost is what the CLI reports
 (for locks, the task's: classification, attempts and the independent check).
@@ -44,7 +48,8 @@ sys.path.insert(0, str(HERE))
 
 import build  # noqa: E402
 
-from locks import __version__  # noqa: E402
+from locks import __version__, roles  # noqa: E402
+from locks.matrix import READ_ONLY_KINDS  # noqa: E402
 
 OUT = HERE / "results-versus.jsonl"
 #: A clone of github.com/multica-ai/andrej-karpathy-skills, for the `karpathy:` arms.
@@ -155,15 +160,73 @@ def omega(where: Path, request: str) -> dict:
             "by_model": by_model, "subagents": any("haiku" in name for name in by_model)}
 
 
+#: The suffixes `locks` reads off a locks arm's name (`locks@opus/low-noverify-baseline`).
+SUFFIXES = ("-noverify", "-baseline")
+#: The skill `-baseline` puts back in the writing roles: the precedence rule and the general rules.
+BASELINE = "engineering-baseline"
+
+
+def shadow_roles(home: Path) -> list[str]:
+    """`-baseline`: under the locks home's `roles/`, a copy of every bundled writing role (one with a kind
+    outside `READ_ONLY_KINDS`), with `BASELINE` put first on its `skills:` line and nothing else changed. A
+    person's role of a bundled name shadows the bundled one (`roles.load`), so the worker's system prompt is
+    the same but for that skill. Returns the names written."""
+    folder = home / "roles"
+    folder.mkdir(parents=True, exist_ok=True)
+    written = []
+    for path in sorted(roles.bundled_dir().glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        fields, _ = roles.split_frontmatter(text)
+        if not set(fields.get("kinds") or ()) - READ_ONLY_KINDS:
+            continue  # a reading role keeps what it has: the arm is about the writing workers
+        (folder / path.name).write_text(with_skill(text, BASELINE), encoding="utf-8")
+        written.append(fields["name"])
+    return written
+
+
+def with_skill(text: str, skill: str) -> str:
+    """A role's text with `skill` first on its frontmatter's one-line `skills:` list, every other line kept
+    as it was; a role with no `skills:` line gets one after its `kinds:` line. A role that already names it,
+    or whose list is not one line, is an error, never a guess."""
+    lines = text.splitlines(keepends=True)
+    end = next(i for i, line in enumerate(lines) if i and line.strip() == "---")
+    names = list(roles.split_frontmatter(text)[0].get("skills") or [])
+    at = [i for i in range(1, end) if lines[i].startswith("skills:")]
+    if skill in names or len(at) > 1 or (at and not lines[at[0]].rstrip().endswith("]")):
+        raise ValueError(f"`{skill}` is already on this role or its `skills:` is not one line: {names}")
+    line = f"skills: [{', '.join([skill, *names])}]\n"
+    if at:
+        lines[at[0]] = line
+        return "".join(lines)
+    kinds = [i for i in range(1, end) if lines[i].startswith("kinds:")]
+    if len(kinds) != 1:
+        raise ValueError("this role has no single `kinds:` line to put `skills:` after")
+    lines.insert(kinds[0] + 1, line)
+    return "".join(lines)
+
+
+def system_chars(db: sqlite3.Connection, task_id: int) -> int | None:
+    """The system prompt's size the task's first `briefed` event recorded; None when no worker was briefed."""
+    row = db.execute("SELECT data FROM events WHERE task_id = ? AND kind = 'briefed' ORDER BY id LIMIT 1",
+                     (task_id,)).fetchone()
+    return json.loads(row[0]).get("system_chars") if row else None
+
+
 def locks(where: Path, request: str, arm: str = "locks") -> dict:
-    """`locks`, `locks@<cell>` (a pinned start) and either with `-noverify` (no independent check)."""
+    """`locks`, `locks@<cell>` (a pinned start), and either with `-noverify` (no independent check) or
+    `-baseline` (the writing roles with `BASELINE` put back), in either order."""
     home = Path(tempfile.mkdtemp(prefix="locks-home-"))
     env = {**os.environ, "LOCKS_HOME": str(home), "LOCKS_AUTOWORK": "off", "LOCKS_NAMES": "off"}
     env.pop("LOCKS_SESSION_ID", None)
     env.pop("CLAUDE_CODE_SESSION_ID", None)
-    if arm.endswith("-noverify"):
+    suffixes = set()
+    while tail := next((s for s in SUFFIXES if arm.endswith(s)), None):
+        suffixes.add(tail)
+        arm = arm.removesuffix(tail)
+    if "-noverify" in suffixes:
         env["LOCKS_VERIFIER"] = "off"
-        arm = arm.removesuffix("-noverify")
+    if "-baseline" in suffixes:
+        shadow_roles(home)  # before the run: a worker reads its role when it is briefed
     start = ["--start", arm.split("@", 1)[1]] if "@" in arm else []
     done = subprocess.run([str(ROOT / "bin" / "locks"), "run", request, "--verify", "make test", *start], cwd=where,
                           env=env, capture_output=True, text=True, timeout=7200)
@@ -177,15 +240,16 @@ def locks(where: Path, request: str, arm: str = "locks") -> dict:
         late["late_s"] = round(time.monotonic() - ended, 1)
         task = db.execute("SELECT id, status, start_cell, final_cell, cost_usd FROM tasks WHERE id = ?",
                           (task[0],)).fetchone()
+    chars = system_chars(db, task[0]) if task else None
     db.close()
     shutil.rmtree(home, ignore_errors=True)
     if not task:
-        return {"error": (done.stderr or done.stdout)[-300:]}
+        return {"error": (done.stderr or done.stdout)[-300:], "system_chars": chars}
     branch = f"locks/task-{task[0]}"
     if subprocess.run(["git", "rev-parse", "--verify", "-q", branch], cwd=where, capture_output=True).returncode == 0:
         subprocess.run(["git", "checkout", "-q", branch], cwd=where, check=True)
     return {"cost": round(float(task[4] or 0), 4), "status": task[1], "start": task[2], "final": task[3],
-            "attempts": attempts, **late}
+            "attempts": attempts, "system_chars": chars, **late}
 
 
 def waited_late(db: sqlite3.Connection, task_id: int, within_s: float = 900) -> dict:

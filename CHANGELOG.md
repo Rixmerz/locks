@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-11-12
+
+### Fixed
+- The primer's trial: a resume keeps the arm its task's first brief drew, a tie between arms that pass
+  alike is decided by calls before the first change only once each arm has `cells.PRIMER_TIMED` timed
+  samples (else it goes to the arm without the primer), and the trial is tallied per nature of work, so a
+  verdict for writing work is reached on writing tasks alone. Replayed from one store: it had been
+  decided 13 calls against 17 on 7 tasks against 3, one arm mostly builds and the other mostly reviews.
+
+- `CLAUDE.md` has its rules back: the 0.96.0 edit of the livespec paragraph cut 515 lines after it (the
+  dispatcher, scaling, the UI, the trace, habits, notes and more), restored here from 0.95.1.
+- A symbol's callers, as locks reads them from livespec's index, are the distinct calling symbols outside
+  tests, the same number in the plan's reasons, the size estimate, the "widely used" rule and the brief: a
+  method with one production call site and twenty tests had read as "21 callers".
+
+### Changed
+- The bundled writing roles no longer carry the `engineering-baseline` skill (the reading roles and the
+  verifier keep it): on both builds of `bench/speed/versus.py` the same hidden tests passed 26% and 39%
+  sooner without it, with a system prompt of 12,271 characters instead of 29,286
+  (`bench/speed/README.md`, AA). A person's role of the same name puts it back.
+
+### Added
+- `bench/speed/versus.py`: a `-baseline` arm (the writing roles with `engineering-baseline` put back) and
+  each row's `system_chars`.
+
 ## [0.96.0] - 2026-11-11
 
 ### Changed

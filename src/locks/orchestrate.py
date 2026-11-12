@@ -2760,7 +2760,8 @@ def _dead_session(store: Store, task_id: int, cell: Cell,
     one was due: the worker's context holds its brief and everything it read, and a fresh worker
     in the same worktree read it all again. Only the same cell on the same model, as more turns
     are; its id is the one the sweep kept on the event, else read from its own calls
-    (`phase.session_of`), and its transcript must still be there. The CLI refusing it starts fresh as any continuation does (`launch.run`)."""
+    (`phase.session_of`), and its transcript must still be there. The CLI refusing it starts
+    fresh as any continuation does (`launch.run`)."""
     from locks import phase, usage
 
     started, lost = store.last_event(task_id, "attempt_started"), store.last_event(task_id, "attempt_lost")

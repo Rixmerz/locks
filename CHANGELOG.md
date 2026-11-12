@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.100.1] - 2026-11-12
+
+### Fixed
+- A trial's verdict no longer turns over. The tasks a verdict placed were counted as the trial's samples, so the
+  arm that won kept filling, its rate drifted to the mean and the verdict flipped: on one machine the primer was
+  said to have won its trial in 29 briefs and lost it in 21, and the order of a brief's notes went from lost to
+  won on tasks no trial drew. A trial's samples are now only the tasks that drew an arm while it ran
+  (`Store.arm_trial`, read from the reason each brief keeps beside its arm), for every trial that shares it: the
+  primer, the recall order, the dossier, a method, the plan's critique, the trunk and the evidence gate. `locks
+  doctor` names a verdict that read both ways (`trial-verdict-turned`).
+- Habits: `timeout 60 pytest` is read as `pytest` (and `nohup` is seen through), where the wrapper had been mined
+  as a habit of its own that no hook could run; a release that only bumps the project's version no longer sends
+  every habit of the repository back to review; and a tool a hook here already runs is no new habit under another
+  id (`bash:ruff`, declared by a tool file, beside the installed `bash:ruff-check`).
+
 ## [0.100.0] - 2026-11-12
 
 ### Added

@@ -339,8 +339,7 @@ def for_repo(events: Sequence[Mapping[str, Any]], repo: str,
     projects says nothing about this one."""
     here = candidates([e for e in events if e.get("repo") == repo])
     mine = [c.steps for c in here]
-    here += [c for c in declared(repo_dir)
-             if not any(c.steps == m or (m[0] == c.steps[0] and m[-1] == c.steps[-1]) for m in mine)]
+    here += [c for c in declared(repo_dir) if not any(c.steps == m or same_tool(c.steps, m) for m in mine)]
     mine = [c.steps for c in here]
     elsewhere = [c for c in candidates([e for e in events if _project(e.get("repo"))])
                  if c.repos >= MIN_REPOS_ELSEWHERE and has_tool(repo_dir, c.steps)
@@ -422,10 +421,27 @@ def tooling(repo_dir: Path | None) -> str:
     digest = hashlib.sha256()
     for name in TOOL_FILES:
         try:
-            digest.update(name.encode() + b"\0" + (repo_dir / name).read_bytes() + b"\0")
+            raw = (repo_dir / name).read_bytes()
         except OSError:
             continue
+        # The project's own version is no tool: a release that only bumped it sent every habit of the
+        # repository back to review, a worker each time, to hear the same answers.
+        digest.update(name.encode() + b"\0" + b"\n".join(
+            line for line in raw.splitlines() if not _OWN_VERSION.match(line)) + b"\0")
     return digest.hexdigest()[:16]
+
+
+#: A manifest's line that states the project's own version (`version = "1.2.3"`, `"version": "1.2.3",`).
+_OWN_VERSION = re.compile(rb"""^\s*["']?version["']?\s*[:=]\s*["'][^"']*["']\s*,?\s*$""")
+
+
+def same_tool(one: Sequence[str], other: Sequence[str]) -> bool:
+    """Whether two habits are one: the same trigger and the same program, a sub-command aside
+    (`bash:ruff` declared by a tool file is `bash:ruff-check` once a session ran it)."""
+    if not one or not other or one[0] != other[0]:
+        return False
+    a, b = one[-1], other[-1]
+    return a == b or a.startswith(b + "-") or b.startswith(a + "-")
 
 
 def _marks(store: Store, repo: str) -> dict[str, dict[str, Any]]:
@@ -457,9 +473,13 @@ def unreviewed(store: Store, repo: str, repo_dir: Path | None, *, days: int = RE
     load_events(store)
     here, elsewhere = for_repo(store.tool_events(days=days), repo, repo_dir)
     done = reviewed(store, repo, repo_dir)
-    installed = {h["candidate"] for h in store.habits() if not h["removed"]
-                 and repo_dir is not None and Path(h["settings_path"]).parent.parent == repo_dir}
-    return [c for c in [*here, *elsewhere] if c.id not in done and c.id not in installed]
+    mine = [h for h in store.habits() if not h["removed"]
+            and repo_dir is not None and Path(h["settings_path"]).parent.parent == repo_dir]
+    installed = {h["candidate"] for h in mine}
+    hooked = [json.loads(h["steps"]) if isinstance(h["steps"], str) else list(h["steps"]) for h in mine]
+    # A habit whose tool a hook here already runs is no new habit, whatever id its steps hash to.
+    return [c for c in [*here, *elsewhere] if c.id not in done and c.id not in installed
+            and not any(same_tool(c.steps, steps) for steps in hooked)]
 
 
 def review_brief(found: Sequence[Candidate]) -> str:

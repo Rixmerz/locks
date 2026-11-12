@@ -29,6 +29,7 @@ import contextlib
 import json
 import os
 import random
+import re
 import sqlite3
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -204,6 +205,10 @@ STRICT_OVERLAP = 3
 COMMON_SHARE = 0.2
 #: The tools a worker changes a file with, as the tool-call log names them.
 EDIT_TOOLS = ("edit", "write", "multiedit", "notebookedit")
+
+#: The words of a trial's verdict in the reason a brief keeps beside its arm (`arms.verdict`, the primer's,
+#: the evidence gate's, a pooled one too): a task that carries them was placed, not drawn (`arm_trial`).
+_PLACED = re.compile(r"\b(?:won|lost) its trial\b")
 #: The query's first distinct words weighed for a strict match.
 STRICT_CANDIDATES = 40
 #: A strict match needs this many distinctive words in its query to go on.
@@ -1196,8 +1201,9 @@ class Store:
         return self.arm_trial(repo, "primer_arm")
 
     def arm_trial(self, repo: str | None, key: str) -> list[dict]:
-        """The tasks of a repository (None: of every one) whose first `briefed` event put them in an arm
-        under `key` (`primer_arm`, `trunk_arm`): the arm, whether the first try passed, its input
+        """The tasks of a repository (None: of every one) whose first `briefed` event drew them an arm
+        under `key` (`primer_arm`, `trunk_arm`) while its trial ran, never the ones a verdict placed
+        (`_PLACED`, read from the reason kept beside the arm): the arm, whether the first try passed, its input
         tokens, its duration, and how many tool calls it made before its first change (None when
         it made none). `nature` is the kind of work its first brief kept beside the arm (`primer_nature`
         for `primer_arm`), None for a record written before it was kept."""
@@ -1205,10 +1211,17 @@ class Store:
             "SELECT e.task_id, e.data FROM events e JOIN tasks t ON t.id = e.task_id "
             "WHERE e.kind = 'briefed' AND (? IS NULL OR t.repo = ?) ORDER BY e.id", (repo, repo)).fetchall()
         out: dict[int, dict] = {}
+        placed: set[int] = set()
+        why_key = f"{key.removesuffix('_arm')}_why"
         for task_id, raw in rows:
             data = json.loads(raw)
             arm = data.get(key)
-            if arm and task_id not in out:
+            if arm and task_id not in out and task_id not in placed:
+                # A task a verdict placed is no sample of the trial: counted, it fed only the arm that
+                # won, whose rate then drifted to the mean and turned the verdict over, again and again.
+                if _PLACED.search(str(data.get(why_key) or "")):
+                    placed.add(task_id)
+                    continue
                 out[task_id] = {"task_id": task_id, "arm": arm,
                                 "nature": data.get(f"{key.removesuffix('_arm')}_nature")}
         for task_id, row in out.items():

@@ -27,7 +27,11 @@ _TWO_WORD = frozenset({
     "git", "npm", "pnpm", "yarn", "bun", "uv", "cargo", "go", "make", "docker", "kubectl", "poetry",
     "pip", "npx", "dotnet", "gradle", "mvn", "deno", "terraform", "gh", "ruff", "biome",
 })
-_WRAPPERS = frozenset({"sudo", "time", "env", "nice", "exec", "command"})
+_WRAPPERS = frozenset({"sudo", "time", "env", "nice", "exec", "command", "nohup"})
+#: Wrappers that take a duration and flags before the program they run: `timeout 60 pytest` is pytest.
+#: Read as the program, the wrapper was mined as a habit of its own (`edit:.py → bash:timeout`).
+_TIMED_WRAPPERS = frozenset({"timeout", "gtimeout"})
+_DURATION = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
 _FILE_TOOLS = {"Read": "read", "Edit": "edit", "Write": "write", "MultiEdit": "edit", "NotebookEdit": "edit"}
 
 
@@ -48,8 +52,12 @@ _SEPARATORS = frozenset({"&&", "||", ";", "|"})
 def _bash_signature(command: str) -> str:
     tokens = _tokens(command)
     i = 0
-    while i < len(tokens) and (_ENV_ASSIGN.match(tokens[i]) or tokens[i] in _WRAPPERS):
+    while i < len(tokens) and (_ENV_ASSIGN.match(tokens[i]) or tokens[i] in _WRAPPERS
+                               or tokens[i] in _TIMED_WRAPPERS):
+        timed = tokens[i] in _TIMED_WRAPPERS
         i += 1
+        while timed and i < len(tokens) and (tokens[i].startswith("-") or _DURATION.match(tokens[i])):
+            i += 1
     if i >= len(tokens) or _TOKEN.search(tokens[i]) or "://" in tokens[i]:
         return "bash:unknown"
     program, rest = Path(tokens[i]).name, tokens[i + 1:]

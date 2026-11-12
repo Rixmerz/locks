@@ -557,3 +557,27 @@ def test_a_transcript_far_ahead_of_what_a_stop_counted_is_suspect(store: Store, 
     store.set_meta(usage.COUNTED_KEY + "s", json.dumps({"at": counted_at.isoformat(), "version": "0.98.0",
                                                        "transcript": str(transcript)}))
     assert "transcript-ahead-of-usage" not in rules(store, now=datetime.now(UTC), alive=lambda pid: True)
+
+
+def test_a_trial_whose_verdict_read_both_ways_is_suspect(store: Store):
+    def briefed(why: str, version: str) -> None:
+        task = store.create_task("x", status="done", source="queue", repo="r")["id"]
+        store.add_event(task, "planned", version=version)
+        store.add_event(task, "briefed", primer_arm="primer", primer_why=why)
+
+    briefed("the primer won its trial here: primed first tries passed 90%, without 80%", "0.99.0")
+    briefed("the primer lost its trial here: primed first tries passed 80%, without 90%", "0.99.0")
+    [old] = rules(store, now=datetime.now(UTC), alive=lambda pid: True)["trial-verdict-turned"]
+    assert old.severity == doctor.FIXED  # written before the release that fixes it: history
+    briefed("the primer won its trial here: primed first tries passed 90%, without 80%", "0.100.1")
+    assert rules(store, now=datetime.now(UTC), alive=lambda pid: True)["trial-verdict-turned"][0].severity == \
+        doctor.FIXED  # one way only since the fix
+    briefed("the primer lost its trial here: primed first tries passed 80%, without 90%", "0.100.1")
+    [found] = rules(store, now=datetime.now(UTC), alive=lambda pid: True)["trial-verdict-turned"]
+    assert found.severity == doctor.SUSPECT and "won its trial in 2 brief(s) and lost it in 2" in found.what
+    # a pooled verdict beside the repository's own is two trials, never one that turned
+    task = store.create_task("x", status="done", source="queue", repo="q")["id"]
+    store.add_event(task, "briefed", recall_arm="fused",
+                    recall_why="the recall order won its trial everywhere: …; pooled from every repository while …")
+    turned = rules(store, now=datetime.now(UTC), alive=lambda pid: True)["trial-verdict-turned"]
+    assert [f.repo for f in turned] == ["r"]

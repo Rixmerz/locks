@@ -367,6 +367,7 @@ def test_a_worker_is_not_handed_livespec_so_its_attempts_keep_no_livespec_calls_
     from .livespec_fixture import build
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")
     live = "mcp__livespec__"
     used = _indexed_run(git_repo, tmp_path, store, "parse_amount rounds wrong", [live + "quick_orient", "Read"],
                         100_000)
@@ -375,10 +376,9 @@ def test_a_worker_is_not_handed_livespec_so_its_attempts_keep_no_livespec_calls_
     bare = _indexed_run(git_repo, tmp_path, store, "fix the coupon total", ["Read"], 100_000, livespec=False)
     assert "livespec_chars" not in store.events_of(bare.task_id, "briefed")[0]["data"]
     report = analysis.compute(store, days=30, keep_runs=None)
-    assert report["dossier"]["with"]["runs"] == 1 and report["dossier"]["without"]["runs"] == 1
-    assert report["dossier"]["with"]["chars_p50"] > 0
+    # The trial is off in tests: the dossier is always briefed and no arm is recorded.
+    assert report["dossier"]["write"]["dossier"]["tasks"] == 0
     said = analysis.text(report)
-    assert "briefs that carried livespec's dossier against those that did not" in said
     assert "livespec tools offered against called" not in said
 
 

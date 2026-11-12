@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 from locks import hooks, stops
@@ -76,13 +77,15 @@ def test_stop_failure_and_missing_sessions(store: Store):
 def test_session_start_lists_unfinished_work_dead_ends_and_swallowed_errors(store: Store, git_repo, tmp_path):
     root = tmp_path / "root"
     root.mkdir()
-    prompt(store, "half done thing", cwd=str(git_repo))
+    store.create_task("half done thing", status="running", source="locks", session_id="s", cwd=str(git_repo))
+    prompt(store, "como va la cosa", cwd=str(git_repo))
     p = store.open_problem("flaky import", repo=str(git_repo.resolve()))
     store.add_fix(p, "pin the version", "failed", repo=str(git_repo.resolve()))
     (root / hooks.ERROR_LOG).write_text("--- a Stop\nboom\n\n--- b Stop\nboom\n")
     event = {"session_id": "s", "cwd": str(git_repo), "source": "resume"}
     context = hooks.session_start(event, store, root)["hookSpecificOutput"]["additionalContext"]
     assert "2 hook error(s)" in context and "half done thing" in context and "pin the version" in context
+    assert "como va la cosa" not in context  # a session's turn is recorded for coupling, never listed as work
     assert "tasks of this session that stopped" not in context
     # A turn or a subagent whose ending never arrived has nothing to resume: it is not listed.
     lost = store.create_task("a subagent that never said it ended", status="running", source="delegation",
@@ -569,10 +572,10 @@ def test_a_command_line_flag_or_a_bare_slash_command_is_no_turn(store: Store, tm
     assert len(store.list_tasks()) == 2
     # One recorded before is no unfinished work when the session comes back.
     old = store.create_task("--continue", status="running", source="hook", session_id="s2")
-    real = store.create_task("wire the export", status="running", source="hook", session_id="s2")
+    real = store.create_task("wire the export", status="running", source="locks", session_id="s2")
     out = hooks.session_start({"session_id": "s2", "source": "resume"}, store, tmp_path)
     text = out["hookSpecificOutput"]["additionalContext"] if out else ""
-    assert f"#{real['id']} [running]" in text and f"#{old['id']}" not in text
+    assert f"#{real['id']} [" in text and f"#{old['id']}" not in text
 
 
 def test_a_session_hears_once_that_a_newer_locks_is_installed(tmp_path):
@@ -723,3 +726,61 @@ def test_verdict_summary_says_an_unread_independent_check():
     said = hooks.verdict_summary({"check": {"command": "pytest", "state": ""}, "criteria": [],
                                   "independent": {"ran": True, "passed": False, "blocking": 0, "unread": True}})
     assert "blocker" not in said and "read nothing" in said
+
+
+def test_a_later_turn_closes_the_earlier_ones_as_a_turn_stop(store: Store, git_repo):
+    prompt(store, "como va?", cwd=str(git_repo))
+    first = store.last_prompt_task("s")
+    prompt(store, "a turn with a background child", cwd=str(git_repo), prompt_id="p2")
+    waiting = store.last_prompt_task("s")
+    store.create_task("child", status="running", source="delegation", parent_id=waiting["id"], session_id="s")
+    prompt(store, "Como va la cosa", cwd=str(git_repo), prompt_id="p3")
+    closed = store.get_task(first["id"])
+    assert closed["status"] == "interrupted" and stops.of(store, closed).cause == "turn"
+    assert store.get_task(waiting["id"])["status"] == "running"  # its child still works
+    assert store.last_prompt_task("s")["status"] == "running"
+
+
+def test_the_stop_hook_does_its_work_before_the_trace_copies_the_transcript(tmp_path, monkeypatch):
+    seen: list[str] = []
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("LOCKS_HOME", str(home_dir))
+    monkeypatch.setenv("LOCKS_TRACE", "on")
+    monkeypatch.setattr(hooks, "handle", lambda *a, **k: seen.append("work"))
+    monkeypatch.setattr(hooks.trace, "keep_transcript",
+                        lambda event, env, **kw: seen.append(f"copy:{kw.get('budget_s')}"))
+    for name in ("Stop", "PreCompact"):
+        seen.clear()
+        hooks.main(name, io.StringIO(json.dumps({"session_id": "s", "transcript_path": "/x"})), io.StringIO(),
+                   {"LOCKS_HOME": str(home_dir), "LOCKS_TRACE": "on"})
+        assert seen == ["work", f"copy:{hooks.trace.COPY_BUDGET_S}"], name
+    # A hook that raises still copies, last.
+    seen.clear()
+    monkeypatch.setattr(hooks, "handle", lambda *a, **k: 1 / 0)
+    hooks.main("Stop", io.StringIO(json.dumps({"session_id": "s"})), io.StringIO(),
+               {"LOCKS_HOME": str(home_dir), "LOCKS_TRACE": "on"})
+    assert seen == [f"copy:{hooks.trace.COPY_BUDGET_S}"]
+
+
+def test_the_stop_hook_marks_when_it_counted_the_session_s_usage(store: Store, tmp_path):
+    from locks import __version__, usage
+
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text("", encoding="utf-8")
+    hooks.stop({"session_id": "s", "transcript_path": str(transcript)}, store)
+    counted = usage.counted(store, "s")
+    assert counted["version"] == __version__ and counted["transcript"] == str(transcript)
+
+
+def test_the_cost_line_says_when_it_was_last_counted_once_that_is_old(store: Store):
+    from locks import usage
+
+    store.add_usage(message_id="m1", session_id="s", task_id=None, repo=None, model="claude-sonnet-4-5",
+                    input_tokens=1000, output_tokens=1000, cache_read=0, cache_write=0, sidechain=0,
+                    ts="2026-01-01T00:00:00Z")
+    now = datetime(2026, 1, 1, 0, 3, tzinfo=UTC)
+    assert "last counted" not in hooks.session_split(store, "s", now=now)
+    usage.mark_counted(store, "s", "/t", now=datetime(2026, 1, 1, tzinfo=UTC))
+    late = hooks.session_split(store, "s", now=datetime(2026, 1, 1, 0, 25, tzinfo=UTC))
+    assert "last counted 25m ago: the figure may be behind" in late
+    assert "last counted 2h05m ago" in hooks.session_split(store, "s", now=datetime(2026, 1, 1, 2, 5, tzinfo=UTC))

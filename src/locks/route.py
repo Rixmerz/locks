@@ -208,6 +208,43 @@ def one_module(items: list[str]) -> bool:
     return len(tops) == 1
 
 
+#: A document the request names that `points._PATH` does not read: an office file or a PDF.
+_DOCUMENT = re.compile(r"(?<![\w@/.:-])[\w][\w .-]*?\.(?:docx?|xlsx?|pptx?|odt|ods|odp|pdf|rtf)\b", re.IGNORECASE)
+
+
+def one_file(text: str, items: list[str]) -> bool:
+    """Whether the request is the changes to one file or document: it names a single file, or a
+    single document whose items name no paths in different folders. Items that each change one
+    file are one task however many they are."""
+    docs = {m.group(0).split("/")[-1].strip().lower() for m in _DOCUMENT.finditer(text)}
+    files = {PurePosixPath(p).name.lower() for p in points_mod.named(text) if PurePosixPath(p.strip("/")).suffix}
+    if len(docs | files) == 1:
+        return True
+    if len(docs) != 1:
+        return False
+    folders = {PurePosixPath(p.strip("/")).parent for item in items for p in points_mod.named(item)}
+    return len(folders) <= 1
+
+
+def kept_whole(text: str, kind: str | None = None) -> str | None:
+    """Why a build that lists enough items to be split is one task anyway, or None: its items
+    are all changes to one file or document, or all in one module of `src/`. Pure."""
+    if kind is None:
+        ruled = by_rules(text)
+        kind = asks_for_change(text, ruled).kind if ruled is not None else (
+            "implement" if opens_with_change(text) else None)
+    if kind not in SPLIT_KINDS:
+        return None
+    items = pieces_of(text)
+    if len(items) < SPLIT_ITEMS:
+        return None
+    if one_file(text, items):
+        return f"its {len(items)} listed items are all changes to one file or document"
+    if one_module(items):
+        return f"its {len(items)} listed items all touch one module of src/"
+    return None
+
+
 def split_first(text: str, kind: str | None = None) -> str | None:
     """Why a request should be sent as several tasks before one worker starts it, or None:
     a build (`kind`, else read by rules, with no model) that lists `SPLIT_ITEMS` pieces or
@@ -223,7 +260,7 @@ def split_first(text: str, kind: str | None = None) -> str | None:
     if kind not in SPLIT_KINDS:
         return None
     items = pieces_of(text)
-    if one_module(items):
+    if one_module(items) or one_file(text, items):
         return None
     size = points_mod.of_request(text, kind, risk_mod.of_request(text, kind)).points
     pieces = listed_pieces(text)

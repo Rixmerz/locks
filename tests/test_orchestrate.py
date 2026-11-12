@@ -368,6 +368,7 @@ def _livespec(tmp_path, *, runner=None, popen=None):
 
 @pytest.mark.usefixtures("no_verifier")
 def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # this test reads the dossier: no arm may withhold it
     from .livespec_fixture import build
 
     build(git_repo)  # dated in the future, so never older than the last commit
@@ -396,8 +397,11 @@ def test_livespec_runs_through_the_whole_flow(git_repo, store, tmp_path, monkeyp
     assert "livespec: present" in report.text()
 
 
-def test_an_unindexed_repo_is_indexed_in_the_background_and_the_task_starts_at_once(git_repo, store, tmp_path):
+def test_an_unindexed_repo_is_indexed_in_the_background_and_the_task_starts_at_once(
+        git_repo, store, tmp_path, monkeypatch):
     from locks.adapters import livespec as ls
+
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # the brief's content, not the trial
 
     from .livespec_fixture import build
 
@@ -452,6 +456,7 @@ class _Index:
 
 
 def test_a_task_waits_for_the_index_before_its_worker_starts(git_repo, store, tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # this test reads the dossier: no arm may withhold it
     monkeypatch.setenv("LOCKS_LIVESPEC_WAIT", "30")
     started = []
 
@@ -502,6 +507,7 @@ def test_past_the_wait_a_stale_index_still_reaches_the_worker_and_the_plan_says_
     from .livespec_fixture import build
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # the brief's content, not the trial
     monkeypatch.setattr(ls, "_older_than_head", lambda indexed_at, root: True)
     monkeypatch.setenv("LOCKS_LIVESPEC_WAIT", "30")
     script = Script(ok())
@@ -534,10 +540,11 @@ def test_a_task_in_a_folder_of_repositories_indexes_each_one_and_never_the_folde
                for r in the_plan.reasons) == 2
 
 
-def test_a_worker_gets_the_dossier_as_data_and_no_orientation_to_call_livespec(git_repo, store, tmp_path):
+def test_a_worker_gets_the_dossier_as_data_and_no_orientation_to_call_livespec(git_repo, store, tmp_path, monkeypatch):
     from .livespec_fixture import build
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # the brief's content, not the trial
     script = Script(ok())
     run("parse_amount rounds wrong", git_repo, store, registry={}, launcher=script, classifier=kind("implement"),
         adapters=[_livespec(tmp_path)])
@@ -587,6 +594,7 @@ def test_a_stale_index_is_used_as_it_is_while_one_refresh_runs(git_repo, store, 
     from .livespec_fixture import build
 
     build(git_repo)
+    monkeypatch.setenv("LOCKS_DOSSIER_TRIAL", "off")  # the brief's content, not the trial
     monkeypatch.setattr(ls, "_older_than_head", lambda indexed_at, root: True)
     started = []
     adapter = _livespec(tmp_path, popen=lambda argv, **kw: started.append(argv))

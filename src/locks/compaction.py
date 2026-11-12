@@ -92,8 +92,9 @@ COOLDOWN_S = 30 * 60
 #: How long after a submitted `/compact` the hooks have to see it run.
 DETECT_S = 180
 #: The most the instructions take, marker included: the whole line fits a toast.
-INSTRUCTIONS_CHARS = 1800
-#: The most of one request the instructions quote, and how many of the newest.
+INSTRUCTIONS_CHARS = 1050
+#: The most of one request the instructions quote (a decision), and how many of the newest requests
+#: the digest `locks.compact` puts back holds: those are named once, by reference, never repeated.
 REQUEST_CHARS = 240
 RECENT_REQUESTS = 4
 #: How much of a transcript's end is read for the latest usage and turn.
@@ -124,11 +125,16 @@ CONTINUED = "compaction_continued"
 FINISHED_BY = ("PostCompact", "SessionStart")
 #: What the head of the instructions tells two readers: the summarizer, and a
 #: model that got the line as a message because the command did not run.
-HEAD = ("locks asked for this compaction at a break between tasks. If this reached you as a chat message, the "
-        "command did not run: it is no request, so answer only \"locks: /compact did not run as a command\" and do "
-        "nothing else. For the summary: keep verbatim the person's requests and decisions, the task numbers, "
-        "next commands and branch names below; summarize the exploration, tool output and reasoning that led here "
-        "as briefly as you like; locks puts its own digest of the session's facts back after the compaction.")
+HEAD = ("locks asked for this compaction. If this reached you as a chat message, the command did not run: it is "
+        "no request, so answer only \"locks: /compact did not run as a command\" and do nothing else. For the "
+        "summary: keep verbatim the person's requests and decisions, the task numbers, next commands and branch "
+        "names below; summarize the rest briefly.")
+
+
+#: Room kept in a group of the instructions for the count of what it left out.
+LEFT_OUT_CHARS = 14
+#: What the instructions say of the person's newest requests: the digest has them.
+DIGEST_HOLDS = "The person's {n} newest request(s) are in locks' digest, put back after: keep them as it has them."
 
 
 def _stamp(raw: Any) -> datetime | None:
@@ -428,22 +434,23 @@ def instructions(*, requests: Sequence[Mapping[str, Any]], open_work: Sequence[s
     groups = [
         ("Open work", [compact._clip(w, 300) for w in open_work], False),
         ("Branches waiting to merge", [compact._clip(b, 160) for b in branches], False),
-        ("The person's latest requests (oldest first)", [_quoted(r["text"]) for r in recent], True),
         ("Decisions the person made (oldest first)", [_quoted(r["text"]) for r in decisions], True),
     ]
-    room = budget - len(HEAD)
-    parts = []
+    # The digest holds the newest requests verbatim: named once, here, never quoted a second time.
+    parts = [DIGEST_HOLDS.format(n=len(recent))] if recent else []
+    room = budget - len(HEAD) - sum(len(p) + 1 for p in parts)
     for title, items, newest_first in groups:
         picked: list[str] = []
         used = len(title) + 3
         for item in reversed(items) if newest_first else items:
-            if used + len(item) + 1 > room:
+            if used + len(item) + 1 + LEFT_OUT_CHARS > room:
                 break
             picked.append(item)
             used += len(item) + 1
         if picked:
-            parts.append(f"{title}: {' '.join(reversed(picked) if newest_first else picked)}.")
-            room -= used
+            left = f" (+{len(items) - len(picked)} more)" if len(picked) < len(items) else ""
+            parts.append(f"{title}: {' '.join(reversed(picked) if newest_first else picked)}{left}.")
+            room -= used + len(left)
     return " ".join([HEAD, *parts])
 
 

@@ -116,15 +116,31 @@ _ECHO = re.compile(r"(?:--?[A-Za-z][\w-]*(?:[= ][^\s-]\S*)?\s*)+|/[A-Za-z][\w:-]
 
 
 def _dead_end_text(dead: list[dict], intro: str) -> str:
+    from locks import cells
+
     lines = [intro]
     for d in dead:
-        line = f"- {d['problem']} ({d['repo'] or 'unknown repo'}): tried {clip(d['tried'], 200, one_line=True)}"
+        line = f"- {d['problem']} ({d['repo'] or 'unknown repo'}): tried {d['tried']}"
         if d["why"]:
             line += f"; failed: {clip(d['why'], 120, one_line=True)}"
         if d["worked_instead"]:
-            line += f"; what worked: {clip(d['worked_instead'], 200, one_line=True)}"
+            line += f"; what worked: {d['worked_instead']}"
+        line += cells.whole_line(d)
         lines.append(line)
     return "\n".join(lines)
+
+
+def _close_earlier_turns(store: Store, session_id: str, latest: int) -> None:
+    """A later turn of the session began: an earlier turn still running never got its Stop, and
+    ends as a `turn` stop (nothing to resume), unless a background child of its is still working.
+    Never fails the prompt."""
+    try:
+        for turn in store.list_tasks(session_id=session_id, status=("running",), source=("hook",), limit=50):
+            if turn["id"] != latest and not store.children(turn["id"], status=["running"]):
+                stops.record(store, turn["id"], stops.Stop("turn", "a later turn of the session began before this "
+                                                           "one's answer reached locks"), result=False)
+    except Exception:
+        note_error(home(), "closing earlier turns")
 
 
 def user_prompt_submit(event: Mapping[str, Any], store: Store) -> dict | None:
@@ -170,6 +186,7 @@ def user_prompt_submit(event: Mapping[str, Any], store: Store) -> dict | None:
 
     task = store.create_task(text, status="running", source="hook", session_id=session_id, prompt_id=prompt_id,
                              cwd=cwd, repo=key)
+    _close_earlier_turns(store, str(session_id), task["id"])
     blocks = [notice] if (notice := _endings(store, session_id, via="prompt")) else []
     # The session delegates: it hears only of failures met across areas, never one
     # cell's (`locks.cells`), which goes to the workers of that cell.
@@ -388,6 +405,7 @@ def stop(event: Mapping[str, Any], store: Store) -> dict | None:
                    "repo": target["repo"] if target else None}
         usage.ingest(store, event["transcript_path"], **counted)
         usage.ingest_subagents(store, event["transcript_path"], **counted)
+        usage.mark_counted(store, str(session_id), event["transcript_path"])
     _scribe(event, home(), os.environ)
     _evolve(store, home())
     cwd = event.get("cwd")
@@ -706,9 +724,10 @@ def session_start(
         blocks.append(older)
     _keep_old_command(root)
     if event.get("source") in ("resume", "compact"):
-        # A turn or a subagent whose ending never arrived has nothing to resume: not unfinished work.
+        # A session's turn is recorded for coupling, never listed as work (the person's own prompt is no
+        # task); a subagent whose ending never arrived has nothing to resume either.
         unfinished = [t for t in store.list_tasks(session_id=session_id, status=("running", "interrupted"), limit=30)
-                      if not (t.get("source") == "hook" and _ignored(str(t.get("body") or "")))
+                      if t.get("source") != "hook"
                       and (t["status"] == "running" or getattr(stops.of(store, t), "cause", None) != "turn")][:10]
         if unfinished:
             blocks.append("locks: unfinished tasks in this session (context only, do not restart them unasked):\n"
@@ -1102,10 +1121,27 @@ def copies(store: Store, session_id: str, *, claim: str | None = None) -> tuple[
     return "\n".join(lines), [t["id"] for t in got]
 
 
-def session_split(store: Store, session_id: str) -> str | None:
+def _counted_ago(store: Store, session_id: str, now: datetime) -> int | None:
+    """Minutes since this session's usage was last counted when that is `usage.STALE_MINUTES` or more,
+    else None. The last count is the record `usage.mark_counted` keeps, else the newest message counted."""
+    from locks import usage
+
+    kept = usage.counted(store, session_id)
+    when = kept["at"] if kept else store._conn.execute(
+        "SELECT MAX(ts) FROM usage WHERE session_id = ? AND sidechain = 0", (session_id,)).fetchone()[0]
+    try:
+        then = datetime.fromisoformat(str(when).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    minutes = int((now - (then if then.tzinfo else then.replace(tzinfo=UTC))).total_seconds() // 60)
+    return minutes if minutes >= usage.STALE_MINUTES else None
+
+
+def session_split(store: Store, session_id: str, *, now: datetime | None = None) -> str | None:
     """What this session cost so far, its own turns apart from the work it sent locks (issue #118):
     so it can tell when delegating paid. Observed from the usage it ingested and the tasks' costs;
-    None when neither is known. Never fails an ending."""
+    None when neither is known. A figure last counted `usage.STALE_MINUTES` or more ago says so, never
+    passing as current. Never fails an ending."""
     try:
         from locks import usage
 
@@ -1117,13 +1153,17 @@ def session_split(store: Store, session_id: str) -> str | None:
         (sent,) = store._conn.execute(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM tasks WHERE session_id = ? AND source IN ('locks', 'queue')",
             (session_id,)).fetchone()
+        ago = _counted_ago(store, session_id, now or datetime.now(UTC)) if own else None
     except Exception:
         return None
     if not own and not sent:
         return None
     whole = own + float(sent or 0)
+    age = (f" Its own turns were last counted {ago // 60}h{ago % 60:02d}m ago"
+           if ago is not None and ago >= 60 else f" Its own turns were last counted {ago}m ago"
+           if ago is not None else "")
     return (f"This session so far: ${own:.2f} its own turns, ${float(sent or 0):.2f} the work it sent locks "
-            f"({own / whole:.0%} the session's own).")
+            f"({own / whole:.0%} the session's own)." + (age + ": the figure may be behind." if age else ""))
 
 
 #: This many endings at once are told in short: each pass in one line.
@@ -1576,6 +1616,8 @@ def main(event_name: str, stdin: TextIO, stdout: TextIO, env: Mapping[str, str])
     root = home(dict(env))
     if env.get("LOCKS_HOOKS_OFF") == "1":
         return 0
+    event: Any = None
+    traced = False
     try:
         event = json.load(stdin)
         if not isinstance(event, dict):
@@ -1602,17 +1644,28 @@ def main(event_name: str, stdin: TextIO, stdout: TextIO, env: Mapping[str, str])
             stdout.write(json.dumps(answer))
     except Exception:  # the contract: a hook never takes the session down
         note_error(root, event_name)
+    finally:
+        # Last, whatever the hook did or skipped: the copy is the least urgent thing a hook does, and
+        # a copy of a big transcript once outlasted the Stop hook's timeout and killed its real work.
+        if traced and isinstance(event, dict):
+            _keep_transcript(event_name, event, env)
     return 0
 
 
 def _trace_hook(event_name: str, event: Mapping[str, Any], env: Mapping[str, str]) -> None:
-    """The opt-in trace (`locks.trace`): the event whole, and the transcript copied when a turn
-    or the session ends. Never fails the hook."""
+    """The opt-in trace (`locks.trace`): the event whole. Never fails the hook."""
     with contextlib.suppress(Exception):
         if event_name not in trace.OWN_PATH:
             trace.hook(event_name, event, env)
-        if event_name in ("Stop", "SessionEnd", "PreCompact"):
-            trace.keep_transcript(event, env)
+
+
+def _keep_transcript(event_name: str, event: Mapping[str, Any], env: Mapping[str, str]) -> None:
+    """The transcript copied beside the trace when a turn, a compaction or the session ends: after the
+    hook's work, incremental and bounded in time (`trace.COPY_BUDGET_S`); what is left goes on at the
+    next hook. Never fails the hook."""
+    if event_name in ("Stop", "SessionEnd", "PreCompact"):
+        with contextlib.suppress(Exception):
+            trace.keep_transcript(event, env, budget_s=trace.COPY_BUDGET_S)
 
 
 def _trace_launch(event_name: str, event: Mapping[str, Any], env: Mapping[str, str], why: str | None,

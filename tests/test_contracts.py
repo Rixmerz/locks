@@ -330,19 +330,34 @@ def test_every_field_read_from_an_event_is_one_some_place_writes():
     assert dropped == {}, dropped
 
 
-def test_the_dossier_size_a_brief_kept_is_what_stats_read_back(store):
-    from locks import analysis
+def test_the_arm_a_brief_drew_for_its_dossier_is_what_the_trial_reads_back(store):
+    from locks import dossier
 
-    # The key the run writes on `briefed` (orchestrate) is the one the analysis reads.
-    assert re.search(r'"livespec_chars":\s*the_plan\.dossier', (SRC / "orchestrate.py").read_text())
+    # The keys the run writes on `briefed` (orchestrate) are the ones the trial reads.
+    assert re.search(r"\*\*dossier_brief", (SRC / "orchestrate.py").read_text())
+    assert (dossier.KEY, dossier.NATURE_KEY) == ("dossier_arm", "dossier_nature")
     task = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
-    store.add_event(task["id"], "planned", plan_s=0.1)
-    store.add_event(task["id"], "briefed", livespec_chars=900, livespec_symbols=2, livespec_specs=1)
-    store.add_event(task["id"], "attempt_finished", seq=1, passed=True)
-    store.add_event(task["id"], "finished", status="done", wall_s=1.0)
-    events = store.events_of_kinds(["planned", "briefed", "attempt_finished", "finished"])
-    effect = analysis.dossier_effect(analysis.runs([store.get_task(task["id"])], events))
-    assert effect["with"]["runs"] == 1 and effect["with"]["chars_p50"] == 900 and effect["without"]["runs"] == 0
+    store.add_event(task["id"], "briefed", **{dossier.KEY: "none", dossier.NATURE_KEY: "write"})
+    store.add_attempt(task["id"], cell="sonnet/high", max_turns=10, passed=True, duration_s=4.0)
+    store.add_event(task["id"], "attempt_finished", seq=1, passed=True, input_tokens=5, output_tokens=1)
+    found = dossier.trial(store, "r", "write")
+    assert found["none"]["tasks"] == 1 and found["none"]["passed"] == 1 and found["dossier"]["tasks"] == 0
+    assert dossier.trial(store, "r", "read")["none"]["tasks"] == 0
+
+
+def test_show_json_keeps_the_release_the_cost_and_how_each_attempt_went(store):
+    from locks.ui import api
+
+    task = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
+    store.add_event(task["id"], "planned", version="0.1.0")
+    store.add_event(task["id"], "finished", status="done", version="0.2.0")
+    store.add_attempt(task["id"], cell="sonnet/high", max_turns=10, passed=False, cost_usd=0.25)
+    store.add_attempt(task["id"], cell="opus/high", max_turns=10, passed=True, cost_usd=0.5)
+    store.update_task(task["id"], cost_usd=0.75)
+    detail = json.loads(json.dumps(api.task_detail(store, task["id"]), default=str))
+    assert detail["version"] == "0.2.0" and detail["cost_usd"] == 0.75
+    assert detail["ran"] == [{"seq": 1, "cell": "sonnet/high", "cost_usd": 0.25, "passed": False},
+                             {"seq": 2, "cell": "opus/high", "cost_usd": 0.5, "passed": True}]
 
 
 def test_the_sessions_a_task_notifies_are_the_ones_that_hear_its_copy(store, monkeypatch):

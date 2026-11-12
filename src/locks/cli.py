@@ -196,6 +196,8 @@ def _split_first(args: argparse.Namespace, text: str) -> int | None:
 
     why = route.split_first(text, args.kind)
     if why is None:
+        if kept := route.kept_whole(text, args.kind):
+            print(f"locks: not split: {kept}; it is one task", file=sys.stderr)
         return None
     if config.enabled("autosplit", os.environ) and not getattr(args, "after", None):
         queued = _split_and_queue(args, text, why)
@@ -706,9 +708,42 @@ def _cancel_stop(via: str) -> stops.Stop:
                       extra={"via": via})
 
 
+def _cancel_one(store: Store, task: dict) -> None:
+    """Flag a run to stop, signal its process, and record a queued task's stop."""
+    store.request_cancel(task["id"], via="cli")
+    if task["pid"]:
+        # Gone already: the flag still stops it at its next attempt.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(int(task["pid"]), signal.SIGTERM)
+    elif task["status"] == "queued":
+        stops.record(store, task["id"], _cancel_stop("cli"))
+
+
+def _cancel_split(store: Store, number: int) -> int:
+    """`locks cancel --split N`: every piece of N's split still queued or running."""
+    from locks import split
+
+    ids = split.siblings(store, number)
+    if not ids:
+        print(f"task #{number} is no piece of a split and was split into none", file=sys.stderr)
+        return 1
+    live = [t for n in ids if (t := store.get_task(n)) is not None and t["status"] in ("running", "queued")]
+    for task in live:
+        _cancel_one(store, task)
+    off = [f"#{n}" for n in ids if n not in {t["id"] for t in live}]
+    if live:
+        print("cancel requested for " + ", ".join(f"#{t['id']}" for t in live))
+    if off:
+        print(f"{', '.join(off)} already off the queue" if live else
+              f"nothing to cancel: {', '.join(off)} already off the queue")
+    return 0
+
+
 def cmd_cancel(args: argparse.Namespace) -> int:
     store = Store.open()
     try:
+        if getattr(args, "split", False):
+            return _cancel_split(store, args.id)
         task = store.get_task(args.id)
         if task is None:
             print(f"no task #{args.id}", file=sys.stderr)
@@ -716,13 +751,7 @@ def cmd_cancel(args: argparse.Namespace) -> int:
         if task["status"] not in ("running", "queued"):
             print(f"task #{args.id} is {task['status']}; nothing to cancel")
             return 0
-        store.request_cancel(args.id, via="cli")
-        if task["pid"]:
-            # Gone already: the flag still stops it at its next attempt.
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.kill(int(task["pid"]), signal.SIGTERM)
-        elif task["status"] == "queued":
-            stops.record(store, args.id, _cancel_stop("cli"))
+        _cancel_one(store, task)
     finally:
         store.close()
     print(f"cancel requested for task #{args.id}")
@@ -947,7 +976,7 @@ def cmd_split(args: argparse.Namespace) -> int:
             done, base, inherited = [], None, {}
         if args.verify:
             inherited["verify"] = args.verify
-        proposal = split.by_items(text, done) if args.no_model else split.propose(text, where, done=done)
+        proposal = split.by_items(text, done, where) if args.no_model else split.propose(text, where, done=done)
         if args.json and not args.queue:
             print(split.as_json(proposal))
             return 0 if proposal.parts else 1
@@ -974,7 +1003,8 @@ def cmd_split(args: argparse.Namespace) -> int:
                                    author="orchestrator" if os.environ.get("LOCKS_SESSION_ID") else "person")
             ids[part["id"]] = queued["id"]
             titles[queued["id"]] = queued["title"]
-            store.add_event(queued["id"], "split_from", task=task["id"] if task else None, part=part["id"])
+            store.add_event(queued["id"], "split_from", task=task["id"] if task else None, part=part["id"],
+                            group=next(iter(ids.values())))
         numbers = ", ".join(f"#{n}" for n in ids.values())
         print(f"queued {numbers}" + (f" on what #{task['id']} kept ({str(base)[:12]})" if task and base else ""),
               file=out)
@@ -1029,6 +1059,9 @@ def cmd_dismiss(args: argparse.Namespace) -> int:
                 print(f"no task #{task_id}", file=sys.stderr)
                 return 1
             waited = dispatch.waiting(store, task) if after.held(task) else None
+            if task["status"] in ("cancelled", "dismissed") and not after.held(task):
+                print(f"task #{task_id} is already off the board ({task['status']}); nothing to dismiss")
+                continue
             if (stop := stops.dismiss(store, task, via=via, why=why)) is None:
                 print(f"task #{task_id} is {task['status']}; only a task that waits "
                       f"({', '.join(stops.DISMISSABLE)}) or on other work (`--after`) is dismissed"
@@ -3189,6 +3222,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("cancel", help="stop a running or queued task")
     p.add_argument("id", type=int)
+    p.add_argument("--split", action="store_true",
+                   help="cancel every piece of a split still queued or running (ID is the task that was "
+                        "split, or any piece of it)")
     p.set_defaults(func=cmd_cancel)
 
     p = sub.add_parser("dismiss", help="take tasks that wait on you off the board (a resume brings one back)",

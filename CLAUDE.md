@@ -44,7 +44,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/` | the README's screenshots of `locks ui`, taken on demo data with generic project names |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -907,9 +907,11 @@ yields the default kind, not a guess.
   report and of the independent check's brief (`specs.unlinked`, `LINK_PREFIX`): a spec the change
   wrote blocks, one that was already there is a warning, data and never a verdict of locks' own. A spec
   the change wrote with none raises its tier to high (`orchestrate._risk_of_change`), so the independent
-  check that blocks always runs, a docs task's too; a warning raises nothing. `locks stats` compares the
-  briefs that carried a dossier with those that did not (first tries passed, a pass's median time):
-  observed, never a trial. `LOCKS_LIVESPEC=off` reads no index and briefs none.
+  check that blocks always runs, a docs task's too; a warning raises nothing. Whether the dossier helps is a
+  trial (`dossier_trial`, `briefed.dossier_arm`): a repository's first briefs draw `dossier` or `none` per
+  nature of work (a resume keeps its arm), and once each arm has its first tries it is briefed only where
+  its arm passed no less often and no slower (`arms.pick`, `locks stats`); what locks reads for itself and
+  the independent check's index stay whatever the arm. Tests run with `LOCKS_DOSSIER_TRIAL=off`. `LOCKS_LIVESPEC=off` reads no index and briefs none.
   Tests run with `LOCKS_LIVESPEC_WAIT=0`.
 - A trial is per repository, and a repository with few tasks would pay for both arms for months (the
   primer needs 24 tasks, a role's lessons 20, the trunk 20 workflow steps, the evidence gate 16 the
@@ -1109,6 +1111,10 @@ yields the default kind, not a guess.
   SessionStart once a day with the trace on, never the session's own; `hook-errors.log` keeps its tail.
 - The dispatcher's model call runs outside `capacity.held`: candidates are read under it, judged
   without it, then allotted and claimed under it again, each checked as still queued.
+- A hook's order is its contract: usage ingest, the scribe and the endings run before anything whose time grows
+  with the session; the trace's transcript copy is last, incremental (`trace.keep_transcript`, its offset and the
+  hashes of the source's head and of the bytes before the offset kept beside it) and bounded by `COPY_BUDGET_S`.
+  A count older than its constant says when it was counted, and `doctor` names `transcript-ahead-of-usage`.
 - A signature never holds an argument. The final `[a-z0-9:._-]` filter stays
   last, after the semantic scrubbing.
 - A compaction digest is read from the transcript and git, never written by
@@ -1245,7 +1251,10 @@ yields the default kind, not a guess.
   or when no piece is proposed, they start nothing and exit `EXIT_SPLIT` with how to split it.
   `--whole` is the session's word that it is one. A listed item that states a rule (a constraint, a test for
   the others, what not to do: `route.is_rule`) is no piece and is carried to every piece as context
-  (`split.by_items`), and items that all touch one module of `src/` are one task (`route.one_module`).
+  (`split.by_items`), and items that all touch one module of `src/` are one task (`route.one_module`), as are
+  items that are all changes to one named file or document and pieces identical in their own text; a piece
+  never gets a derived surface whose path is absent from the repository. `locks cancel --split N` undoes a
+  split in one command.
   Tests run with `LOCKS_AUTOSPLIT=off`.
 - An ending names other work in its repository (running, or a kept branch of the last
   `hooks.OVERLAP_DAYS`) that changed the same files: merging both conflicts there. A file is named only when

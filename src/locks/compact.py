@@ -19,13 +19,16 @@ from typing import Any
 
 from locks import legacy
 from locks.notes import _SECRET
+from locks.text import clip
 
 #: The most the digest puts back into a session; sections are cut, in order of
 #: worth, to fit.
 BUDGET = 9000
+#: The share of the budget the failed calls take at most; the rest is said by count.
+FAILURES_SHARE = 5  # one fifth
 #: The most of one request, one error or one command the digest keeps.
 REQUEST_CHARS = 700
-ERROR_CHARS = 300
+ERROR_CHARS = 200
 COMMAND_CHARS = 160
 MAX_LINE = 4 * 1024 * 1024
 WRITERS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
@@ -79,8 +82,7 @@ def _typed(entry: dict[str, Any]) -> str | None:
 def _clip(text: str, limit: int) -> str:
     """One line, at most `limit`, with anything that looks like a secret masked:
     the digest is put in front of a model and kept on disk."""
-    text = _SECRET.sub("[secret]", " ".join(text.split()))
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+    return clip(_SECRET.sub("[secret]", " ".join(text.split())), limit)
 
 
 def _result_text(block: dict[str, Any]) -> str:
@@ -95,7 +97,7 @@ def read(transcript: Path) -> dict[str, Any]:
     requests: list[str] = []
     written: dict[str, None] = {}
     calls: dict[str, tuple[str, str]] = {}
-    failures: list[str] = []
+    failures: list[tuple[tuple[str, str], str]] = []
     for entry in _entries(transcript):
         kind = entry.get("type")
         content = (entry.get("message") or {}).get("content")
@@ -114,13 +116,17 @@ def read(transcript: Path) -> dict[str, Any]:
                     written[args.get("file_path") or args.get("notebook_path")] = None
                 what = args.get("command") if name == "Bash" else args.get("file_path") or args.get("pattern")
                 calls[str(block.get("id"))] = (name, str(what or ""))
-            elif kind == "user" and block.get("type") == "tool_result" and block.get("is_error"):
-                name, what = calls.get(str(block.get("tool_use_id")), ("?", ""))
+            elif kind == "user" and block.get("type") == "tool_result":
+                call = calls.get(str(block.get("tool_use_id")), ("?", ""))
+                if not block.get("is_error"):
+                    # The same command passed later: the failure was fixed, it is not a fact to carry.
+                    failures = [f for f in failures if f[0] != call] if call[1] else failures
+                    continue
                 error = _result_text(block)
                 if "user doesn't want to proceed" in error or "rejected" in error[:80]:
                     continue  # a person's no is not a failure of the work
-                failures.append(f"{name} `{_clip(what, COMMAND_CHARS)}`: {_clip(error, ERROR_CHARS)}")
-    return {"requests": requests, "written": list(written), "failures": failures}
+                failures.append((call, f"{call[0]} `{_clip(call[1], COMMAND_CHARS)}`: {_clip(error, ERROR_CHARS)}"))
+    return {"requests": requests, "written": list(written), "failures": [text for _, text in failures]}
 
 
 def _changed(cwd: Path) -> list[str]:
@@ -133,7 +139,8 @@ def _changed(cwd: Path) -> list[str]:
 
 
 def _section(title: str, lines: list[str], room: int, *, newest_first: bool = False) -> str:
-    """A section that fits in `room`: from the newest end when the old matter less."""
+    """A section that fits in `room`: from the newest end when the old matter less; what it
+    leaves out is said by count."""
     if not lines or room <= len(title) + 10:
         return ""
     picked: list[str] = []
@@ -163,14 +170,17 @@ def digest(facts: dict[str, Any], *, changed: list[str], tasks: list[dict[str, A
         ("The person's requests, verbatim, oldest first:",
          [f"- {_clip(r, REQUEST_CHARS)}" for r in facts["requests"]], True),
         ("locks tasks of this session:", [f"- #{t['id']} [{t['status']}] {t['title']}" for t in tasks], True),
-        ("Calls that failed (newest last):", [f"- {f}" for f in facts["failures"]], True),
+        ("Calls that failed and never passed later (newest last):", [f"- {f}" for f in facts["failures"]], True),
         ("Files git shows changed now:", [f"- {c}" for c in changed], False),
         ("Files this session wrote:", [f"- {w}" for w in facts["written"]], True),
     ]
     out, room = [head], budget - len(head)
-    # Requests get half the room at most, so the rest is never crowded out.
+    # Requests get half the room at most and the failed calls a fifth of the budget, so the rest is
+    # never crowded out.
     for index, (title, lines, newest) in enumerate(sections):
         share = room // 2 if index == 0 else room
+        if title.startswith("Calls that failed"):
+            share = min(share, budget // FAILURES_SHARE)
         text = _section(title, lines, share, newest_first=newest)
         if text:
             out.append(text)

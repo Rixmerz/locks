@@ -1,6 +1,6 @@
 {
   "name": "locks",
-  "version": "0.98.0",
+  "version": "0.99.0",
   "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
   "author": {
     "name": "Rixmerz"
@@ -254,6 +254,12 @@
       "title": "Workers at once",
       "description": "The most workers this machine runs at once, every repository's together. auto: no ceiling; locks starts at what the machine can hold (its CPUs, free memory and free disk), adds one when work waits and the last tasks ended with no limit, and halves on a rate limit, an overloaded API, a worker the machine starved, or low memory or disk. A number: your ceiling, and the level still adapts under it. Each repository with work is reserved its share, and lends what it does not use. Cost never moves it.",
       "default": "auto"
+    },
+    "dossier_trial": {
+      "type": "boolean",
+      "title": "Try livespec's answers in a brief against their absence",
+      "description": "Where a repository has a livespec index, locks asks it and puts the answers in a worker's brief. Each repository tries that in turns against a brief without them, for reading and for writing work apart, and keeps them only where the briefs that carried them passed their first tries no less often and no slower. Off: the answers are always briefed.",
+      "default": true
     }
   },
   "types": "./types/index.d.ts"

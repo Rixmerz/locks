@@ -38,8 +38,8 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`, `models`.
    proposes the pieces, and `--queue` starts them. A build of many items is
    refused before it starts (exit 5, `not started: this request is several
    tasks`): split it as it says; `--whole` only when it truly is one piece. A
-   chain with a blind review is a workflow (`locks workflow run feature|bugfix
-   "<goal>"`; `locks guide workflows`).
+   split gone wrong: `locks cancel --split N` (N the split task or a piece). A
+   chain with a blind review is a workflow (`locks guide workflows`).
 
 3. **Dispatch** with Bash, from the repository the work is in:
 

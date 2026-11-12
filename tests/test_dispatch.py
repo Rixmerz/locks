@@ -670,6 +670,31 @@ def test_a_path_in_a_negated_sentence_is_no_named_surface():
     assert named("Edit src/new.py. Do not edit docs/CHANGELOG.md or CLAUDE.md; also change src/other.py") == (
         "src/new.py", "src/other.py")
     assert named("Leave docs/q.md alone, add src/w.py") == ("src/w.py",)
+    # "No part edits X", "nor", and a negation after the paths that points back at them.
+    assert named("No new setting, and no part edits CHANGELOG.md, CLAUDE.md or the version. Add src/a.py") == (
+        "src/a.py",)
+    assert named("Writing it down (a line in CLAUDE.md, AGENTS.md) fixes nothing, so never edit those files") == ()
+    assert named("Do not edit docs/a.md nor docs/b.md") == ()
+    assert named("There is no test in tests/test_a.py for it") == ("tests/test_a.py",)
+
+
+def test_a_folder_named_beside_files_inside_it_names_those_files_alone():
+    named = lambda body: dispatch.named_surfaces({"body": body})  # noqa: E731
+    assert named("Fix both in src/locks/a.py and src/locks/b.py; items that touch one module of src/ are one") == (
+        "src/locks/a.py", "src/locks/b.py")
+    assert named("Add a page under docs/ and change src/x.py") == ("docs/**", "src/x.py")
+
+
+def test_a_bare_file_name_may_be_the_file_another_task_names_with_its_folder():
+    from locks import flow
+
+    assert dispatch.names_touch(["launch.py"], ["src/locks/launch.py"])
+    assert dispatch.names_touch(["src/locks/launch.py"], ["launch.py", "docs/x.md"])
+    assert not dispatch.names_touch(["launch.py"], ["src/locks/route.py"])
+    assert not dispatch.names_touch(["src/a/launch.py"], ["src/b/launch.py"])  # both say where: two files
+    ahead = {"id": 7, "body": "Change src/locks/launch.py to pass the flag"}
+    waits = flow.by_surfaces({"id": 8, "body": "In launch.py add the prompt"}, [ahead])
+    assert waits is not None and not waits.parallel and "#7" in waits.reason
 
 
 def test_a_died_task_a_person_asked_to_cancel_is_never_resumed_on_its_own(store: Store, tmp_path, monkeypatch):

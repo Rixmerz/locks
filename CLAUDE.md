@@ -723,6 +723,8 @@ yields the default kind, not a guess.
   hold it back from work ahead that declares or names files they may touch, or already
   changed one; never a reason to start beside it, and never enforced on the worker. A path in a clause
   that negates it ("do not edit X", "never touch Y", `dispatch._negated`) names nothing.
+  A folder named beside files inside it names those files alone, and a bare file name may be the file another
+  task names with its folder (`dispatch.names_touch`).
 - `locks roles import` reads Claude Code agents (a file or a folder, read only) into the
   person's roles: their instructions kept, `model` dropped, their tool list as the built-in
   tools taken away, their kinds read from their name and description; a role of the same

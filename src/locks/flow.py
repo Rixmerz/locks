@@ -445,7 +445,7 @@ def _by_names(task: dict, mine: tuple[str, ...], ahead: list[dict]) -> dispatch.
         return None
     for t in ahead:
         theirs = dispatch.declared_surfaces(t) or dispatch.named_surfaces(t)
-        if theirs and not surfaces.disjoint(named, theirs):
+        if theirs and dispatch.names_touch(named, theirs):
             return dispatch.Decision(False, f"the files it names may be the ones #{t['id']} changes "
                                             f"({', '.join(named[:3])}): it waits rather than both change them")
         touched = next((p for p in t.get("changed") or () if surfaces.allows(named, p)), None)

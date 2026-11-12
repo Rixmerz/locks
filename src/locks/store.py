@@ -1101,6 +1101,14 @@ class Store:
         rows = self._conn.execute("SELECT * FROM events WHERE task_id = ? AND kind = ? ORDER BY id", (task_id, kind))
         return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
 
+    def version_of(self, task_id: int) -> str | None:
+        """The release that ran a task: the newest `version` its events keep (None for records from
+        before releases were kept)."""
+        row = self._conn.execute(
+            "SELECT json_extract(data, '$.version') FROM events WHERE task_id = ? "
+            "AND json_extract(data, '$.version') IS NOT NULL ORDER BY id DESC LIMIT 1", (task_id,)).fetchone()
+        return str(row[0]) if row else None
+
     def check_tails(self, task_id: int) -> dict[int, str]:
         """What locks' check said on each attempt of a task that it failed (`launch.check_tail`),
         by the attempt's `seq`: kept on the `attempt_finished` event, so attempts recorded

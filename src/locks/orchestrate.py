@@ -72,6 +72,7 @@ from locks import allow as allow_rules
 from locks import capabilities as caps
 from locks import criteria as criteria_mod
 from locks import critique as critique_mod
+from locks import dossier as dossier_mod
 from locks import evidence as evidence_mod
 from locks import findings as findings_mod
 from locks import ledger as ledger_mod
@@ -292,6 +293,9 @@ class Plan:
     #: What the neighbours' indexes held on the request, read by locks and briefed as data
     #: (`Livespec.dossier`): its size in characters, the symbols and the specs it carried.
     dossier: dict[str, int] | None = None
+    #: The dossier's text, kept apart from `context`: a task's first brief carries it or not by the
+    #: dossier trial (`locks.dossier`), and a task's `dossier` stats say what it would carry.
+    dossier_text: str = ""
     #: The start raised one rung on this repository's record of the task's shape (`locks.predict`), with
     #: its evidence; None when the start came from the rules alone.
     predicted: dict[str, Any] | None = None
@@ -414,6 +418,8 @@ class Report:
         if self.task_id is None:
             # A dry run shows what the first worker would be handed.
             lines += self.plan.context
+            if self.plan.dossier_text:
+                lines.append(self.plan.dossier_text)
         if self.plan.capabilities:
             lines.append(f"capabilities {', '.join(self.plan.capabilities)}")
         for i, (cell, move) in enumerate(zip(self.cells, [*self.moves, ""], strict=False), 1):
@@ -874,6 +880,7 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
     # What the neighbours' indexes hold on the request, asked by locks before the worker starts and
     # briefed as data (`Livespec.dossier`): the worker is not handed the index to ask it itself.
     named = touched_paths(text, options)
+    dossier_text = ""
     for adapter, status in active:
         make = getattr(adapter, "dossier", None)
         if make is None:
@@ -883,10 +890,12 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
         except Exception:  # an index that cannot say costs the plan nothing
             found = None
         if found is not None and found.text:
-            context.append(found.text)
+            dossier_text = "\n\n".join(filter(None, [dossier_text, found.text]))
             dossier_stats = {"chars": found.chars, "symbols": found.symbols, "specs": found.specs}
             neighbour_notes.append(f"{adapter.name}: {found.symbols} symbol(s) and {found.specs} spec(s) "
-                                   "from its index are in the brief")
+                                   "from its index are in the brief"
+                                   + ("; the dossier trial decides whether the worker gets them"
+                                      if dossier_mod.enabled() else ""))
     if options.surfaces:
         reasons += _tests_left_out(options.surfaces, repo_dir, active)
     selected = _with_role(caps.select(registry, kind, workdir=repo_dir, paths=touched_paths(text, options),
@@ -921,7 +930,7 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 risk, turns, size, standard.data() if standard is not None else None, race,
                 probation={"arm": arm, "cell": PROBATION[kind].label} if arm else None,
                 withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None,
-                dossier=dossier_stats, predicted=predicted)
+                dossier=dossier_stats, dossier_text=dossier_text, predicted=predicted)
 
 
 #: The most tests outside a task's surfaces its plan names.
@@ -1486,6 +1495,19 @@ def run(
                           "primer_nature": cells.nature_of(the_plan.kind)}
                 if arm == "primer":
                     context.append(cells.primer_text(lines))
+        # What livespec's index held on the request, read by locks: briefed by the dossier trial
+        # (`locks.dossier`) per repository and nature of work, a resume keeping its first brief's arm.
+        # Only the worker's text differs between the arms; what locks read for itself stays.
+        dossier_brief: dict[str, Any] = {}
+        if the_plan.dossier_text:
+            briefed_dossier = True
+            if dossier_mod.enabled():
+                nature = dossier_mod.nature_of(the_plan.kind)
+                arm, why = dossier_mod.arm_for(store, key, task["id"], nature)
+                dossier_brief = {dossier_mod.KEY: arm, dossier_mod.WHY_KEY: why, dossier_mod.NATURE_KEY: nature}
+                briefed_dossier = arm == "dossier"
+            if briefed_dossier:
+                context.append(the_plan.dossier_text)
         # Which role and which version of its text this worker wears, and the role's lessons here:
         # given or withheld by their trial, and kept either way so the arms can be compared.
         # The notes the brief carries are kept too, so a worker-learned one is proven or dropped by
@@ -1567,7 +1589,8 @@ def run(
                             # livespec's index describes the person's checkout; a worker in a worktree edits
                             # a copy of it, so what the index answers is the base, not its own work so far.
                             "livespec_index_of": "checkout" if workdir.resolve() != repo_dir.resolve() else "workdir"}
-                           if the_plan.dossier else {}),
+                           if the_plan.dossier and dossier_brief.get(dossier_mod.KEY) != "none" else {}),
+                        **dossier_brief,
                         # Each adopted neighbour's state when this brief was written: a brief with no
                         # dossier says why (absent, stale, unreadable), never left to guess.
                         **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")

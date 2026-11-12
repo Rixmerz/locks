@@ -1179,11 +1179,11 @@ def test_orchestrate_the_dossier_is_briefed_only_from_an_index_that_says(git_rep
     found = orchestrate.plan("fix the bug in src/app.py", git_repo, store, Options(), {},
                              classifier=t.kind("implement"), adapters=[broken, quiet])
     # an index that breaks or says nothing puts nothing in the brief, and costs the plan nothing
-    assert not any("src/app.py: called by main" in line for line in found.context)
+    assert not any("src/app.py: called by main" in line for line in [found.dossier_text])
     said = _Index(reach=("src/app.py: called by main",))
     found = orchestrate.plan("fix the bug in src/app.py", git_repo, store, Options(), {},
                              classifier=t.kind("implement"), adapters=[said])
-    assert any("src/app.py: called by main" in line for line in found.context)
+    assert any("src/app.py: called by main" in line for line in [found.dossier_text])
 
 
 def test_orchestrate_impact_skips_an_index_that_breaks_and_links_fail_open(tmp_path, monkeypatch):

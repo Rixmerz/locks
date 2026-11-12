@@ -20,7 +20,6 @@ import csv
 import io
 import json
 import math
-import statistics
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
@@ -29,6 +28,7 @@ from typing import Any
 from locks import behavior, launch, racing, revisions, trunks, trust, usage, workflows
 from locks import cells as cells_mod
 from locks import critique as critique_mod
+from locks import dossier as dossier_mod
 from locks import evidence as evidence_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
@@ -106,8 +106,6 @@ def runs(tasks: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]
                 session = data.get("session")
                 current["session_context"] = bool(session)
                 current["session_chars"] = (session or {}).get("chars", 0)
-                if data.get("livespec_chars"):
-                    current["dossier_chars"] = max(current["dossier_chars"] or 0, int(data["livespec_chars"]))
             elif kind == "attempt_started":
                 # An attempt with no `attempt_finished` before the run's end lost its worker (it died,
                 # or was cut off): the time from its start to the end is lost, not "other".
@@ -155,7 +153,7 @@ def _start(task: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
         "attempts": 0, "first_try": None, "verified": 0, "verifier_blocked": 0, "moves": [], "cells": [],
         "cost_usd": 0.0, "turns": 0, "input_tokens": 0, "output_tokens": 0, "refused": 0,
         "cache_read_tokens": 0, "measured_input_tokens": 0, "verifier_cost_usd": 0.0, "tokens": 0,
-        "livespec_handed": False, "livespec_calls": 0, "livespec_tools": {}, "dossier_chars": None, "lost_usd": 0.0,
+        "livespec_handed": False, "livespec_calls": 0, "livespec_tools": {}, "lost_usd": 0.0,
         "calls": 0, "failed_calls": 0, "check_runs": 0, "fix_cycles": 0, "calls_before_edit": None,
         "session_context": None, "session_chars": 0, "brief_chars": None,
         "_worker_s": 0.0, "_check_s": 0.0, "_verifier_s": 0.0, "_timed": False, "_check_usd": 0.0,
@@ -286,23 +284,6 @@ def capability_use(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
     return {"given": len(rows), "used": len(used), "calls": sum(r["calls"] for r in rows),
             "passed_used": rate(used), "passed_idle": rate(idle)}
-
-
-def dossier_effect(found: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Runs whose first brief carried a dossier from livespec's index (`briefed.livespec_chars`) against
-    those that did not: runs, first tries passed and the median wall time of a pass. Observed, never a
-    trial: the two groups differ in more than the dossier (an index that was absent, a repository's age)."""
-    out: dict[str, dict[str, Any]] = {}
-    for name, group in (("with", [r for r in found if r.get("dossier_chars")]),
-                        ("without", [r for r in found if not r.get("dossier_chars")])):
-        first = [r for r in group if r["first_try"] is not None]
-        took = [r["wall_s"] for r in group if r["status"] == "done" and r["wall_s"] is not None]
-        out[name] = {"runs": len(group), "tries": len(first), "passed": sum(bool(r["first_try"]) for r in first),
-                     "rate": _share(sum(bool(r["first_try"]) for r in first), len(first)),
-                     "pass_p50_s": statistics.median(took) if took else None,
-                     "chars_p50": statistics.median([r["dossier_chars"] for r in group]) if name == "with" and group
-                     else None}
-    return out
 
 
 def livespec_tokens(found: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -694,7 +675,10 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "livespec_use": capability_use(store.capability_use("livespec", since=since, repo=repo)),
         # The tokens a run spent per kind, with livespec called against without (observed, not a trial).
         "livespec_tokens": livespec_tokens(found),
-        "dossier": dossier_effect(found),
+        # Whether livespec's dossier in a brief helps, per nature of work: both arms of its trial
+        # (`locks.dossier`), and where each stands now.
+        "dossier": {n: dossier_mod.trial(store, repo, n) for n in dossier_mod.NATURES},
+        "dossier_now": {n: dossier_mod.arm(store, repo, 0, n)[1] for n in dossier_mod.NATURES} if repo else {},
         # Whether racing a first try paid, per repository and kind (`locks.racing`): its own window.
         "races": racing.table(store, repo),
         # What each blind review of a two-review ledger added that no other saw (`workflows.reviewer_yield`).
@@ -934,13 +918,17 @@ def text(report: Mapping[str, Any]) -> str:
                          f"call(s)); passed {_rate(use['passed_used'])} when called, {_rate(use['passed_idle'])} "
                          "when not (observed, not a trial)")
             lines.append("")
-        dossier = report.get("dossier") or {}
-        if (dossier.get("with") or {}).get("runs"):
-            lines.append("briefs that carried livespec's dossier against those that did not (observed, not a trial):")
-            for side, row in dossier.items():
+        for nature, arms in (report.get("dossier") or {}).items():
+            if not any(row["tasks"] for row in arms.values()):
+                continue
+            lines.append(f"livespec's dossier in the brief, {nature} work "
+                         "(its trial; first tries, a pass's median time):")
+            for arm, row in arms.items():
                 took = f"{row['pass_p50_s']:.0f}s" if row.get("pass_p50_s") is not None else "-"
-                lines.append(f"  {side:<8} runs {row['runs']:>4}  first tries {row['passed']}/{row['tries']} "
-                             f"({_rate(row['rate'])})  pass p50 {took}")
+                lines.append(f"  {'with it' if arm == 'dossier' else 'without it':<11} tasks {row['tasks']:>4}  first "
+                             f"tries {row['passed']}/{row['tries']} ({_rate(row['rate'])})  pass p50 {took}")
+            if (report.get("dossier_now") or {}).get(nature):
+                lines.append(f"  now: {report['dossier_now'][nature]}")
             lines.append("")
         if rows := report.get("livespec_tokens"):
             lines.append("tokens per run by kind, livespec called against not called (observed, not a trial):")

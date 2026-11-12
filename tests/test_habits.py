@@ -634,3 +634,33 @@ def test_a_declared_tool_a_session_or_a_hook_already_runs_is_no_new_habit():
     assert not habits.same_tool(("edit:.py", "bash:ruff"), ("edit:.ts", "bash:ruff-check"))
     assert not habits.same_tool(("edit:.py", "bash:ruff"), ("edit:.py", "bash:ruffian"))
     assert not habits.same_tool(("edit:.py", "bash:pytest"), ("edit:.py", "bash:ruff"))
+
+
+def test_the_listing_says_what_is_installed_and_offers_it_no_more(store: Store, tmp_path, capsys, monkeypatch):
+    """`locks habits` listed the installed habit's own candidate again and said nothing of what it did."""
+    for name in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"):
+        monkeypatch.setenv(name, "t")
+    repo_dir = _git_repo(tmp_path / "repo")
+    from locks import cli
+
+    key = cli._habit_repo(str(repo_dir))
+    for s in range(3):
+        store.touch_session(f"s{s}", str(repo_dir), key)
+        for sig in ("edit:.py", "bash:ruff-check"):
+            store.add_tool_event(session_id=f"s{s}", tool="x", sig=sig, arg_hash="h", ok=1)
+    cand = habits.Candidate(("edit:.py", "bash:ruff"), 3, 3, 1.0, 1, 9.0)
+    hid, _ = habits.install(store, cand, command="ruff check", repo_dir=repo_dir)
+    store.update_habit(hid, runs=60, caught=0)
+    store.close()
+    assert cli.main(["habits", "list", "--repo", str(repo_dir)]) == 0
+    out = capsys.readouterr().out
+    assert f"installed #{hid}" in out and "60 runs, 0 found something: it has caught nothing yet" in out
+    assert "bash:ruff-check" not in out  # the hook already runs that tool: no candidate
+    assert cli.main(["habits", "list", "--json", "--repo", str(repo_dir)]) == 0
+    found = json.loads(capsys.readouterr().out)
+    assert [h["id"] for h in found["installed"]] == [hid] and found["here"] == []
+
+
+def test_a_wrapper_kept_as_the_program_is_no_habit(store: Store):
+    _events(store, 3, ["edit:.py", "bash:timeout"])
+    assert habits.candidates(store.tool_events()) == []

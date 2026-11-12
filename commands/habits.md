@@ -23,7 +23,9 @@ locks habits status --json    # installed habits: where, runs, failures, on or o
 Run them in the repository: habits are per project. `list` mines this
 repository's own sessions and workers (`here`), gated on them alone, and lists
 apart the habits two or more other repositories share that this one has not
-shown yet (`elsewhere`, with how many `repos`). `status` lists every installed
+shown yet (`elsewhere`, with how many `repos`). It also gives the habits already
+installed in this checkout (`installed`: runs, how many found something), which are
+no candidates any more. `status` lists every installed
 habit with its `repo`; only the ones in this checkout's top
 (`git rev-parse --show-toplevel`) are yours to review here.
 

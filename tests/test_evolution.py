@@ -221,3 +221,34 @@ def test_what_a_snapshot_leaves_out_and_what_a_trend_cannot_say(store: Store):
     text = evolution.text(evolution.report(store, days=0, now=local(14, 9), tz=HERE))
     assert "all time" in text and "No standard changed in this period." in text and "Standards now" not in text
     assert "No snapshot at all yet" in evolution.text(evolution.report(store, days=0, repo="none", now=local(14, 9)))
+
+
+def test_the_report_says_what_the_record_decided_beyond_the_standards(store: Store, tmp_path):
+    """Where each trial stands, a role's lessons, the notes their trial moved and what a habit caught were
+    each in a different command; the evolution report had only the standards."""
+    from locks import habits
+
+    one = store.create_task("x", status="done", source="queue", repo="r")["id"]
+    store.add_event(one, "briefed", recall_arm="fused", recall_why="the recall order's trial here (1 fused)")
+    two = store.create_task("y", status="done", source="queue", repo="r")["id"]
+    store.add_event(two, "briefed", recall_arm="fused", recall_why="the recall order won its trial here: 88%",
+                    primer_arm="primer", primer_why="the primer's trial here (4 primed, 4 without, 12 each)")
+    resumed = store.create_task("z", status="done", source="queue", repo="r")["id"]
+    store.add_event(resumed, "briefed", primer_arm="none", primer_why="the arm this task's first brief drew")
+    note = store.add_note("r", "code", "a title", "a fact", author="worker", filed_by="worker", state="candidate")
+    store.update_note(note, state="dropped", state_reason="disproven: 67% against 100%")
+    store.add_note("r", "code", "another", "a fact of its own", author="worker", filed_by="worker", state="candidate")
+    (tmp_path / "repo").mkdir()
+    hid, _ = habits.install(store, habits.Candidate(("edit:.py", "bash:ruff"), 3, 3, 1.0, 1, 9.0),
+                            command="ruff check", repo_dir=tmp_path / "repo")
+    store.update_habit(hid, runs=7, caught=2)
+    found = evolution.report(store, days=0)["learned"]
+    assert [(t["trial"], t["arm"], t["decided"], t["task"]) for t in found["trials"]] == [
+        ("primer", "primer", False, two), ("recall", "fused", True, two)]
+    assert found["notes"] == [{"repo": "r", "waiting": 1, "adopted": 0, "dropped": [
+        {"id": note, "title": "a title", "reason": "disproven: 67% against 100%"}]}]
+    text = evolution.text(evolution.report(store, days=0))
+    assert "recall in r: decided, last arm fused" in text and "primer in r: still trying" in text
+    assert "1 still candidates" in text and "7 runs, 2 found something" in text
+    assert evolution.learned(store, repo="elsewhere") == {"trials": [], "roles": [], "notes": [],
+                                                          "habits": found["habits"]}

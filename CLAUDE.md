@@ -1172,7 +1172,12 @@ yields the default kind, not a guess.
 - A signature reads through a wrapper to the program it runs (`signature._WRAPPERS`, and `timeout` with its
   duration and flags). A habit's review stands until the repository's tool files change in more than the project's
   own version line (`habits.tooling`), and a candidate whose tool a hook here already runs, a sub-command aside,
-  is no new habit (`habits.same_tool`).
+  is no new habit (`habits.same_tool`). `locks habits` says what is installed first, with its runs and what it
+  caught (`habits.installed_in`, `record_line`: one that caught nothing in `QUIET_RUNS` is said so, never removed),
+  and offers no candidate a hook here already runs.
+- `locks evolution` also says what the record decided beyond the standards (`evolution.learned`): where each trial
+  stands, from the last reason a brief kept beside its arm, a role's lessons, the notes their trial moved and how
+  many still wait, and each installed habit's runs and catches. Read from records already kept, never computed again.
 - Nothing in locks writes to a settings file but a habit: `locks habits install`, run by a
   person, or locks itself installing a reviewed habit (`habits.apply_reviews`, the
   `habit_auto` setting), and only the repository's `.claude/settings.local.json`. A

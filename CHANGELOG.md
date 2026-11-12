@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+### Added
+- `locks evolution` says what the record decided beyond the standards: where each trial of a repository stands
+  (the last reason a brief there kept beside its arm: decided, or still trying with its counts), a role's lessons
+  proposed, adopted, dropped or reverted, the notes their trial adopted or dropped with how many still wait as
+  candidates, and each installed habit's runs and catches. It was spread over `locks stats`, `locks roles
+  revisions`, `locks notes` and `locks habits status`; the report's JSON carries it as `learned`.
+- `locks habits` lists what is installed in the repository first, with its command, its runs and how many of
+  them found something; a habit that caught nothing in 50 runs is said so with the line that removes it (said,
+  never removed). `--json` carries them as `installed`.
+
+### Fixed
+- `locks habits` offered again, as a candidate, the habit a hook in the repository already runs.
+- A wrapper an older release recorded as the program (`edit:.py → bash:timeout`) is no habit candidate: what it
+  ran was never kept, so no hook could run it.
+
 ## [0.100.1] - 2026-11-12
 
 ### Fixed

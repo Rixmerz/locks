@@ -75,6 +75,7 @@ FIXED_IN = {
     "problem-opened-by-a-race": "0.90.0",
     "clean-review-read-nothing": "0.91.0",
     "transcript-ahead-of-usage": "0.99.0",
+    "trial-verdict-turned": "0.100.1",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -953,6 +954,40 @@ def transcripts_ahead_of_usage(store: Store, *, now: datetime, since: str | None
                           "check `hook-errors.log` and the trace's copy time; the next Stop that finishes counts it")
 
 
+_VERDICT = re.compile(r"^(?P<name>.{0,80}?) (?P<how>won|lost) its trial here\b")
+
+
+def trial_verdicts_turned(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """A trial whose verdict in one repository read both ways: the tasks a verdict placed were counted
+    as its samples, so the arm that won kept filling, its rate drifted and the verdict turned over
+    (`Store.arm_trial` leaves placed tasks out since). Read from the reason each brief keeps beside its
+    arm, per repository, trial and nature of work; records an older release wrote are history."""
+    seen: dict[tuple[str, str, str], dict[str, list[int]]] = {}
+    for task_id, task_repo, raw in store._conn.execute(
+            "SELECT e.task_id, t.repo, e.data FROM events e JOIN tasks t ON t.id = e.task_id "
+            "WHERE e.kind = 'briefed' AND (? IS NULL OR e.ts >= ?) ORDER BY e.id", (since, since)):
+        data = json.loads(raw)
+        for key, why in data.items():
+            hit = _VERDICT.match(str(why)) if key.endswith("_why") else None
+            if hit is None or "pooled from every repository" in str(why):
+                continue
+            trial = f"{hit['name']} ({data.get(key.removesuffix('_why') + '_nature') or 'all'})"
+            seen.setdefault((str(task_repo), key, trial), {}).setdefault(hit["how"], []).append(int(task_id))
+    for (task_repo, _key, trial), hows in sorted(seen.items()):
+        if len(hows) < 2:
+            continue
+        ids = sorted({*hows["won"], *hows["lost"]})
+        fresh = [i for i in ids if not _fixed("trial-verdict-turned", _version_of(store, i))]
+        if len({how for how, tasks in hows.items() if set(tasks) & set(fresh)}) == 2:
+            yield Finding("trial-verdict-turned", SUSPECT,
+                          f"{trial} was said to have won its trial in {len(hows['won'])} brief(s) and lost it in "
+                          f"{len(hows['lost'])} in {task_repo}: a verdict that turns over is no verdict",
+                          "`locks stats` shows the arms; a trial's samples are the tasks drawn while it ran",
+                          fresh[-1], task_repo)
+        elif stale := [i for i in ids if i not in fresh]:
+            yield _history("trial-verdict-turned", stale, task_repo)
+
+
 RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     lanes_paused_on_ended, running_with_no_process, queued_with_no_dispatcher, held_behind_gone, wait_judged_on_gone,
     resumes_that_never_ran,
@@ -962,7 +997,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
     habit_reviews_unapplied, tools_logged_off, problems_opened_by_a_race, clean_reviews_read_nothing,
-    transcripts_ahead_of_usage,
+    transcripts_ahead_of_usage, trial_verdicts_turned,
 )
 
 

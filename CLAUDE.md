@@ -920,6 +920,10 @@ yields the default kind, not a guess.
   its arm passed no less often and no slower (`arms.pick`, `locks stats`); what locks reads for itself and
   the independent check's index stay whatever the arm. Tests run with `LOCKS_DOSSIER_TRIAL=off`. `LOCKS_LIVESPEC=off` reads no index and briefs none.
   Tests run with `LOCKS_LIVESPEC_WAIT=0`.
+- A trial's samples are the tasks that drew an arm while it ran, never the ones its verdict placed
+  (`Store.arm_trial`, `_PLACED`: the words `won|lost its trial` in the reason a brief keeps beside its arm): counted,
+  they fed only the winning arm and turned the verdict over (`doctor`: `trial-verdict-turned`). A new trial keeps
+  its reason under `<name>_why` beside `<name>_arm`, and its verdict says `won its trial` or `lost its trial`.
 - A trial is per repository, and a repository with few tasks would pay for both arms for months (the
   primer needs 24 tasks, a role's lessons 20, the trunk 20 workflow steps, the evidence gate 16 the
   check read, a method 12 of its kind): while its own arms are short of the trial
@@ -1165,6 +1169,10 @@ yields the default kind, not a guess.
   worker's task is a place of its own, the home directory and temporary folders
   are no repository (`habits._project`), and a command that does not check the
   edit's file type is no habit (`habits.ECOSYSTEMS`).
+- A signature reads through a wrapper to the program it runs (`signature._WRAPPERS`, and `timeout` with its
+  duration and flags). A habit's review stands until the repository's tool files change in more than the project's
+  own version line (`habits.tooling`), and a candidate whose tool a hook here already runs, a sub-command aside,
+  is no new habit (`habits.same_tool`).
 - Nothing in locks writes to a settings file but a habit: `locks habits install`, run by a
   person, or locks itself installing a reviewed habit (`habits.apply_reviews`, the
   `habit_auto` setting), and only the repository's `.claude/settings.local.json`. A

@@ -81,3 +81,24 @@ def test_a_higher_rate_still_loses_when_its_passes_are_slower_past_the_margin():
 def test_a_full_trial_verdict_reads_the_whole_trial_here_or_everywhere():
     found = arms.tally(rows("with", passed=4, took=60.0) + rows("without", passed=4, took=100.0), ARMS)
     assert arms.verdict(found, ARMS, "x", where="everywhere")[1].startswith("the x won its trial everywhere")
+
+
+def test_a_task_a_verdict_placed_is_no_sample_of_the_trial(store) -> None:  # type: ignore[no-untyped-def]
+    """Counted, the tasks after a verdict fed only the arm that won; its rate drifted to the mean and the
+    verdict turned over: on one machine the primer 'won' for 29 briefs and 'lost' for 21."""
+    def task(arm: str, why: str, passed: bool) -> None:
+        t = store.create_task("x", status="done", source="queue", repo="r")["id"]
+        store.add_event(t, "briefed", recall_arm=arm, recall_why=why)
+        store.add_attempt(t, seq=1, cell="sonnet/medium", max_turns=10, passed=passed, failure=None, summary="",
+                          evidence="", cost_usd=0.0, input_tokens=10, output_tokens=1, turns=1, duration_s=1.0,
+                          changed_paths=[], capabilities=[])
+
+    for _ in range(3):
+        task("fused", "the recall order trial here (1 fused, 1 ordered, 6 each)", True)
+        task("ordered", "the recall order trial here (1 fused, 1 ordered, 6 each)", True)
+    for _ in range(5):
+        task("ordered", "the recall order lost its trial here: first tries passed 100% fused and 100% ordered", False)
+        task("fused", "the recall order won its trial everywhere: …; pooled from every repository while …", False)
+    rows = store.arm_trial("r", "recall_arm")
+    assert sorted(r["arm"] for r in rows) == ["fused"] * 3 + ["ordered"] * 3
+    assert all(r["passed_first"] for r in rows)

@@ -603,3 +603,34 @@ def test_an_install_bare_in_one_text_is_read_from_the_text_that_quotes_it() -> N
     assert installs == {"913c3597": '.venv/bin/ruff check "$LOCKS_EDITED"'}
     assert skips == {"94519639": "too slow"}
     assert "cut or not given" in habits.review_verdicts([bare], ["913c3597"])[1]["913c3597"]
+
+
+def test_a_timeout_wrapper_is_read_as_the_program_it_runs():
+    """`timeout 60 pytest` was mined as a habit of `bash:timeout`, which no hook could ever run."""
+    assert signature._bash_signature("timeout 580 python -m pytest -q") == "bash:pytest"
+    assert signature._bash_signature("timeout -k 5 60s ruff check .") == "bash:ruff-check"
+    assert signature._bash_signature("nohup npm test") == "bash:npm-test"
+    assert signature._bash_signature("timeout 5") == "bash:unknown"
+
+
+def test_a_release_that_only_bumps_the_version_sends_no_habit_back_to_review(tmp_path: Path):
+    def write(version: str, width: int) -> str:
+        (tmp_path / "pyproject.toml").write_text(
+            f'[project]\nname = "x"\nversion = "{version}"\n[tool.ruff]\nline-length = {width}\n')
+        (tmp_path / "package.json").write_text(
+            f'{{\n  "name": "x",\n  "version": "{version}",\n  "scripts": {{"lint": "eslint ."}}\n}}\n')
+        return habits.tooling(tmp_path)
+
+    before = write("1.0.0", 120)
+    assert write("1.0.1", 120) == before
+    assert write("1.0.1", 100) != before
+
+
+def test_a_declared_tool_a_session_or_a_hook_already_runs_is_no_new_habit():
+    """`bash:ruff`, declared by pyproject.toml, was reviewed again and again beside the installed
+    `bash:ruff-check` hook: the same tool under two ids."""
+    assert habits.same_tool(("edit:.py", "bash:ruff"), ("edit:.py", "bash:ruff-check"))
+    assert habits.same_tool(("edit:.py", "bash:ruff-check"), ("edit:.py", "bash:ruff"))
+    assert not habits.same_tool(("edit:.py", "bash:ruff"), ("edit:.ts", "bash:ruff-check"))
+    assert not habits.same_tool(("edit:.py", "bash:ruff"), ("edit:.py", "bash:ruffian"))
+    assert not habits.same_tool(("edit:.py", "bash:pytest"), ("edit:.py", "bash:ruff"))

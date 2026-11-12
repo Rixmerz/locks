@@ -1094,6 +1094,8 @@ yields the default kind, not a guess.
   ended (`orchestrator.claim`, `ended`), a relay taken and given, the notes filed from a conversation
   (`cli.cmd_extract_notes`), a dispatcher revived or a task resumed by a hook (`hooks._revive`). A new act of
   a hook on a session gets one, so an audit reads it from the session's own trace.
+- A `git status --porcelain -z` is read through `isolate.status_paths` (and `launch._status`): a rename or copy
+  is `XY new\0old`, and its old name, an entry with no status before it, is a path whole, never cut as one with.
 - A stray path outside a task's surfaces is a finding of its own: it never rewrites an `environment` failure, nor a `code_bug` with the check's output, as `approach`, and never empties `check_tail`. Surfaces are read from inside the repository as well as from the folder, and a dependency folder is never offered as one. A container stack a worker started in its worktree is stopped when its task ends (`isolate.stop_stacks`).
 - A resume's brief carries the notes filed since its last attempt and the instruction a session passed with `locks resume N -` (`orchestrate.resume_context`), quoted as context, never the task. The independent check gets that instruction too, as the session's later decision: following it is no finding. The late check blocks by the first check's rule (a finding only read from the code goes with the pass). A lockfile that differs only in the project's own version is not stale (`isolate._stale`), and an overlap notice never names a kept branch HEAD already holds (`isolate.already_in_head`).
 - Forensics, the footprint and skill use read a copy of the store, never the live file, and say what

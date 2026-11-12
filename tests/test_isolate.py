@@ -497,3 +497,26 @@ def test_a_merge_commit_that_moved_head_is_not_the_runs_but_a_commit_on_the_bran
     git(git_repo, "add", "own.txt")
     git(git_repo, "commit", "-q", "-m", "worker")
     assert isolate.moved_in_place(place) == ("own.txt",)
+
+
+def test_a_staged_rename_names_both_paths_whole(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """`git status -z` gives a rename as `R  new\\0old`: the old name, read as an entry with a status
+    before it, lost three characters (`src/a.py` as `/a.py`), a path outside every surface, and the
+    work of a part that moved files was undone as a wrong approach."""
+    import subprocess
+
+    from locks import launch
+
+    repo = tmp_path / "r"
+    (repo / "src" / "pkg").mkdir(parents=True)
+    (repo / "src" / "pkg" / "auto.py").write_text("RATE = 1\n" * 20)
+    for argv in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"]):
+        subprocess.run(["git", *argv], cwd=repo, check=True)
+    (repo / "src" / "pkg" / "line").mkdir()
+    subprocess.run(["git", "mv", "src/pkg/auto.py", "src/pkg/line/auto.py"], cwd=repo, check=True)
+
+    assert isolate.dirty(repo) == ["src/pkg/auto.py", "src/pkg/line/auto.py"]
+    state = launch._status(repo)
+    assert state is not None
+    assert sorted(p for p in state if not p.startswith("\0")) == ["src/pkg/auto.py", "src/pkg/line/auto.py"]

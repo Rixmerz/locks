@@ -638,3 +638,43 @@ three runs can tell, and every run passed every hidden test either way. This bui
 read whole; whether the dossier pays on a repository too large for that is not measured here. The
 "21 callers" is itself doubtful: the dossier lists one caller for the same method, so the count looks
 like every `apply_line` of every rule class added together.
+
+## AA: the `engineering-baseline` skill in the writing roles (`versus.py`, 0.96.0)
+
+Three runs a row, both arms interleaved and three runs at once (so every time is longer than a run
+alone, section Z), `locks run` with its late check. "With" is 0.96.0 as released; "without" is the
+`-nobaseline` arm of that release, the writing roles shadowed without the skill (the default since, the
+`-baseline` arm puts it back).
+
+| build | baseline skill | system prompt | all hidden tests right | wall p50 (range) | $ p50 | lines added p50 |
+|---|---|---|---|---|---|---|
+| medium | with | 29,286 chars | 3/3 | 86 s (72-94) | 0.20 | 216 |
+| medium | without | 12,271 chars | 3/3 | 64 s (60-68) | 0.16 | 173 |
+| hard | with | 29,286 chars | 3/3 | 131 s (109-133) | 0.51 | 355 |
+| hard | without | 12,271 chars | 3/3 | 80 s (78-99) | 0.51 | 317 |
+
+Without the skill the same tests passed 26% sooner on the medium build and 39% sooner on the hard one,
+the two arms' ranges not touching on either; cost fell 16% on the medium build and not at all on the
+hard one, and the workers wrote fewer lines. What this does not measure: the hidden tests judge behaviour,
+not what the skill asks for beyond it (naming, error handling, security habits), so a loss there would
+not show here. The reading roles and the verifier keep the skill: they were not measured.
+
+## AB: the dossier on a repository too large to read whole (0.96.0, observed)
+
+Three read-only questions about locks' own code (who calls a function, where an event is written and
+read), each asked once with livespec on and once off, haiku/medium, no verifier. One run a cell: an
+observation, not a rate.
+
+| question | livespec | wall | turns | tool calls | input tokens | $ |
+|---|---|---|---|---|---|---|
+| callers of `verdict_card` | dossier (2,432 chars) | 29 s | 7 | 5 | 1.14M | 0.037 |
+| | off | 38 s | 12 | 10 | 1.75M | 0.053 |
+| callers of `at_base` | dossier (3,012 chars) | 54 s | 15 | 12 | 2.08M | 0.096 |
+| | off | 57 s | 14 | 12 | 2.72M | 0.100 |
+| where `claim_released` is written and read | dossier (2,187 chars) | 24 s | 9 | 7 | 1.12M | 0.019 |
+| | off | 22 s | 7 | 6 | 1.10M | 0.017 |
+
+Added up, the briefed runs read 22% fewer input tokens (4.34M against 5.56M) and cost 11% less; the gain
+is on the two questions about a symbol's callers, which is what the dossier holds, and nothing on the
+question about an event name, which it does not. The briefed run of the third question left no report
+block.

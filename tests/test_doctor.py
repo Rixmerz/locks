@@ -455,6 +455,21 @@ def test_an_attempt_that_says_nothing_was_logged_while_the_store_holds_its_calls
     assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, t["id"]), (doctor.FIXED, v["id"])]
 
 
+def test_a_death_resumed_with_no_record_of_its_dead_attempt_is_suspect(store: Store):
+    def died(version: str, *, lost: bool) -> int:
+        t = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
+        store.add_event(t["id"], "attempt_started", seq=1, cell="sonnet/medium", version=version)
+        if lost:
+            store.add_event(t["id"], "attempt_lost", seq=1, cell="sonnet/medium", cost_usd=0.2)
+        store.add_event(t["id"], "auto_resumed", cause="died", after="its process is gone")
+        return t["id"]
+
+    bare, kept, old = died("0.104.0", lost=False), died("0.104.0", lost=True), died("0.103.1", lost=False)
+    found = rules(store, now=LATER, alive=lambda pid: True)["death-left-no-record"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, bare), (doctor.FIXED, old)]
+    assert kept not in [f.task_id for f in found] and "attempt 1 died" in found[0].what
+
+
 def test_a_problem_a_pass_opened_beside_a_race_s_other_try_is_suspect(store: Store):
     t = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
     store.add_event(t["id"], "attempt_finished", seq=1, cell="sonnet/high", passed=False, raced=True, stopped=True)

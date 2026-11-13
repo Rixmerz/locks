@@ -419,3 +419,85 @@ def test_held_work_whose_task_or_run_no_longer_exists_says_so(git_repo, store):
         f"waits for #9999, which no longer exists: `locks dismiss {on_task['id']}` drops this")
     assert dispatch.waiting(store, on_run) == (
         f"waits for run #9998, which no longer exists: `locks dismiss {on_run['id']}` drops this")
+
+
+# --- a task that waited for files other work changed starts on that work -------------------
+
+
+def _waited(store: Store, git_repo, behind: dict, text: str) -> dict:
+    """A queued task the dispatcher held behind `behind` for the files it names."""
+    task = _queue(store, git_repo, text)
+    store.add_event(task["id"], "dispatch_decided", parallel=False, by="surfaces", behind=behind["id"],
+                    reason=f"the files it names may be the ones #{behind['id']} changes")
+    return task
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_a_task_that_waited_for_a_file_starts_on_the_branch_that_changed_it(git_repo, store, kicks):
+    first = _queue(store, git_repo, "add the totals module in totals.py")
+    second = _waited(store, git_repo, first, "In totals.py add the monthly sum")
+    assert flow.chain(store, dict(second), git_repo) is None  # the work ahead has not passed
+    report = _ran(store, first, git_repo, ok("totals"), write="totals.py")
+    tip = git(git_repo, "rev-parse", report.branch)
+    now = store.get_task(second["id"])
+    why = flow.chain(store, now, git_repo)
+    assert why is not None and f"waited for #{first['id']}" in why and "totals.py" in why
+    chained = store.last_event(second["id"], "chained")["data"]
+    assert chained["base"] == tip and chained["after"] == {"task": first["id"]} and chained["files"] == ["totals.py"]
+    assert json.loads(now["options"])["base"] == tip == json.loads(store.get_task(second["id"])["options"])["base"]
+    assert flow.chain(store, store.get_task(second["id"]), git_repo) is None  # once
+    seen = []
+
+    def launcher(spec):
+        seen.append(sorted(p.name for p in spec.target_dir.iterdir()))
+        return ok("sum")
+
+    freed = store.get_task(second["id"])
+    done = run(freed["body"], git_repo, store, flow.queued_options(freed, Options()), registry={},
+               launcher=launcher, classifier=kind("implement"), task_id=second["id"])
+    assert done.status == "done" and "totals.py" in seen[0] and why in done.plan.reasons
+
+
+@pytest.mark.usefixtures("no_verifier")
+def test_a_task_that_waited_starts_on_the_base_where_the_work_ahead_gives_it_nothing(git_repo, store, kicks):
+    first = _queue(store, git_repo, "add the totals module in totals.py")
+    other = _waited(store, git_repo, first, "In report.py add the header")  # it names no file the first changed
+    stopped = _queue(store, git_repo, "add the audit module in audit.py")
+    behind_stopped = _waited(store, git_repo, stopped, "In audit.py add the trail")
+    held = _waited(store, git_repo, first, "In totals.py add the yearly sum")
+    _ran(store, first, git_repo, ok("totals"), write="totals.py")
+    _ran(store, stopped, git_repo, bad(Failure.PERMISSION, "refused"), write="audit.py")
+    assert flow.chain(store, store.get_task(other["id"]), git_repo) is None
+    assert flow.chain(store, store.get_task(behind_stopped["id"]), git_repo) is None  # it did not pass
+    # Its independent check is still to come: the work may yet be reopened.
+    store.add_event(first["id"], "verifier_deferred")
+    assert flow.chain(store, store.get_task(held["id"]), git_repo) is None
+    store.add_event(first["id"], "verified", late=True)
+    assert flow.chain(store, store.get_task(held["id"]), git_repo) is not None
+    assert [store.last_event(t["id"], "chained") for t in (other, behind_stopped)] == [None, None]
+
+
+# --- what queueing says beyond where the task waits ----------------------------------------
+
+
+def test_queueing_says_the_same_text_is_queued_already_and_a_surface_that_is_a_whole_folder(git_repo, store,
+                                                                                           kicks, capsys):
+    first = _queue(store, git_repo, "In tests/test_totals.py add the yearly case")
+    capsys.readouterr()
+    assert cli.main(["queue", "add", "In tests/test_totals.py add the yearly case", "--repo", str(git_repo),
+                     "--surface", "tests", "--json"]) == 0
+    out = capsys.readouterr()
+    said = json.loads(out.out.strip().splitlines()[-1])
+    assert len(said["notes"]) == 2 and f"#{first['id']} here has the same text" in said["notes"][0]
+    assert "surface `tests` is the whole folder" in said["notes"][1] and "tests/test_totals.py" in said["notes"][1]
+    assert all(f"locks: {note}" in out.err for note in said["notes"])
+    assert cli.main(["queue", "add", "In docs/a.md fix the typo", "--repo", str(git_repo), "--json"]) == 0
+    assert "notes" not in json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+
+def test_a_surface_is_broad_only_as_a_folder_holding_files_the_text_names():
+    from locks import surfaces
+
+    assert surfaces.broad(["tests", "src/a.py"], ["tests/test_a.py", "src/a.py"]) == [("tests", ["tests/test_a.py"])]
+    assert surfaces.broad(["tests/**"], ["tests/test_a.py"]) == [("tests/**", ["tests/test_a.py"])]
+    assert surfaces.broad(["tests/test_*.py", "src/a.py", "docs"], ["tests/test_a.py", "src/a.py"]) == []

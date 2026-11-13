@@ -446,7 +446,15 @@ def _free(store: Store, task: Mapping[str, Any], waited: Mapping[str, int], comm
         store.update_run(run["id"], options=json.dumps(kept))
 
 
+def kept_start(store: Store, task_id: int, where: Path | None) -> tuple[str | None, str | None, list[str]]:
+    """The commit work may start on to build on what task `task_id` kept when it passed (None:
+    no branch, merged already, elsewhere), the branch, and the files it changed. Read only."""
+    kept = _kept(store, {"task": int(task_id)})
+    return _start(kept, where)[0], kept[0], kept[1]
+
+
 def released_line(store: Store, task_id: int) -> str | None:
-    """What a held task's release said of where it starts, for its first plan."""
-    found = store.last_event(task_id, "released")
+    """What a held task's release said of where it starts, for its first plan; or what the
+    dispatcher said when it started it on the work it had waited for (`flow.chain`)."""
+    found = store.last_event(task_id, "released") or store.last_event(task_id, "chained")
     return str(found["data"].get("why") or "") or None if found else None

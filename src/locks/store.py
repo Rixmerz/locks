@@ -630,7 +630,8 @@ class Store:
             "UPDATE tasks SET cost_usd = cost_usd + ?, updated_at = ? WHERE id = ?",
             (float(fields.get("cost_usd") or 0), now(), task_id),
         )
-        return int(seq)
+        # The number the row was kept under: the one given (the attempt its worker ran as), else the next free.
+        return int(row["seq"])
 
     def set_move(self, task_id: int, seq: int, move: str, reason: str) -> None:
         self._conn.execute(

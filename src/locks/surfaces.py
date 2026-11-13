@@ -189,3 +189,18 @@ def brief(surfaces: Sequence[str]) -> str:
         return ""
     return ("Change only files inside these surfaces: " + ", ".join(surfaces) + ". A change outside them is "
             "undone and fails the attempt; if the task needs one, say so and stop.")
+
+
+def broad(declared: Sequence[str], named: Sequence[str]) -> list[tuple[str, list[str]]]:
+    """The declared surfaces that are a whole folder (`tests`, `tests/**`) while the task's own
+    text names files inside it, each with those files: every task that names any file under the
+    folder waits for this one, where the files alone would hold back only what touches them."""
+    out = []
+    for surface in declared:
+        folder = surface.removesuffix("/**").rstrip("/")
+        if not folder or _GLOB.search(folder) or "." in folder.rsplit("/", 1)[-1]:
+            continue
+        inside = [n for n in named if n.startswith(folder + "/") and "*" not in n and "." in n.rsplit("/", 1)[-1]]
+        if inside:
+            out.append((surface, inside))
+    return out

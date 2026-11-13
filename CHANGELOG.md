@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-11-13
+
+### Added
+- A task the dispatcher held behind other work for the files it names or declares starts on the branch that work
+  kept once it passed, when it changed one of those files and is not merged yet (`flow.chain`, a `chained`
+  event, the plan's line): it builds on the change it waited for instead of starting on a base without it,
+  which left two branches changing one file for the person to merge. Any other case starts on the base as
+  before: the work ahead did not pass, changed none of those files, kept no branch here, or its independent
+  check is still to come.
+- Queueing a task says, and never acts on, other work queued or running there with the same text, and a
+  declared surface that is a whole folder while the text names files inside it (`--json`: `notes`).
+- A line that says a task waits adds how long tasks like the one ahead took there, when enough passed to say.
+- `locks evolution` says of a trial still running how many briefs drew an arm of it and since when.
+- `locks doctor`: `death-left-no-record`, a task resumed after a death whose dead attempt kept no record.
+
+### Fixed
+- A death the dispatcher noticed first (a `run-queued` process that exited without an ending, most deaths) kept
+  no `attempt_lost`: what the dead attempt spent was never added to the task's cost, and since 0.103.0 its
+  resume could not go on in the dead worker's session. Only the sweep kept that record. Found by a scenario
+  that kills a real worker process, which now covers the resume going on in that session.
+- The attempt after a dead one was kept under the right number on its row and under the row's old count on its
+  `attempt_finished` event (`Store.add_attempt` returned the next free number, not the one it stored): readers
+  that match the event to the attempt's tool calls read another attempt's.
+
 ## [0.103.1] - 2026-11-12
 
 ### Fixed

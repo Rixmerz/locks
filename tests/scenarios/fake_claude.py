@@ -15,7 +15,8 @@ worker was given. An action:
   `"litter": {path: text}` then leaves files untracked after that commit (a tool's `__pycache__`).
 - `{"turns": true, "write": {...}}`: writes, then ends out of turns.
 - `{"die": true}`: kills the process that started it (locks' `run-queued`) and itself, as a
-  machine that ran out of memory would.
+  machine that ran out of memory would. With `"session": "id"` it first leaves what a real worker
+  killed mid-turn leaves: a call in the hooks' log and its transcript.
 - `{"crash": "Error: what"}`: writes a traceback ending in that line to the log of the process that
   started it (its stderr), then kills it and itself: a `run-queued` that died of an exception.
 - `{"limit": "text"}`: writes, then ends as the CLI does when the account's usage limit turns
@@ -127,6 +128,20 @@ def main() -> int:
         os.kill(os.getppid(), signal.SIGKILL)
         os.kill(os.getpid(), signal.SIGKILL)
     if action.get("die"):
+        if action.get("session"):
+            # As a real worker leaves them when it is killed mid-turn: its calls in the hooks' log
+            # under its task and attempt, and its transcript in Claude Code's folder.
+            from datetime import UTC, datetime
+
+            log_dir = Path(os.environ["LOCKS_HOME"]) / "tool-events"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / f"{datetime.now(UTC):%Y-%m-%d}.ndjson", "a") as calls:
+                calls.write(json.dumps({"task_id": int(os.environ["LOCKS_WORKER_TASK"]),
+                                        "attempt": int(os.environ["LOCKS_WORKER_ATTEMPT"]),
+                                        "session_id": action["session"], "sig": "read:py", "ok": True}) + "\n")
+            kept = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / "worktree"
+            kept.mkdir(parents=True, exist_ok=True)
+            (kept / f"{action['session']}.jsonl").write_text("{}\n")
         os.kill(os.getppid(), signal.SIGKILL)
         os.kill(os.getpid(), signal.SIGKILL)
     usage = {"input_tokens": 100, "cache_read_input_tokens": 0, "output_tokens": 10}

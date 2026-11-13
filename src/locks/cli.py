@@ -314,14 +314,44 @@ def _queue_after(args: argparse.Namespace, options: orchestrate.Options) -> int:
         if held and (note := after.caveat(store, held, task["repo"])):
             said += f" ({note})"
         eta = progress.expected_line(store, task)
+        hints = _queue_notes(store, task)
     finally:
         store.close()
     print(f"queued #{task['id']} — {task['title']}: {said}. {then}")
     if eta:
         print(eta)
+    for hint in hints:
+        print(f"locks: {hint}", file=sys.stderr)
     print(f"watch it: `locks show {task['id']}`, or `locks events --task {task['id']} --follow`; "
           "its ending reaches the session that sent it")
     return 0
+
+
+def _queue_notes(store: Store, task: dict) -> list[str]:
+    """What queueing a task says beyond where it waits, said and never acted on: other work
+    queued or running here with the same text (sent twice?), and a declared surface that is a
+    whole folder while its text names files inside it (everything naming a file there waits)."""
+    from locks import surfaces
+
+    lines = []
+    try:
+        body = (task.get("body") or task.get("title") or "").strip()
+        same = [t["id"] for t in store.list_tasks(repo=task.get("repo"), status=["queued", "running"], limit=200)
+                if t["id"] != task["id"] and (t.get("body") or t.get("title") or "").strip() == body
+                and t.get("source") != "session"]
+        if same:
+            lines.append(f"{', '.join(f'#{i}' for i in same)} here {'has' if len(same) == 1 else 'have'} the same "
+                         f"text and {'is' if len(same) == 1 else 'are'} queued or running: if this was sent "
+                         f"twice, `locks queue rm {task['id']}` takes this one back")
+        text_only = {"body": task.get("body"), "title": task.get("title")}
+        for surface, inside in surfaces.broad(dispatch.declared_surfaces(task), dispatch.named_surfaces(text_only)):
+            lines.append(f"surface `{surface}` is the whole folder: work that names any file under it waits for "
+                         f"this task. Its text names {', '.join(inside[:3])}"
+                         + (f" and {len(inside) - 3} more" if len(inside) > 3 else "")
+                         + "; declaring those instead holds back only what touches them")
+    except Exception:  # noqa: S110 - a hint never fails the command that queued the work
+        pass
+    return lines
 
 
 def _held_line(store: Store, task_id: int) -> str:
@@ -1797,9 +1827,13 @@ def cmd_queue(args: argparse.Namespace) -> int:
             if said and (note := after.caveat(store, options[after.KEY], task["repo"])):
                 said += f" ({note})"
             eta = progress.expected_line(store, task)
+            hints = _queue_notes(store, task)
+            for hint in hints:
+                print(f"locks: {hint}", file=sys.stderr)
             if args.json:
                 print(json.dumps({**{k: task[k] for k in ("id", "title", "status", "repo", "cwd")}, "then": then,
-                                  **({"waits": said} if said else {}), **({"expected": eta} if eta else {})},
+                                  **({"waits": said} if said else {}), **({"expected": eta} if eta else {}),
+                                  **({"notes": hints} if hints else {})},
                                  ensure_ascii=False))
             else:
                 print(f"queued #{task['id']} — {task['title']}" + (f": {said}" if said else "") + f". {then}"

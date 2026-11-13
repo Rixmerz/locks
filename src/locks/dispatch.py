@@ -288,7 +288,19 @@ def waiting(store: Store, task: Mapping) -> str | None:
     behind = next((i for i in [judged, *(decided.get("ahead") or ())] if i in ahead), ahead[0])
     if judged and behind != judged:
         reason += f" (judged against #{judged})"
-    return f"waits for #{behind}: {reason}"
+    return f"waits for #{behind}: {reason}{_usual(store, behind)}"
+
+
+def _usual(store: Store, task_id: int) -> str:
+    """How long tasks like the one waited for took here, for the line that says a task waits
+    ("; tasks like #7 took ≈9m here"); "" with too few passes to say, or when it cannot be read."""
+    try:
+        from locks import progress
+
+        found = progress.estimate(store, store.get_task(task_id) or {})
+        return f"; tasks like #{task_id} took ≈{progress._minutes(found['p50_s'])} here" if found else ""
+    except Exception:  # a line of words never fails the view that says it
+        return ""
 
 
 # --- the dispatcher process -------------------------------------------------

@@ -97,6 +97,7 @@ _CORE: tuple[Feature, ...] = (
     Feature("loop-round", "workflows", "a round of a loop", "option", ("loop",)),
     _e("behind-base", "workflows", "how far a step is behind the branch its run started from", "behind_base"),
     _e("work-carried", "workflows", "failed work finished by the next model in its worktree", "work_carried"),
+    _e("chained", "workflows", "a task started on the branch of the work it waited for", "chained"),
     # memory
     _e("notes-filed", "memory", "notes filed from a run or a conversation", "notes_filed"),
     _e("oriented", "memory", "how a passing worker got oriented, kept for the next", "oriented"),

@@ -311,9 +311,12 @@ def learned(store: Store, *, repo: str | None = None, since: str = "") -> dict[s
             arm = event["data"].get(f"{name}_arm")
             if name == key or not why or not arm or why == _KEPT_ARM:
                 continue
+            before = trials.get((event["repo"] or "", name)) or {}
             trials[(event["repo"] or "", name)] = {
                 "repo": event["repo"], "trial": name, "arm": arm, "why": why, "at": event["ts"],
-                "task": event["task_id"], "decided": bool(_DECIDED.search(str(why)))}
+                "task": event["task_id"], "decided": bool(_DECIDED.search(str(why))),
+                # How many briefs drew an arm of it here and since when: how fast its arms fill.
+                "briefs": int(before.get("briefs") or 0) + 1, "since": before.get("since") or event["ts"]}
     roles = [{"repo": r["repo"], "role": r["role"], "record": r["record"], "reason": r["reason"], "at": r["at"],
               "lessons": len(r["lessons"])} for r in store.role_revisions(repo=repo, since=since)]
     notes: list[dict[str, Any]] = []
@@ -346,7 +349,10 @@ def learned_lines(found: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[str]
     lines = []
     for t in found["trials"]:
         state = "decided" if t["decided"] else "still trying"
-        lines.append(f"{t['trial']} in {_name(t['repo'])}: {state}, last arm {t['arm']} (#{t['task']}): {t['why']}")
+        pace = (f" ({t['briefs']} brief(s) drew an arm since {str(t['since'])[:10]})"
+                if t.get("briefs") and not t["decided"] else "")
+        lines.append(f"{t['trial']} in {_name(t['repo'])}: {state}{pace}, last arm {t['arm']} (#{t['task']}): "
+                     f"{t['why']}")
     for r in found["roles"]:
         lines.append(f"role {r['role']} in {_name(r['repo'])}: {r['record']} {r['lessons']} lessons: {r['reason']}")
     for n in found["notes"]:

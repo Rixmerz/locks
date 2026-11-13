@@ -112,7 +112,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/locks\" hook PreCompact",
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }

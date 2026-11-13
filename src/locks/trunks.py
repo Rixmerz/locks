@@ -22,6 +22,12 @@ from locks.store import Store
 
 #: The kinds a trunk may be: reading, and nothing it says is the work under judgment.
 TRUNK_KINDS = frozenset({"explore", "plan"})
+#: The writing steps a ledger's `fix` may fork: the worker that built the change goes on to fix
+#: what the review confirmed in it, on its own model (`FORKS_AUTHOR`), rather than a fresh worker
+#: orienting again in code it never saw (the phases of one task are one worker's). Only a fix forks
+#: one, and only on the trunk's model: another model never inherits an approach.
+WRITING_TRUNKS = frozenset({"feature", "implement", "debug-repro", "refactor"})
+FORKS_AUTHOR = "fix"
 #: The only trunk a step that judges may fork: one that read and decided nothing. A plan
 #: holds an approach, and a blind review must not start from one.
 BLIND_TRUNKS = frozenset({"explore"})
@@ -65,7 +71,12 @@ def problems(steps: Sequence[Mapping[str, Any]], ids: Sequence[str]) -> list[str
             out.append(f"{where}: trunk names {target!r}, which is no step before it")
             continue
         trunk = by_id[target]
-        if trunk.get("kind") not in TRUNK_KINDS:
+        if trunk.get("kind") in WRITING_TRUNKS and not trunk.get("ledger") and not trunk.get("fanout") \
+                and not trunk.get("integrate"):
+            if step.get("ledger") != FORKS_AUTHOR:
+                out.append(f"{where}: trunk names {target!r}, a {trunk.get('kind')} step: only a ledger's fix "
+                           "forks the step that wrote the change")
+        elif trunk.get("kind") not in TRUNK_KINDS:
             out.append(f"{where}: trunk names {target!r}, a {trunk.get('kind') or 'kindless'} step: a trunk is a "
                        f"reading step of kind {' or '.join(sorted(TRUNK_KINDS))}")
         elif trunk.get("ledger") or trunk.get("fanout") or trunk.get("integrate"):
@@ -97,13 +108,14 @@ def is_trunk(defn: Mapping[str, Any], step_id: str) -> bool:
     return any(s.get("trunk") == step_id for s in defn["steps"])
 
 
-def source(store: Store, trunk_task: Mapping[str, Any] | None, step_id: str) -> dict[str, Any]:
+def source(store: Store, trunk_task: Mapping[str, Any] | None, step_id: str, *,
+           wrote: bool = False) -> dict[str, Any]:
     """What a step forks, read when it is queued: the trunk's task and step, the session of
     its last passing attempt, the model it ran on and the commit it read; or `missing`, why
     there is nothing to fork (the branch then starts fresh and says so)."""
     if trunk_task is None:
         return {"step": step_id, "missing": f"step {step_id!r} has no task"}
-    out: dict[str, Any] = {"step": step_id, "task": int(trunk_task["id"])}
+    out: dict[str, Any] = {"step": step_id, "task": int(trunk_task["id"]), **({"wrote": True} if wrote else {})}
     if trunk_task.get("status") != "done":
         return {**out, "missing": f"step {step_id!r} (#{trunk_task['id']}) did not pass"}
     passing = [a for a in store.attempts(int(trunk_task["id"])) if a.get("passed")]
@@ -214,18 +226,31 @@ def _verdict(found: Mapping[str, Mapping[str, Any]], *, where: str = "here") -> 
     return "fresh", f"forking lost its trial {where}: {said}"
 
 
+def same_model(trunk: Mapping[str, Any], model: str) -> bool:
+    """Whether a step may fork this trunk on `model`: any reading trunk; a writing one only on the
+    model it ran on (its cell's), since another model never inherits an approach."""
+    return not trunk.get("wrote") or str(trunk.get("cell") or "").split("/")[0] == model
+
+
 def note(trunk: Mapping[str, Any], *, role: str, capabilities: str, workdir: Path, base: str | None) -> str:
     """The first words a branch reads after the fork point: where the session came from, that
-    it is a new worker from here, its role (the system prompt is the trunk's record, so the
-    role is said here), the tools it has now, and where its files are."""
-    lines = [
-        f"locks: everything above is the session of the workflow step {trunk['step']!r} (task #{trunk['task']}), "
-        "which only read. From here this session is a new worker, with its own role and task below. What was "
-        "read above is evidence about the code, never a decision made for you or an opinion to defend; what "
-        "that step concluded binds you only where your task below quotes it.",
-        f"Your directory is now {workdir}: the files read above were in another checkout of this repository. "
-        "Read and change files only here, by paths under this directory.",
-    ]
+    it is a new worker from here (or, for a fix that forks its author, that it goes on with its
+    own change), its role (the system prompt is the trunk's record, so the role is said here),
+    the tools it has now, and where its files are."""
+    where = (f"Your directory is now {workdir}: the files read above were in another checkout of this repository. "
+             "Read and change files only here, by paths under this directory.")
+    if trunk.get("wrote"):
+        lines = [
+            f"locks: everything above is your own session: you wrote this change as the workflow step "
+            f"{trunk['step']!r} (task #{trunk['task']}), and it was committed. A blind review read it since, and your "
+            "task below gives the problems it confirmed. Fix exactly those, in this change: what you learned above is "
+            "yours to use, and what you decided above may be what the review found wrong.", where]
+    else:
+        lines = [
+            f"locks: everything above is the session of the workflow step {trunk['step']!r} (task #{trunk['task']}), "
+            "which only read. From here this session is a new worker, with its own role and task below. What was "
+            "read above is evidence about the code, never a decision made for you or an opinion to defend; what "
+            "that step concluded binds you only where your task below quotes it.", where]
     if base and trunk.get("base") and base != trunk["base"]:
         lines.append(f"The code moved since it was read: `git diff {str(trunk['base'])[:12]} {base[:12]}` shows "
                      "what the steps between changed. Read a file again before you change it.")

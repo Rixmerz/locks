@@ -41,7 +41,8 @@
       "needs": [
         "refute"
       ],
-      "prompt": "Fix the confirmed findings below, in the TRACER slice for: {slice}\n\nA finding that is an escaped expectation also adds its CORRECT line to the flow's spec in docs/tracer/flows/ and its entry to docs/tracer/floors.md or docs/tracer/anti-patterns.md, so it cannot escape again. Run the tests before you stop."
+      "prompt": "Fix the confirmed findings below, in the TRACER slice for: {slice}\n\nA finding that is an escaped expectation also adds its CORRECT line to the flow's spec in docs/tracer/flows/ and its entry to docs/tracer/floors.md or docs/tracer/anti-patterns.md, so it cannot escape again. Run the tests before you stop.",
+      "trunk": "build"
     },
     {
       "id": "recheck",

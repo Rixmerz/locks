@@ -104,6 +104,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `hooks/locks.tsx` | the mod (function hooks), a thin layer over `bin/locks`: model tools, waking the session on endings, a status line, `/locks` opens the web board; `hooks/locks-cli.ts` its engine-free helpers, `types/index.d.ts` its state contract, `hooks/locks.test.tsx` its tests |
 | `src/locks/services.py` | the servers a task needs up (`--service 'cmd@port'`): started in the task's directory, waited for, stopped with their process group when the run ends |
 | `src/locks/isolate.py` | one git worktree per writing task, the checkout's ignored dependencies linked in; work that stopped for a person kept unverified; `at_base`, a temporary worktree at a task's base for comparing its check |
+| `scripts/mutate.py`, `docs/workflows.md` | mutation testing of a module against the tests named for it (one AST change at a time, the module always put back, a suite that fails unmutated refused): the rules a suite runs but does not pin; and which bundled workflow fits which work, with one measured run of each |
 | `scripts/bump.py` | a new version in every file that names it at once (`__init__.py`, `pyproject.toml`, `uv.lock`, the plugin and marketplace manifests), the CHANGELOG's `[Unreleased]` closed under it; nothing written when one file is off or the notes are empty |
 | `scripts/livespec_check.py`, `.github/workflows/livespec-pin.yml` | the livespec locks runs kept current: every week a release on PyPI newer than `PINNED` is pinned, verified against a real index of this repository (the index read, a brief, a change's reach, every tool locks names served, `validate_openspec`), and proposed as a draft pull request once the suite passed with it; stdlib, no model |
 | `scripts/release_notes.py`, `.github/workflows/release.yml` | a version that reaches main with CI green is tagged `v<version>` and released with its CHANGELOG section, by itself; one already tagged is left alone, and a person tags an older one by hand (`workflow_dispatch`); stdlib, no model |
@@ -1632,7 +1633,9 @@ yields the default kind, not a guess.
   run's last branch holds every round (`doctor`: `fix-round-off-base`).
 - A step may start as a fork of a reading step's session (`trunk`: an `explore` or `plan`
   step before it that it waits on), and only its first try: what follows goes on from its own
-  attempts. A trunk reads and decides nothing for its forks; a review forks only an
+  attempts. A ledger's fix may fork the step that wrote the change (`trunks.WRITING_TRUNKS`:
+  `feature`, `bugfix` and `tracer-slice` do), told it is its own session, and only on that step's
+  model (`trunks.same_model`): another model never inherits an approach. A reading trunk reads and decides nothing for its forks; a review forks only an
   `explore`, a refute, recheck or integrate step forks none, and the independent verifier
   never runs in a fork. Claude Code records a session's system prompt on its first request
   and every resume and fork sends that record (`--system-prompt-snapshot`), so a trunk runs

@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.106.0] - 2026-11-13
+
+### Added
+
+- **A review's fix goes on in the session of the worker that built the change.** In `feature`, `bugfix`
+  and `tracer-slice` the fix step forks its builder's session (`trunk`), told it is its own change and
+  given the rows the review confirmed, instead of a fresh worker orienting again in code it never saw.
+  Only on the builder's model; whether it pays is the trunk's existing fork/fresh trial.
+- **`scripts/mutate.py`**: mutation testing of one module against the tests named for it, stdlib, the
+  module always put back. Its first run: `findings.py` against `tests/test_checking.py`, 21 of 26
+  mutants caught, the five left all text-clipping lengths, no rule.
+- **`docs/workflows.md`**: which bundled workflow fits which work, with one measured run of each.
+
+### Fixed
+
+- **The PreCompact hook has 30 seconds, not 5.** It writes the compaction's digest from the whole
+  transcript; on a long session it was cancelled ("Hook cancelled") and the digest was not written.
+
 ## [0.105.0] - 2026-11-13
 
 ### Changed

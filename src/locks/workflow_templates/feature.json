@@ -38,7 +38,8 @@
       "needs": [
         "refute"
       ],
-      "prompt": "Fix the confirmed findings below, in the change for: {goal}\n\nRun the tests before you stop."
+      "prompt": "Fix the confirmed findings below, in the change for: {goal}\n\nRun the tests before you stop.",
+      "trunk": "build"
     },
     {
       "id": "recheck",

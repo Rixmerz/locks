@@ -1236,6 +1236,10 @@ def outcome(store: Store, task: Mapping[str, Any] | None) -> dict[str, Any]:
             "changed": sum(len(e.get("changed") or ()) for e in ended)}
 
 
+def _step_kind(defn: Mapping[str, Any], step_id: str) -> str:
+    return next((str(s.get("kind") or "") for s in defn["steps"] if s.get("id") == step_id), "")
+
+
 def _holds(store: Store, step: Mapping[str, Any], latest: Mapping[str, dict]) -> tuple[bool, str]:
     """Whether a step's `when` holds, and when it does not, why: every condition must."""
     for dep, wanted in dict(step.get("when") or {}).items():
@@ -1738,8 +1742,8 @@ def _queue_step(store: Store, run: Mapping[str, Any], defn: Mapping[str, Any], s
     if trunk_for and not base:
         # A trunk runs in a worktree at the run's commit: only there is its session kept to fork.
         base = options.get("origin")
-    forks = trunks.source(store, (_tasks_of(latest.get(step["trunk"])) or [None])[-1], step["trunk"]) \
-        if step.get("trunk") else None
+    forks = trunks.source(store, (_tasks_of(latest.get(step["trunk"])) or [None])[-1], step["trunk"],
+                          wrote=_step_kind(defn, step["trunk"]) in trunks.WRITING_TRUNKS) if step.get("trunk") else None
     opts = {k: v for k, v in {
         "kind": step.get("kind"), "verify": step_check(step, options, inputs), "start": step.get("start"),
         # The files the change it reads touches: capabilities about them join it.

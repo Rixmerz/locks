@@ -1,7 +1,7 @@
 """One real run of each bundled workflow the speed benches never start, on the bench repository (real money: run
 on purpose). Each has its own locks home and a fresh copy of the build with what its workflow reads planted
-in it (a bug, a flawed change, a thin design document, documents that drifted, nothing for a TRACER slice in
-a repository that keeps no method), is driven to its end as `flow.py` drives a run, and ends with `locks
+in it (a bug, a flawed change, a thin design document, documents that drifted, a small TRACER method for a
+slice), is driven to its end as `flow.py` drives a run, and ends with `locks
 doctor`. A row per workflow is written beside its store in the folder given: status, each step, cost, the
 doctor's words and `locks workflow status`.
 
@@ -92,6 +92,35 @@ def drifted_docs(where):
     commit(where, "Document pricing")
 
 
+def tracer_method(where):
+    folder = where / "docs" / "tracer"
+    (folder / "flows").mkdir(parents=True)
+    (folder / "audiences.md").write_text("# Audiences\n\nShop developers calling `tally.checkout` from a till: they "
+                                         "read totals in cents, never a float, and never see a traceback.\n")
+    (folder / "identity.md").write_text("# Identity\n\nPlain names, integers of cents, no abbreviations.\n")
+    (folder / "floors.md").write_text("# Floors\n\n- A function returning money returns integer cents.\n"
+                                      "- A function taking a cart never changes the cart it was given.\n")
+    (folder / "anti-patterns.md").write_text("# Anti-patterns\n\n- A float used for money.\n"
+                                             "- A result shared between two calls.\n")
+    (folder / "capabilities.md").write_text("# Capabilities\n\n- Quote a cart\n- Price a cart\n")
+    (folder / "flows" / "quote-cart.md").write_text("""# Quote a cart
+
+Audience: shop developers.
+
+## Success path
+1. The developer calls `quote(cart, customer)`.
+   - WORKS: it returns a total and the adjustments applied.
+   - CORRECT: the total is an integer of cents and equals `price(cart, customer)`.
+   - CORRECT: each adjustment names the rule that made it.
+
+## Failure paths
+| Failure | WORKS | CORRECT |
+|---|---|---|
+| The cart has no lines | it returns | the total is 0 and the adjustments are an empty list |
+""")
+    commit(where, "Keep the TRACER method")
+
+
 TARGET = "the last commit (git show HEAD): quote() in src/tally/checkout.py"
 SCENARIOS = {
     "bugfix": (plant_bug, ["--verify", "make test"], "Customers with two order-level discounts (staff plus a "
@@ -103,9 +132,12 @@ SCENARIOS = {
     "design-review": (design_doc, ["--input", "doc=docs/DESIGN.md"],
                       "Decide whether the coupons design is ready to build"),
     "drift": (drifted_docs, [], "docs"),
-    "tracer-slice": (lambda where: None, ["--verify", "make test"], "Add quote(cart, customer) to tally.checkout: "
-                     "it returns the total in cents and the list of adjustments applied, and price() returns "
-                     "its total."),
+    "tracer-slice": (tracer_method, ["--verify", "make test"], "Quote a cart: add quote(cart, customer) to "
+                     "tally.checkout: it returns the total in cents and the list of adjustments applied, and "
+                     "price() returns its total."),
+    "feature": (lambda where: None, ["--verify", "make test"], "Add quote(cart, customer) to tally.checkout: "
+                "it returns the total in cents and the list of adjustments applied, and price() returns "
+                "its total."),
 }
 
 

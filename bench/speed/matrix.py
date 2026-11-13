@@ -159,6 +159,12 @@ SCENARIOS = {
     "feature": (lambda where: None, ["--verify", "make test"], "Add quote(cart, customer) to tally.checkout: "
                 "it returns the total in cents and the list of adjustments applied, and price() returns "
                 "its total."),
+    # Two pieces in files of their own: a plan of two parts, so its blind critique runs (`locks.critique`).
+    "feature-parallel": (lambda where: None, ["--verify", "make test"],
+                         "Two independent additions: (1) in tally/checkout.py add quote(cart, customer), which "
+                         "returns the total in cents and the list of adjustments applied; (2) in a new "
+                         "tally/report.py add receipt_lines(cart, customer), which returns one text line per item "
+                         "with its price in cents. Each has its own tests."),
 }
 
 

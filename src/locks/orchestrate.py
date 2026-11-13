@@ -3304,7 +3304,8 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                      + "\n".join(f"- {line}" for line in links))
     if known:
         parts.append("The previous check found these; say for each whether it is fixed, and report any new "
-                     "problem apart:\n" + findings_mod.text(known))
+                     "problem apart. One that is fixed is no finding any more: say so in your summary, or keep "
+                     "it in `findings` with `fixed`: true:\n" + findings_mod.text(known))
     if since is not None:
         parts.append(recheck_lines(*since))
     if lines := notes.constraint_lines(rules):

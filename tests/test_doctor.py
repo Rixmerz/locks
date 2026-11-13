@@ -470,6 +470,20 @@ def test_a_death_resumed_with_no_record_of_its_dead_attempt_is_suspect(store: St
     assert kept not in [f.task_id for f in found] and "attempt 1 died" in found[0].what
 
 
+def test_a_check_that_blocked_only_on_findings_it_called_fixed_is_suspect(store: Store):
+    def held(version: str, *, fixed: bool) -> int:
+        t = store.create_task("t", status="blocked", source="locks", repo="r", kind="implement")
+        blocker = {"where": "a.py:3", "what": "Earlier finding. Now fixed", **({"fixed": True} if fixed else {})}
+        store.add_event(t["id"], "verified", seq=2, blocking=1, blockers=[blocker])
+        store.add_event(t["id"], "attempt_finished", seq=2, cell="sonnet/high", passed=False, version=version)
+        return t["id"]
+
+    new, real, old = held("0.104.1", fixed=True), held("0.104.1", fixed=False), held("0.104.0", fixed=True)
+    found = rules(store, now=LATER, alive=lambda pid: True)["blocked-on-a-fixed-finding"]
+    assert [(f.severity, f.task_id) for f in found] == [(doctor.SUSPECT, new), (doctor.FIXED, old)]
+    assert real not in [f.task_id for f in found]
+
+
 def test_a_problem_a_pass_opened_beside_a_race_s_other_try_is_suspect(store: Store):
     t = store.create_task("t", status="done", source="locks", repo="r", kind="implement")
     store.add_event(t["id"], "attempt_finished", seq=1, cell="sonnet/high", passed=False, raced=True, stopped=True)

@@ -411,6 +411,10 @@ class LaunchSpec:
     #: The continued session is a fork (`--fork-session`), the one it came from kept as it was:
     #: more effort on the same model, at the new effort the cell gives.
     fork_session: bool = False
+    #: What the session it continues had cost when it was last seen (`orchestrate.session_cost`): the CLI's
+    #: `total_cost_usd` of a resumed or forked session is the whole session's, so the attempt's own is what
+    #: it adds to this. 0 when it is not known: the attempt then keeps the CLI's figure, as before.
+    resume_cost_usd: float = 0.0
     #: Extra environment for the worker: which task and attempt it is, so its
     #: tool calls are recorded against them.
     env: Mapping[str, str] = field(default_factory=dict)
@@ -490,6 +494,9 @@ class WorkerResult:
     network: str = ""
     #: The Claude Code session the attempt ran in, from the CLI's JSON; "" when it gave none.
     session_id: str = ""
+    #: The CLI's `total_cost_usd` as it gave it: the whole session's, earlier attempts it continued
+    #: included. `cost_usd` is this attempt's own.
+    session_cost_usd: float = 0.0
     #: The API turned the session away: `rate_limit` or `overloaded`, and the wait it named
     #: (seconds); "" and None otherwise (`locks.capacity` halves the machine's level on it).
     limited: str = ""
@@ -702,8 +709,20 @@ def run(
     changed = changed_paths(before, tracked_state(spec.target_dir), spec.target_dir)
     result = dataclasses.replace(parse(proc, spec, changed, duration_s=time.monotonic() - started),
                                  permission_mode=spec.permission_mode, resumed=bool(spec.resume_session))
+    result = own_cost(result, spec)
     _keep_worker_transcript(result)
     return counted_turns(result, began)
+
+
+def own_cost(result: WorkerResult, spec: LaunchSpec) -> WorkerResult:
+    """The attempt's own cost: a resumed or forked session's `total_cost_usd` counts every turn of the
+    session it came from (measured: a fork and a resume of a $0.0048 session each said $0.0059), so what
+    that session had cost is taken off. The CLI's figure is kept whole as `session_cost_usd`."""
+    whole = result.cost_usd
+    if not spec.resume_session or spec.resume_cost_usd <= 0:
+        return dataclasses.replace(result, session_cost_usd=whole)
+    return dataclasses.replace(result, session_cost_usd=whole,
+                               cost_usd=round(max(0.0, whole - spec.resume_cost_usd), 6))
 
 
 def _keep_worker_transcript(result: WorkerResult, env: Mapping[str, str] | None = None) -> None:

@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-11-13
+
+### Added
+
+- **What each workflow cost here, on the board.** The Workflows screen gives every definition its record
+  in the project (`api.workflow_record`): runs started, runs done and the median cost of a done run, read
+  from the steps of up to `RECORD_RUNS` runs. Observed, never a budget.
+
+### Fixed
+
+- **A continued session's attempt no longer counts the session it continued twice.** The CLI's
+  `total_cost_usd` for a `--resume` or a `--fork-session` is the whole session's (measured: a fork and a
+  resume of a $0.0048 session each said $0.0059), and locks kept it as the attempt's own: every attempt
+  given more turns or more effort, a trunk's fork and a resume after a death counted what came before
+  again. In a real `feature-parallel` run a part that forked the plan was kept at $1.00, $0.64 of it the
+  plan's. Now each worker session's whole cost is kept (`orchestrate.session_cost`, the store's meta),
+  and an attempt that continues one keeps what it added (`launch.own_cost`, `LaunchSpec.resume_cost_usd`);
+  the CLI's figure stays as `WorkerResult.session_cost_usd`. A session whose cost was never seen (one
+  from before this release) keeps the CLI's figure, as before.
+
 ## [0.106.1] - 2026-11-13
 
 ### Fixed

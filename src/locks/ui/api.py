@@ -697,6 +697,7 @@ def workflows_view(store: Store, repo_key: str, *, limit: int = 30) -> dict[str,
         done = sum(1 for s in run["steps"] if s["state"] == "done")
         runs.append({**run, "progress": {"done": done, "total": len(run["steps"])}})
     where = _project_dir(store, repo_key)
+    record = workflow_record(store, repo_key)
     definitions = []
     for entry in workflows.listing(where):
         if entry["shadowed"]:
@@ -710,8 +711,30 @@ def workflows_view(store: Store, repo_key: str, *, limit: int = 30) -> dict[str,
             if entry["scope"] != "bundled":
                 item.update(held_by=workflows.in_use(entry["path"], store),
                             pending=workflows.pending_path(Path(entry["path"])).is_file())
+        item["record"] = record.get(entry["name"])
         definitions.append(item)
     return {"runs": runs, "definitions": definitions, "dir": where}
+
+
+#: How many of a project's runs the record per workflow reads.
+RECORD_RUNS = 500
+
+
+def workflow_record(store: Store, repo_key: str) -> dict[str, dict[str, Any]]:
+    """What each workflow cost here, from its runs' steps: runs started, runs done and the median
+    cost of a done run. Observed, never a budget; read only."""
+    import statistics
+
+    out: dict[str, dict[str, Any]] = {}
+    for run in store.list_runs(repos={repo_key}, limit=RECORD_RUNS):
+        rec = out.setdefault(run["name"], {"runs": 0, "done": 0, "costs": []})
+        rec["runs"] += 1
+        if run["status"] == "done":
+            rec["done"] += 1
+            rec["costs"].append(sum(float(t.get("cost_usd") or 0) for t in store.run_tasks(int(run["id"]))))
+    return {name: {"runs": r["runs"], "done": r["done"],
+                   "cost_p50": round(statistics.median(r["costs"]), 4) if r["costs"] else None}
+            for name, r in out.items()}
 
 
 def session_tab(session_id: str) -> dict[str, str]:

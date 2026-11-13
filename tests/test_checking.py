@@ -1,11 +1,13 @@
 """What was asked, findings as records, risk, and the independent check."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -1457,3 +1459,29 @@ def test_surfaces_in_one_folder_are_read_apart_segment_by_segment():
     assert surfaces.disjoint(["src/*.py"], ["src/pkg/mod.py"])                     # `*` never crosses a folder
     assert not surfaces.disjoint(["src/**"], ["src/web/a.ts"])
     assert not surfaces.disjoint(["tests/test_[ab].py"], ["tests/test_a.py"])
+
+
+def test_a_continued_session_s_attempt_costs_only_what_it_adds(git_repo, store, verifier_on):
+    """The CLI's `total_cost_usd` of a resumed or forked session is the whole session's (measured: a fork and
+    a resume of a $0.0048 session each said $0.0059), and locks had kept it as the attempt's own."""
+    worked = WorkerResult(True, None, "done", "1 passed", cost_usd=0.1, session_id="sess-1", session_cost_usd=0.1)
+    script = Script(worked, check("fail", [BUG]), passing("fixed"), check("pass"), write="app.py")
+    run("fix the cart total", git_repo, store, registry={}, launcher=script, classifier=kind("implement"))
+    again = script.specs[2]
+    assert again.resume_session == "sess-1" and again.resume_cost_usd == pytest.approx(0.1)
+    assert orchestrate.session_cost(store, "sess-1") == pytest.approx(0.1)
+    assert orchestrate.session_cost(store, "") == 0.0 and orchestrate.session_cost(store, "unknown") == 0.0
+
+
+def test_own_cost_takes_off_what_the_continued_session_had_cost():
+    spec = launch.LaunchSpec(prompt="p", cell=Cell("sonnet", "high"), launch_dir=Path("."), resume_session="s",
+                             resume_cost_usd=0.64)
+    whole = WorkerResult(True, None, "done", "", cost_usd=0.9958)
+    mine = launch.own_cost(whole, spec)
+    assert mine.cost_usd == pytest.approx(0.3558) and mine.session_cost_usd == pytest.approx(0.9958)
+    # A fresh attempt, or a session whose cost was never seen, keeps the CLI's figure.
+    for other in (dataclasses.replace(spec, resume_session=""), dataclasses.replace(spec, resume_cost_usd=0.0)):
+        kept = launch.own_cost(whole, other)
+        assert kept.cost_usd == kept.session_cost_usd == pytest.approx(0.9958)
+    # Never below nothing, whatever the record says.
+    assert launch.own_cost(whole, dataclasses.replace(spec, resume_cost_usd=5.0)).cost_usd == 0.0

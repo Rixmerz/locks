@@ -46,7 +46,7 @@ BATCH = ("Make the tool calls that do not depend on each other in the same turn:
 
 def repository(variant: str = "plain") -> Path:
     where = Path(tempfile.mkdtemp(prefix="tally-build-")) / "repo"
-    shutil.copytree(BASE, where)
+    shutil.copytree(BASE, where, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     if variant == "hard":
         sys.path.insert(0, str(HERE.parent / "review"))
         import volume

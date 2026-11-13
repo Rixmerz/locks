@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [0.106.1] - 2026-11-13
+
+### Fixed
+
+- **The bundled `feature-parallel`'s plan is read blind.** Its plan step names `start: opus/high`, and
+  the critique counted that as a person's pin: it never drew an arm, so the one bundled workflow with
+  parts never ran it (found by a real run of `bench/speed/matrix.py`). A start a workflow step's
+  definition names is no pin.
+- **A tracked tool artifact is never committed as the work.** A kept branch dropped its tools'
+  artifacts with `git rm --cached`, which staged the deletion of the ones a repository tracks: a `feature`
+  run committed eight `.pyc` its check removed, its review read them as the change's, and two fix rounds
+  could not undo them (stopped as `review`). They are now reset to HEAD.
+
 ## [0.106.0] - 2026-11-13
 
 ### Added

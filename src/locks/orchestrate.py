@@ -1581,7 +1581,10 @@ def run(
         # kept either way so the arms can be compared; a resume keeps the arm its first brief drew.
         critiqued: dict[str, Any] = {}
         critic_arm = ""
-        if options.parts and critique_mod.enabled() and options.start is None:
+        # A start the step's definition names is the definition's choice, never a person's pin: the bundled
+        # feature-parallel plans at opus/high, and its plans were never read while it counted as one.
+        pinned_start = options.start is not None and not task.get("workflow_step")
+        if options.parts and critique_mod.enabled() and not pinned_start:
             critic_arm, critic_why = critique_mod.arm_for(store, key, task["id"])
             critiqued = {critique_mod.KEY: critic_arm, critique_mod.WHY_KEY: critic_why}
         # The brief's fixed weight, per kind and release (`locks.footprint`): what a worker reads
@@ -2021,7 +2024,7 @@ def run(
                                 **behavior.unread_record("worker", again=again, calls=made))
             critic_cost: float | None = None
             if result.passed and critic_arm == "with" and critique_mod.due(
-                    result.parts, pinned=options.start is not None):
+                    result.parts, pinned=pinned_start):
                 # A plan whose parts a fresh reader could not carry out (`locks.critique`) goes back
                 # to the same cell once, in its own session, with what the reader found; its second
                 # answer stands whatever the reader says. Never a climb, never a failure.

@@ -123,6 +123,18 @@ def test_a_pinned_task_launches_no_critique(git_repo, store: Store):
     assert "critique_arm" not in briefed and "critique_why" not in briefed
 
 
+@pytest.mark.usefixtures("reading", "no_verifier")
+def test_a_start_the_workflow_step_names_is_no_pin(git_repo, store: Store):
+    """The bundled feature-parallel plans at opus/high: its plans were never read while that counted as a pin."""
+    task = store.create_task("Plan the export command", status="queued", source="queue", repo=str(git_repo),
+                             workflow_step="plan")
+    script = Script(plan(), reader())
+    report = run("Plan the export command", git_repo, store, options(git_repo, start=Cell("sonnet", "high")),
+                 registry={}, launcher=script, classifier=kind("plan"), task_id=task["id"])
+    assert report.status == "done" and len(script.specs) == 2
+    assert len(critiqued(store, report.task_id)) == 1
+
+
 @pytest.mark.usefixtures("no_verifier")
 def test_with_the_setting_off_nothing_runs_and_the_brief_names_no_arm(git_repo, store: Store, monkeypatch):
     monkeypatch.setenv("LOCKS_CRITIQUE", "off")

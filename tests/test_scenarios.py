@@ -226,6 +226,7 @@ def test_more_turns_continue_the_worker_s_own_session(world):
 
 
 def test_a_workflow_part_that_died_is_resumed_and_the_join_holds_every_part(world):
+    world.setenv("LOCKS_CRITIQUE", "off")  # the plan's blind reader would be one more call matching the plan
     parts = [{"id": "api", "prompt": "PART-API: write api.txt", "surfaces": ["api.txt"]},
              {"id": "web", "prompt": "PART-WEB: write web.txt", "surfaces": ["web.txt"]}]
     world.script([

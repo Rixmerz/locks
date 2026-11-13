@@ -118,6 +118,27 @@ Audience: shop developers.
 |---|---|---|
 | The cart has no lines | it returns | the total is 0 and the adjustments are an empty list |
 """)
+    # The slice's readiness gate asks for requirements with scenarios: without a spec the build refuses it.
+    spec = where / "openspec" / "specs" / "quote"
+    spec.mkdir(parents=True)
+    (spec / "spec.md").write_text("""# quote Specification
+
+## Purpose
+Quote a cart: its total and the adjustments that made it.
+
+## Requirements
+### Requirement: Quote a cart
+`tally.checkout.quote(cart, customer)` SHALL return the total in integer cents and the list of adjustments
+applied, each naming its rule, and `price(cart, customer)` SHALL return that total.
+
+#### Scenario: A cart with a discount
+- **WHEN** a staff customer quotes a cart of two lines of 250
+- **THEN** the total equals `price(cart, customer)` and one adjustment names the staff rule
+
+#### Scenario: An empty cart
+- **WHEN** a cart with no lines is quoted
+- **THEN** the total is 0 and the adjustments are an empty list
+""")
     commit(where, "Keep the TRACER method")
 
 

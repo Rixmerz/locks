@@ -603,7 +603,8 @@ yields the default kind, not a guess.
   reports as findings the parts it cannot paraphrase, the design decisions a part leaves to its worker and
   the criterion no part answers. Any finding sends the plan back once to its own cell, in its own session,
   with those lines (`critique.SHAPE`, `PROMPT`, a reshape `escalate.reshape_streak` never counts); its second
-  answer stands whatever the reader says. Never a plan of one part, a pinned start, or a climb. `critiqued`
+  answer stands whatever the reader says. Never a plan of one part, a pinned start (a start a workflow step's
+  definition names is no pin), or a climb. `critiqued`
   events keep the findings, cell, cost and seconds, and `critique_cost_usd` on `attempt_finished` is kept
   apart from the worker's and the check's. A repository's plans with parts alternate `with` and `without`
   (`briefed.critique_arm`, pooled while short) until each arm has `critique.TRIAL` first tries of the steps
@@ -857,7 +858,8 @@ yields the default kind, not a guess.
   unverified state are trailers (`Locks-Task`, `Locks-Verified: no`).
 - Files a worker's tools write for themselves (`isolate.ARTIFACT_DIRS`, a dev-server
   plugin's `.fresh-dev/` among them) are
-  never a changed file and never committed, and a branch holding only them is
+  never a changed file and never committed (one a repository tracks stays as HEAD has it, never deleted
+  or rewritten in a commit), and a branch holding only them is
   never a review.
 - A worker that stopped before its own check (refused, or out of turns) is
   checked with `--verify` by locks when the task changed something;

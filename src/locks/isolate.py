@@ -893,8 +893,10 @@ def finish(ws: Workspace, *, keep: bool, message: str) -> str | None:
         staged = False
         if _git(ws.path, "status", "--porcelain"):
             _git(ws.path, "add", "-A")
-            _git(ws.path, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--",
-                 *(f":(glob)**/{d}/**" for d in sorted(ARTIFACT_DIRS)), check=False)
+            # Its tools' artifacts stay as HEAD has them: `rm --cached` committed the deletion of
+            # ones a repository tracks (eight `.pyc` a check rewrote, read as the work by its review).
+            for d in sorted(ARTIFACT_DIRS):
+                _git(ws.path, "reset", "-q", "HEAD", "--", f":(glob)**/{d}/**", check=False)
             # A worker that committed its work itself leaves only its tools' artifacts behind:
             # once they are dropped nothing is staged, and a commit of nothing failed the run.
             staged = bool(_git(ws.path, "diff", "--cached", "--name-only"))

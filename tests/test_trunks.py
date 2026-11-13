@@ -206,7 +206,8 @@ def test_a_trunk_keeps_its_role_out_of_its_system_prompt(git_repo, store: Store)
         assert spec.prompt.startswith("Your role for this step:\n")
 
 
-def test_feature_parallel_s_parts_fork_the_plan_s_session(git_repo, store: Store, kicks, forking):
+def test_feature_parallel_s_parts_fork_the_plan_s_session(git_repo, store: Store, kicks, forking, monkeypatch):
+    monkeypatch.setenv("LOCKS_CRITIQUE", "off")  # its blind reader is one more launch this script does not answer
     import dataclasses
 
     defn = workflows.load("feature-parallel", git_repo, "bundled")

@@ -152,6 +152,22 @@ def test_a_kept_branch_never_commits_tool_artifacts(git_repo, tmp_path):
     assert ".playwright-mcp" not in shown
 
 
+def test_a_tracked_artifact_a_check_deleted_or_rewrote_is_never_committed(git_repo, tmp_path):
+    """A repository that tracks `__pycache__`: its deletion was committed as the work, and read by its review."""
+    (git_repo / "pkg" / "__pycache__").mkdir(parents=True)
+    (git_repo / "pkg" / "__pycache__" / "a.pyc").write_bytes(b"old")
+    (git_repo / "pkg" / "__pycache__" / "b.pyc").write_bytes(b"old")
+    git(git_repo, "add", "-A")
+    git(git_repo, "commit", "-qm", "tracked bytecode")
+    ws = isolate.prepare(git_repo, 16, tmp_path / "home")
+    (ws.path / "pkg" / "__pycache__" / "a.pyc").unlink()
+    (ws.path / "pkg" / "__pycache__" / "b.pyc").write_bytes(b"new")
+    (ws.path / "pkg" / "__pycache__" / "c.pyc").write_bytes(b"new")
+    (ws.path / "fix.py").write_text("x = 1\n")
+    assert isolate.finish(ws, keep=True, message="m") == "locks/task-16"
+    assert git(git_repo, "show", "--name-only", "--format=", "locks/task-16").split() == ["fix.py"]
+
+
 def test_an_index_a_worker_built_in_its_worktree_is_no_work_and_is_never_committed(git_repo, tmp_path):
     ws = isolate.prepare(git_repo, 15, tmp_path / "home")
     (ws.path / ".mcp-docs").mkdir()

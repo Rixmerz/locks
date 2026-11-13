@@ -53,9 +53,10 @@ def read(block: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
 
 
 def blocking(found: Iterable[Mapping[str, str]]) -> list[Mapping[str, str]]:
-    """The findings that stop a change: the change's own, and shown."""
+    """The findings that stop a change: the change's own, and shown. One marked `fixed` is gone (a
+    worker's own, or an earlier check's the next check says the correction fixed): it stops nothing."""
     return [f for f in found if f["cause"] in ("introduced", "worsened", "unknown")
-            and f["evidence_class"] != "insufficient"]
+            and f["evidence_class"] != "insufficient" and not f.get("fixed")]
 
 
 def place(where: str) -> str:

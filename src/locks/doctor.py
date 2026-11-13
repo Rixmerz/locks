@@ -77,6 +77,7 @@ FIXED_IN = {
     "transcript-ahead-of-usage": "0.99.0",
     "trial-verdict-turned": "0.100.1",
     "death-left-no-record": "0.104.0",
+    "blocked-on-a-fixed-finding": "0.104.1",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -888,6 +889,32 @@ def deaths_left_no_record(store: Store, *, since: str | None, **_) -> Iterable[F
         yield _history("death-left-no-record", sorted(set(before)), None)
 
 
+def blocked_on_fixed_findings(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """An independent check whose only blockers were findings it marked `fixed`: the earlier check's
+    problems, answered as gone, counted as still there. Before 0.104.1 such a check sent the work to a
+    correction it did not need, and a fix whose corrections ran out stopped as `review`."""
+    before: list[int] = []
+    for event in store.events_of_kinds(["verified"], since=since):
+        blockers = event["data"].get("blockers") or []
+        if not blockers or not all(isinstance(b, dict) and b.get("fixed") for b in blockers):
+            continue
+        task_id = int(event["task_id"])
+        # The release that read the verdict: a `verified` event keeps none, the attempt's ending does.
+        after = [e for e in store.events(task_id=task_id, limit=1000)
+                 if e["id"] > event["id"] and e["kind"] == "attempt_finished"]
+        if _fixed("blocked-on-a-fixed-finding", after[0]["data"].get("version") if after else None):
+            before.append(task_id)
+            continue
+        task = store.get_task(task_id)
+        yield Finding("blocked-on-a-fixed-finding", SUSPECT,
+                      f"#{task_id} was held by its independent check on {len(blockers)} finding(s) that check "
+                      "itself said were fixed",
+                      "`locks show` has the check's words; a resume reads them again", task_id,
+                      task["repo"] if task else None)
+    if before:
+        yield _history("blocked-on-a-fixed-finding", sorted(set(before)), None)
+
+
 def problems_opened_by_a_race(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
     """A problem a task opened with a pass and no failure of its own: its only attempts beside the
     pass were a race's other try stopped because the pass came first (`attempt_finished.raced` and
@@ -1026,6 +1053,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
     habit_reviews_unapplied, tools_logged_off, problems_opened_by_a_race, clean_reviews_read_nothing,
     transcripts_ahead_of_usage, trial_verdicts_turned, deaths_left_no_record,
+    blocked_on_fixed_findings,
 )
 
 

@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.104.1] - 2026-11-13
+
+### Fixed
+
+- **A problem the re-check says is fixed no longer blocks.** An independent check that answered an earlier
+  check's finding as fixed (`fixed`: true) had it counted as a blocker still: the work climbed for a
+  correction it did not need, and a fix of ledger rows stopped as `review` on a problem that was gone
+  (found by one real run of `dual-review` in `bench/speed/matrix.py`: $1.55 and two climbs). `findings.blocking`
+  leaves out a finding marked fixed, the re-check's brief says how to answer one, and `locks doctor` names
+  an earlier check that blocked only on such findings (`blocked-on-a-fixed-finding`).
+
 ## [0.104.0] - 2026-11-13
 
 ### Added

@@ -372,6 +372,19 @@ def test_after_progress_a_finding_only_read_from_the_code_goes_with_the_pass(git
     assert any(f["what"] == read["what"] for f in finished["findings"])
 
 
+def test_an_earlier_problem_the_next_check_marks_fixed_blocks_nothing(git_repo, store, verifier_on):
+    """A dual-review fix on the bench repository: the re-check answered the earlier check's finding as
+    "now fixed" with `fixed`: true, it was counted as a blocker still, and the fix climbed twice and
+    stopped as `review` on a problem that was gone."""
+    gone = {**BUG, "what": "Earlier finding: drops the last item. Now fixed", "fixed": True}
+    script = Script(passing(), check("fail", [BUG]), passing("fixed"), check("pass", [gone]), write="app.py")
+    report = run("fix the cart total", git_repo, store, registry={}, launcher=script, classifier=kind("implement"))
+    assert report.status == "done" and len(script.specs) == 4
+    assert "`fixed`: true" in script.specs[3].prompt
+    assert store.events_of(report.task_id, "verified")[1]["data"]["blockers"] == []
+    assert findings.blocking(findings.read({"findings": [gone]})) == []
+
+
 def test_a_problem_that_survives_beside_new_ones_stops_at_the_cap(git_repo, store, verifier_on):
     script = Script(passing(), check("fail", [BUG]), passing(), check("fail", [BUG, OTHER]), passing(),
                     check("fail", [BUG, OTHER]), write="app.py")

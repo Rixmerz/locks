@@ -366,6 +366,7 @@ yields the default kind, not a guess.
   told) and it is shown, not suspected; a pre-existing one is reported, never
   a blocker. A finding is `deterministic` only with its proof (the command or
   hunk that shows it); one claimed without it is read as `inferential`.
+  One marked `fixed` (a worker's own, or an earlier check's the re-check says is gone) blocks nothing (`doctor`: `blocked-on-a-fixed-finding`).
 - A red check is compared with the base before it is the work's failure: one
   that ran and failed (not a timeout, not `cannot_run`, not load or offline)
   runs again at the task's base in a temporary detached worktree

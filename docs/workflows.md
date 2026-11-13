@@ -9,7 +9,7 @@ runs are in `locks stats`.
 |---|---|---|---|
 | `bugfix` | a bug you can reproduce | reproduce with a failing test and fix, blind review, refute, fix, re-check | $0.21 |
 | `feature` | one feature, one area | build, blind review, refute, fix, re-check | $0.33 |
-| `feature-parallel` | a large feature over several areas (`feature` turns into it by itself) | plan in parts, parts side by side, join, then the review chain | not measured |
+| `feature-parallel` | a large feature over several areas (`feature` turns into it by itself) | plan in parts, parts side by side, join, then the review chain | $1.33 and $1.62 (two runs, 0.106, by the workers' own `/usage`) |
 | `review-fix` | a change already made that needs a review and its fixes | review, refute, fix, re-check | $0.47 |
 | `dual-review` | the same, where one reviewer is not enough | two blind reviews, refute, fix, re-check | $1.11, 146 s |
 | `panel` | a change that touches correctness, security, speed and tests at once | four blind reviews (one lens each), refute, fix, re-check | $0.79 |

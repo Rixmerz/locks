@@ -275,7 +275,8 @@ yields the default kind, not a guess.
   brief (`failed_output`) read it; an attempt without one falls back to its evidence.
 - Cost is measured and shown, never a brake: every attempt keeps what it cost
   (its own and its independent check's apart, and how much of its input the
-  cache served), and the report, the board, `locks spend` and `locks stats`
+  cache served; a continued or forked session's is what it added, `launch.own_cost`, since the CLI's figure
+  for one is the whole session's), and the report, the board, `locks spend` and `locks stats`
   show it; no task stops, skips a cell or gets a shorter attempt for money,
   and no worker is given a dollar cap. The one place money moves anything is a
   probation start (below), and only back up the ladder. Turns are the one room dial: an attempt

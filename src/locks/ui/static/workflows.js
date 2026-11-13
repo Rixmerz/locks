@@ -110,12 +110,15 @@ function runCard(run, ctx) {
 function definitions(list) {
   if (!list.length) return h("div", { class: "empty" }, "No workflow to run here.");
   return h("table", { class: "grid" },
-    h("thead", {}, h("tr", {}, ["Workflow", "Scope", "Steps", "In use"].map((t) => h("th", {}, t)))),
+    h("thead", {}, h("tr", {}, ["Workflow", "Scope", "Steps", "Runs here", "In use"].map((t) => h("th", {}, t)))),
     h("tbody", {}, list.map((d) => h("tr", {},
       h("td", {}, h("b", {}, d.name), d.version ? ` v${d.version}` : "", h("div", { class: "meta" }, d.error || d.description || "")),
       h("td", {}, d.scope),
       h("td", {}, (d.steps || []).map((st, i) => [i ? " → " : "", st.id,
         st.memory?.length ? h("span", { class: "chip", title: st.memory.join(", ") }, `+${st.memory.length} memory`) : null])),
+      // Its record here (`api.workflow_record`): observed, never a budget.
+      h("td", {}, d.record ? `${d.record.done} of ${d.record.runs} done`
+        + (d.record.cost_p50 != null ? `, $${d.record.cost_p50.toFixed(2)} a run` : "") : "\u2014"),
       h("td", {}, d.held_by?.length ? `run ${d.held_by.map((r) => `#${r}`).join(", ")}` : "—",
         d.pending ? h("span", { class: "tag review" }, "change waits") : null)))));
 }

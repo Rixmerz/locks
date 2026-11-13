@@ -42,6 +42,8 @@ def test_workflows_view_draws_runs_with_their_progress_and_the_definitions(mappe
     assert {"chain", "feature", "bugfix", "review-fix"} <= set(names)
     assert names["chain"]["version"] == 1 and names["chain"]["held_by"] == [] and names["chain"]["pending"] is False
     assert [s["id"] for s in names["chain"]["steps"]] == ["build", "check", "polish"]
+    assert names["chain"]["record"]["runs"] == 1 and names["chain"]["record"]["done"] == 1
+    assert names["chain"]["record"]["cost_p50"] is not None and names["feature"]["record"] is None
     assert api.workflows_view(store, "nothing/here")["runs"] == []
 
 

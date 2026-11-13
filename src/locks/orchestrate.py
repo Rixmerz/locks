@@ -1098,6 +1098,26 @@ def _raced_attempt(raced: Raced, turns: int) -> Attempt:
                    check_tail=o.check_tail, raced=o.summary.startswith("stopped:"))
 
 
+#: Where the store's meta keeps what a worker session had cost in all, by its id.
+SESSION_COST = "session_cost:"
+
+
+def session_cost(store: Store, session_id: str | None) -> float:
+    """What a worker session had cost in all when its last attempt ended, 0 when not known."""
+    if not session_id:
+        return 0.0
+    try:
+        return float(store.meta(SESSION_COST + session_id) or 0)
+    except ValueError:
+        return 0.0
+
+
+def keep_session_cost(store: Store, result: launch.WorkerResult) -> None:
+    """Keep the session's whole cost, so an attempt that continues it counts only what it adds."""
+    if result.session_id and result.session_cost_usd > 0:
+        store.set_meta(SESSION_COST + result.session_id, repr(result.session_cost_usd))
+
+
 def _launch(launcher: Launcher, spec: launch.LaunchSpec, runner: launch.Stoppable) -> launch.WorkerResult:
     if launcher is launch.run:
         return launch.run(spec, runner=runner)
@@ -1804,6 +1824,7 @@ def run(
                 # person's checkout would be one of theirs.
                 persist_session=workspace is not None,
                 resume_session=branch["session"] if branch else resume,
+                resume_cost_usd=session_cost(store, branch["session"] if branch else resume),
                 fork_session=bool(branch) or fork,
                 # A fork of the trunk is told it is a new worker, and its role: its system prompt is
                 # the trunk's record. Its brief follows.
@@ -1871,6 +1892,7 @@ def run(
                 result = launcher(spec)
             if result.fresh:
                 say(f"locks: #{task['id']} attempt {nth} started fresh: {result.fresh}")
+            keep_session_cost(store, result)
             session = WorkerSession(result.session_id if spec.persist_session else "", spec.model_id or cell.model,
                                     cell, nth)
             worker_s = time.monotonic() - mark

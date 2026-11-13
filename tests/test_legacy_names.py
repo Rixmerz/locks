@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -581,6 +582,12 @@ def test_an_old_install_s_task_its_branch_and_its_folder_carry_over_to_locks(git
 
     listed = _run(env, git_repo, "tasks")
     assert listed.returncode == 0 and "#1" in listed.stdout, listed.stdout + listed.stderr
+    # The store is renamed the first time nothing holds it: the first run's detached ending may still have
+    # it open (CI saw that once), and a later command renames it then.
+    deadline = time.monotonic() + 10
+    while not (xdg / "locks" / "locks.db").is_file() and time.monotonic() < deadline:
+        time.sleep(0.2)
+        listed = _run(env, git_repo, "tasks")
     assert (xdg / "cauce").is_symlink() and (xdg / "locks" / "locks.db").is_file()
 
     resumed = _run(env, git_repo, "resume", "1", "--unattended")

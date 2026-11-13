@@ -423,3 +423,20 @@ def _fresh_caches():
     repo._TOPS.clear()
     repo._KEYS.clear()
     workspaces._cache.clear()
+
+
+def test_a_disk_with_no_room_for_one_more_worktree_is_low_and_a_run_beside_work_says_so(
+        store: Store, monkeypatch, capsys):
+    from locks import cli, flow
+
+    assert not flow.low_disk(Machine(8, None, None)) and not flow.low_disk(Machine(8, None, 500_000))
+    assert flow.low_disk(Machine(8, None, capacity.LOW_DISK_MB - 1))
+    tight = Machine(8, None, 2500, None, 3200)  # over the constant, under what a tree here holds
+    assert flow.low_disk(tight)
+    monkeypatch.setattr(capacity, "machine", lambda root=None: tight)
+    cli._warn_disk(store)
+    assert capsys.readouterr().err == ""  # nothing runs: nothing to fill the disk beside
+    store.create_task("build the app", status="running", source="cli", repo="r")
+    cli._warn_disk(store)
+    said = capsys.readouterr().err
+    assert "2500 MB" in said and "about 3200 MB" in said and "1 task(s) running" in said

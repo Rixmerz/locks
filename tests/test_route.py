@@ -112,6 +112,10 @@ def test_a_question_about_the_work_stays_with_the_session_and_an_order_with_one_
     assert not route.asks(order)
     assert route.choose(order, context_tokens=600_000, footprint=FOOTPRINT).mode == route.WORKER
     assert not route.asks(MEDIUM)
+    # An opening that asks for a preference is a question with no mark at all; one that states one is an order.
+    assert route.asks("preferirias que en vez de trabajar en la nube trabajemos en local")
+    assert route.asks("Conviene migrar la cola a otra base")
+    assert not route.asks("Preferiría que uses el otro módulo para el parser")
 
 
 def test_a_request_that_talks_to_the_session_stays_with_it():

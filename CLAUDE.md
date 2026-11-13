@@ -998,8 +998,8 @@ yields the default kind, not a guess.
   number of workers this machine runs at once: the dispatcher's level
   (`locks.capacity`), kept in the person's locks home, never a fixed number.
   It starts at what the machine can hold (its CPUs, free memory and the free
-  disk where worktrees live, each worker counted at `WORKER_MEMORY_MB` and
-  `WORKTREE_DISK_MB`, at least 1), rises by one when work waits for a worker
+  disk where worktrees live, each worker counted at `WORKER_MEMORY_MB` and at what a worktree
+  here holds as measured (`capacity.worktree_mb`, never under `WORKTREE_DISK_MB`), at least 1), rises by one when work waits for a worker
   and a round of the tasks it started (as many as the level) ended with no
   limit, and halves, never below 1, on a rate limit or an overloaded API
   (read from the CLI's own result, `launch.api_limit`, never from a check's
@@ -1216,8 +1216,10 @@ yields the default kind, not a guess.
   tries again with its lock and work kept, and first frees what idle worktrees rebuild anyway
   (`flow.shed`, `isolate.REBUILT_DIRS`: a real folder at a worktree's top that git ignores, never
   a link, only of a task neither running nor queued; a `shed` event per task). SessionStart does
-  the same under `capacity.LOW_DISK_MB` free and says how much came back. Nothing git keeps is
-  touched: a resume builds them again.
+  the same under `capacity.LOW_DISK_MB` free and says how much came back, and so does a dispatcher's
+  pass on a disk with no room for one more worktree (`flow.low_disk`, every `SHED_EVERY_S`), before a
+  worker dies of it; a `locks run` beside running work there says so and goes on (`cli._warn_disk`).
+  Nothing git keeps is touched: a resume builds them again.
 - A `locks resume` a Claude Code session's shell runs (`CLAUDECODE`, no terminal) runs in a
   process group of its own and the command follows its log (`cli._shielded`, `LOCKS_SHIELDED`):
   that shell's timeout sends SIGTERM to its group, which a resume read as `locks cancel` and
@@ -1342,7 +1344,8 @@ yields the default kind, not a guess.
   measured the same way (`locks stats`, `heavy reads said`). The session's own reading is where
   its money goes (this session: locks' injections 0.2% of its text, its own tool output 57%). A question about the work (an opening of doubt,
   `route.asks`: could, should, what if, vale la pena… with a question mark,
-  wherever it falls) stays with the session, and so does a question mark that
+  wherever it falls; an opening that asks for a preference needs none, `_ASKS_UNMARKED`)
+  stays with the session, and so does a question mark that
   ends a request; neither when the request opens with a verb of change
   (`classify.opens_with_change`): that is an order, whatever it asks after.
 - A cell keeps how its workers got oriented (`cells.primer`): a passing worker's
@@ -1382,7 +1385,8 @@ yields the default kind, not a guess.
   the candidate and the current lessons (a resume keeps its first arm) until
   each arm has `ROLE_TRIAL` first tries; the candidate is adopted only when its
   pass-first is no worse than `ROLE_MARGIN` below the current arm's and it is
-  better on pass-first, attempts to pass or verifier blockers, else dropped.
+  better on pass-first, attempts to pass or verifier blockers by more than one task of the
+  smaller arm (`ADOPT_BY_TASKS`), else dropped.
   Once `REVERT_AFTER` first tries ran under an adopted one outside its trial,
   it is judged once and reverted, as its own record, when its pass-first is
   more than `REVERT_MARGIN` worse than its trial's current arm. Every proposal

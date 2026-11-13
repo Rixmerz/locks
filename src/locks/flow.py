@@ -88,6 +88,18 @@ def disk_full(exc: BaseException) -> bool:
     return False
 
 
+#: A dispatcher that reads a disk too low for one more worktree sheds at most this often.
+SHED_EVERY_S = 120
+
+
+def low_disk(m: Any) -> bool:
+    """Whether the disk is under `capacity.LOW_DISK_MB`, or holds no room for one more worktree
+    as measured here (`capacity.per_worktree_mb`)."""
+    from locks import capacity
+
+    return m.disk_mb is not None and m.disk_mb < max(capacity.LOW_DISK_MB, capacity.per_worktree_mb(m))
+
+
 def shed(store: Store) -> int:
     """Free the rebuilt folders (build output, installed dependencies) the worktrees of tasks no
     run holds keep (`isolate.shed`): a disk that filled with them killed a worker mid-task.
@@ -978,6 +990,7 @@ def work(
     report, out, started, wanting, waits = WorkReport(), [], 0, False, False
     full_for: float | None = None  # seconds waited for space, while the disk is full
     fails = 0
+    shed_at = 0.0
 
     def through() -> None:
         """A whole pass went through: once a full disk is behind it, the level halves for it."""
@@ -1015,7 +1028,13 @@ def work(
                 with capacity.held(home()):
                     if round_ == 0:
                         report.looked_at = time.time()
-                        level = capacity.settle(store, home(), machine=machine(), ceiling=ceiling, wanting=wanting)
+                        seen = machine()
+                        if low_disk(seen) and time.time() - shed_at >= SHED_EVERY_S:
+                            # Before a worker dies of it: what idle worktrees rebuild anyway goes.
+                            shed_at = time.time()
+                            if shed(store):
+                                seen = machine()
+                        level = capacity.settle(store, home(), machine=seen, ceiling=ceiling, wanting=wanting)
                     else:
                         level = capacity.current(home(), ceiling=ceiling)
                     picked, shares = pick(store, repo, parallel=parallel, decide=decide, level=level.value,

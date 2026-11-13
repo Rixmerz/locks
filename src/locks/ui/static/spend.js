@@ -21,7 +21,7 @@ export async function renderSpend() {
   return h("div", {},
     h("div", { class: "stats" },
       h("div", { class: "stat" }, h("b", {}, usd(s.total_usd)), h("span", {}, "last 14 days, at API rates")),
-      h("div", { class: "stat" }, h("b", {}, usd(s.total_usd - workers)), h("span", {}, "sessions")),
+      h("div", { class: "stat" }, h("b", {}, usd(Math.max(0, s.total_usd - workers))), h("span", {}, "sessions")),
       h("div", { class: "stat" }, h("b", {}, usd(workers)), h("span", {}, "workers"))),
     h("div", { class: "legend" }, SERIES.map((k) => h("span", {}, h("i", { class: `seg-${k}` }), k))),
     bars.length ? h("div", { class: "bars" }, bars) : h("div", { class: "empty" }, "no spend recorded yet"),

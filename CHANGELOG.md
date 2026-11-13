@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.108.0] - 2026-11-13
+
+### Added
+- `scripts/demo.py DIR [--shots]`: demo data for the README's screenshots, written by locks' own
+  commands with the scenarios' fake `claude` in two generic repositories (no money spent), times and
+  costs spread to a real worker's size; `--shots` retakes `docs/images/` with Playwright. The
+  screenshots are retaken with it.
+
+### Fixed
+- The board's Spend screen said `$-0.00` for sessions when every dollar was a worker's (a float's
+  rounding); it says `$0.00`.
+
 ## [0.107.0] - 2026-11-13
 
 ### Added

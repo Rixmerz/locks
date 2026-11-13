@@ -178,6 +178,29 @@ def _warn_behind() -> None:
         _say(warning)
 
 
+def _warn_disk(store: Store) -> None:
+    """Said, never refused: a `locks run` beside running work on a disk with no room for one more
+    worktree as measured here. It runs outside the dispatcher's level, so nothing else holds it
+    back; what idle worktrees rebuild anyway goes first (`flow.shed`)."""
+    from locks import capacity, flow
+    from locks.store import home
+
+    try:
+        m = capacity.machine(home())
+        if not flow.low_disk(m):
+            return
+        running = len(store.list_tasks(status=["running"], limit=50))
+        if not running:
+            return
+        if flow.shed(store) and not flow.low_disk(m := capacity.machine(home())):
+            return
+        _say(f"locks: free disk is {m.disk_mb} MB and a worktree here holds about {capacity.per_worktree_mb(m)} MB, "
+             f"with {running} task(s) running: this run may fill the disk. It goes on; `locks queue add` waits "
+             "for room instead.")
+    except Exception:  # a reading that fails warns of nothing
+        return
+
+
 def _surfaces(values: list[str] | None) -> tuple[str, ...]:
     from locks import surfaces
 
@@ -271,6 +294,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     if (args.after is not None or getattr(args, "detach", False)) and not args.dry_run:
         return _queue_after(args, options)
     store = Store.open()
+    if not args.dry_run and not args.no_isolate:
+        _warn_disk(store)
     previous = _cancel_on_sigterm()
     try:
         report = orchestrate.run(_text(args.text), Path(args.repo or os.getcwd()), store, options,

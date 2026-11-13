@@ -8,7 +8,8 @@ as clean as a cheap one.
 The level is kept per machine, in the locks home (`capacity.json`), and moves the
 way congestion control does. It starts at what the machine can hold: its CPUs,
 its free memory (each worker counted at `WORKER_MEMORY_MB`) and the free disk
-where worktrees live (`WORKTREE_DISK_MB` each), at least 1. It rises by one when
+where worktrees live (each counted at what the ones here hold, `worktree_mb`, never under
+`WORKTREE_DISK_MB`), at least 1. It rises by one when
 work waits for a worker and a round of tasks it started (as many as the level)
 ended with no limit. It halves, never below 1, when an attempt says the API
 turned it away (a rate limit or an overload, read from the CLI's own result,
@@ -40,6 +41,7 @@ import fcntl
 import json
 import os
 import shutil
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -52,6 +54,14 @@ from locks.store import Store
 WORKER_MEMORY_MB = 2048
 #: What one worktree is counted at on the disk where worktrees live, with its build output.
 WORKTREE_DISK_MB = 1024
+#: A worktree here is counted at what the ones on this disk really hold (`worktree_mb`: the median
+#: of up to `WORKTREE_SAMPLES` of the newest, never under `WORKTREE_DISK_MB`), measured at most
+#: every `MEASURE_EVERY_S` within `MEASURE_BUDGET_S`: a repository whose build fills 3 GB a tree
+#: filled the disk under a level counted at 1 GB each.
+WORKTREE_SAMPLES = 5
+MEASURE_EVERY_S = 600
+MEASURE_BUDGET_S = 5.0
+SIZES = "worktree-size.json"
 #: Free memory and free disk under which the level halves.
 LOW_MEMORY_MB = 1024
 LOW_DISK_MB = 2048
@@ -85,6 +95,8 @@ class Machine:
     disk_mb: int | None
     #: The 1-minute load average; None where it cannot be read (calm).
     load: float | None = None
+    #: What a worktree on this disk holds, measured (`worktree_mb`); None with none to measure.
+    worktree_mb: int | None = None
 
 
 def available_mb(meminfo: Path = Path("/proc/meminfo")) -> int | None:
@@ -97,6 +109,49 @@ def available_mb(meminfo: Path = Path("/proc/meminfo")) -> int | None:
     with contextlib.suppress(AttributeError, OSError, ValueError):
         return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") // MB
     return None
+
+
+def _tree_mb(path: Path, deadline: float) -> int:
+    """The disk a folder holds, links never followed; what was read by `deadline`, a floor."""
+    total = 0
+    for dirpath, _dirs, files in os.walk(path, onerror=lambda _e: None):
+        with contextlib.suppress(OSError):
+            total += os.lstat(dirpath).st_blocks * 512
+        for name in files:
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(dirpath, name)).st_blocks * 512
+        if time.monotonic() > deadline:
+            break
+    return total // MB
+
+
+def worktree_mb(root: Path, *, now: float | None = None) -> int | None:
+    """What a worktree on this disk holds, in MB: the median of the newest `WORKTREE_SAMPLES`
+    under the locks home, kept for `MEASURE_EVERY_S`; None with no worktree. Never raises."""
+    now = time.time() if now is None else now
+    kept = root / SIZES
+    with contextlib.suppress(OSError, ValueError, TypeError, KeyError):
+        data = json.loads(kept.read_text(encoding="utf-8"))
+        if 0 <= now - float(data["at"]) < MEASURE_EVERY_S:
+            return None if data["mb"] is None else int(data["mb"])
+    try:
+        trees = sorted((p for p in (root / "worktrees").glob("task-*") if p.is_dir() and not p.is_symlink()),
+                       key=lambda p: p.stat().st_mtime, reverse=True)[:WORKTREE_SAMPLES]
+    except OSError:
+        return None
+    deadline = time.monotonic() + MEASURE_BUDGET_S
+    sizes = sorted(_tree_mb(tree, deadline) for tree in trees)
+    mb = sizes[len(sizes) // 2] if sizes else None
+    with contextlib.suppress(OSError):
+        tmp = kept.with_name(f".{kept.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"at": now, "mb": mb, "trees": len(sizes)}), encoding="utf-8")
+        tmp.replace(kept)
+    return mb
+
+
+def per_worktree_mb(m: Machine) -> int:
+    """What one more worker is counted at on the disk: the measured tree, never under the constant."""
+    return max(WORKTREE_DISK_MB, m.worktree_mb or 0)
 
 
 def _read(root: Path) -> Machine:
@@ -113,7 +168,7 @@ def _read(root: Path) -> Machine:
     load = None
     with contextlib.suppress(AttributeError, OSError):
         load = os.getloadavg()[0]
-    return Machine(max(1, cpus), available_mb(), disk, load)
+    return Machine(max(1, cpus), available_mb(), disk, load, worktree_mb(root))
 
 
 def machine(root: Path) -> Machine:
@@ -128,7 +183,7 @@ def holds(m: Machine) -> int:
     if m.memory_mb is not None:
         limits.append(m.memory_mb // WORKER_MEMORY_MB)
     if m.disk_mb is not None:
-        limits.append(m.disk_mb // WORKTREE_DISK_MB)
+        limits.append(m.disk_mb // per_worktree_mb(m))
     return max(1, min(limits))
 
 
@@ -163,6 +218,8 @@ def _described(m: Machine) -> str:
         parts.append(f"{m.memory_mb} MB free memory")
     if m.disk_mb is not None:
         parts.append(f"{m.disk_mb} MB free disk")
+    if m.worktree_mb is not None and m.worktree_mb > WORKTREE_DISK_MB:
+        parts.append(f"{m.worktree_mb} MB a worktree")
     if m.load is not None:
         parts.append(f"load {m.load:.1f}")
     return ", ".join(parts)

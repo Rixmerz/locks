@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [0.105.0] - 2026-11-13
+
+### Changed
+
+- **A worktree is counted at what the ones on this disk hold.** The level counted every worker at 1 GB of
+  disk; in a repository whose build fills 1.5 to 3.2 GB a tree the disk filled under a level that looked
+  safe, and two tasks stopped with their work done. `capacity.worktree_mb` reads the median of the newest
+  worktrees (kept ten minutes, bounded in time), never under the constant, and `holds` divides by it.
+- **Idle worktrees shed before a worker dies of a full disk.** A dispatcher's pass that reads a disk under
+  `LOW_DISK_MB`, or with no room for one more worktree as measured, frees what idle worktrees rebuild
+  anyway (`flow.low_disk`, at most every two minutes), where it only did after it had already failed.
+- **`locks run` beside running work on such a disk says so.** It runs outside the dispatcher's level, so
+  nothing held it back; it sheds first, then warns and goes on (`locks queue add` waits for room).
+- **A role's revision is adopted only by more than one task's difference.** 82% against 80% over ten first
+  tries adopted one that was reverted the day after: a measure now counts as better only by more than one
+  task of the smaller arm (`revisions.ADOPT_BY_TASKS`).
+
+### Fixed
+
+- **A preference asked with no question mark stays with the session.** "preferirias que en vez de…" was
+  routed to a worker: `route.asks` now reads an opening that asks for a preference (preferirías, conviene,
+  would you rather…) at a request's start; one that states it ("preferiría que…") is still an order.
+
 ## [0.104.1] - 2026-11-13
 
 ### Fixed

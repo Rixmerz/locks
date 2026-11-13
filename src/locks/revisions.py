@@ -46,6 +46,10 @@ Ask = Callable[..., tuple[dict | None, float, str]]
 ROLE_TRIAL = 10
 #: A candidate is adopted only when its first tries pass no worse than this below the current arm's.
 ROLE_MARGIN = 0.1
+#: A measure counts as better only by more than this many tasks' worth over the smaller arm (first
+#: tries passed, attempts, blockers, each as a total): 82% against 80% over ten first tries is one
+#: task's noise, and a revision adopted on it was reverted the day after.
+ADOPT_BY_TASKS = 1
 #: First tries under an adopted revision before it is judged once, and how much worse its pass-first may
 #: be than its trial's current arm before it is reverted.
 REVERT_AFTER = 10
@@ -246,16 +250,19 @@ def under(store: Store, repo: str, revision_id: int, *, after: str = "") -> dict
 
 def verdict(cand: Mapping[str, Any], cur: Mapping[str, Any]) -> tuple[str, str]:
     """A trial's verdict: `adopted` when the candidate's first tries passed no worse than
-    `ROLE_MARGIN` below the current arm's and it was better on one measure at least, else
-    `dropped`; and why, in a sentence."""
+    `ROLE_MARGIN` below the current arm's and it was better on one measure at least, by more
+    than `ADOPT_BY_TASKS` task of the smaller arm, else `dropped`; and why, in a sentence."""
     rate_c, rate_0 = cand["pass_first"] or 0.0, cur["pass_first"] or 0.0
+    # With the arms' sizes known, a difference one task would turn is none (`ADOPT_BY_TASKS`).
+    sizes = [int(m["tasks"]) for m in (cand, cur) if m.get("tasks")]
+    floor = ADOPT_BY_TASKS / min(sizes) if len(sizes) == 2 else 0.0
     better = []
-    if rate_c > rate_0:
+    if rate_c - rate_0 > floor:
         better.append("pass-first")
     if cand["attempts_to_pass"] is not None and cur["attempts_to_pass"] is not None \
-            and cand["attempts_to_pass"] < cur["attempts_to_pass"]:
+            and cur["attempts_to_pass"] - cand["attempts_to_pass"] > floor:
         better.append("attempts to pass")
-    if cand["blockers"] is not None and cur["blockers"] is not None and cand["blockers"] < cur["blockers"]:
+    if cand["blockers"] is not None and cur["blockers"] is not None and cur["blockers"] - cand["blockers"] > floor:
         better.append("verifier blockers")
     said = (f"first tries passed {rate_c:.0%} with it and {rate_0:.0%} without; attempts to pass "
             f"{cand['attempts_to_pass'] or '—'} against {cur['attempts_to_pass'] or '—'}; verifier blockers per task "
@@ -264,7 +271,7 @@ def verdict(cand: Mapping[str, Any], cur: Mapping[str, Any]) -> tuple[str, str]:
         return "adopted", f"better on {', '.join(better)}: {said}"
     if rate_c < rate_0 - ROLE_MARGIN:
         return "dropped", f"pass-first worse by more than {ROLE_MARGIN:.0%}: {said}"
-    return "dropped", f"better on no measure: {said}"
+    return "dropped", (f"better on no measure{' by more than one task of the arm' if floor else ''}: {said}")
 
 
 def _record(store: Store, **row: Any) -> dict[str, Any]:

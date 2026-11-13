@@ -60,6 +60,13 @@ _ASKS = re.compile(r"(?:^|[.!?¿]\s*)\W*(?:y |tambi[eé]n |pero |entonces )?(?:s
                    r"deber[ií]a\w*|conviene|vale la pena|realmente|ser[ií]a|tendr[ií]a\w*|habr[ií]a|"
                    r"qu[eé] (?:pasa|tal|opinas|te parece)|y si|could|should|would|is it worth|what if|"
                    r"does it make sense|do we need|can we|hay (?:forma|manera)|is there a way)\b[^?]*\?", re.I)
+#: A Spanish or English opening that asks for the session's preference, typed without its question
+#: mark ("preferirias que en vez de trabajar en la nube…"): a question all the same, only at the
+#: request's start.
+_ASKS_UNMARKED = re.compile(r"^\W*(?:y |pero |entonces )?(?:preferir[ií]as|prefieres|qu[eé] prefieres|crees que|"
+                            r"te parece(?: bien| mejor)? (?:que|si)|(?:no )?ser[ií]a mejor|valdr[ií]a la pena|"
+                            r"vale la pena|conviene|would you (?:rather|prefer)|do you think|"
+                            r"is it better)\b", re.I)
 #: A request whose first sentence is itself a question ("¿lo arreglaste?", "did it pass?").
 _FIRST_ASKS = re.compile(r"^\W*[^.!?\n]{3,}\?")
 
@@ -139,9 +146,11 @@ def talks(text: str) -> bool:
 def asks(text: str) -> bool:
     """Whether a request is a question about the work rather than the work: an opening
     of doubt (could, should, what if, vale la pena…) ending in a question mark, at the
-    start or after a sentence, or a first sentence that is a question. A request that
+    start or after a sentence, a first sentence that is a question, or an opening that asks for a
+    preference with no mark at all (`_ASKS_UNMARKED`). A request that
     opens with a verb of change is an order, whatever it asks after it."""
-    return bool(_ASKS.search(text) or _FIRST_ASKS.search(text)) and not opens_with_change(text)
+    return bool(_ASKS.search(text) or _FIRST_ASKS.search(text) or _ASKS_UNMARKED.search(text)) \
+        and not opens_with_change(text)
 
 
 #: The bundled workflow a worker-bound request of a kind is also told of (`Route.workflow`): the

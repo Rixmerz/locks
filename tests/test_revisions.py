@@ -220,7 +220,7 @@ def test_a_verdict_reads_every_measure():
 
 def test_an_adopted_revision_that_made_first_tries_worse_is_reverted_as_its_own_record(store: Store):
     cand = _candidate(store)["id"]
-    _arm(store, cand, "candidate", passed=9)
+    _arm(store, cand, "candidate", passed=10)
     _arm(store, cand, "current", passed=8)
     assert [r["record"] for r in revisions.judge(store, "r", "implementer")] == ["adopted"]
     for i in range(revisions.REVERT_AFTER):
@@ -235,7 +235,7 @@ def test_an_adopted_revision_that_made_first_tries_worse_is_reverted_as_its_own_
 
 def test_an_adopted_revision_that_held_is_kept(store: Store):
     cand = _candidate(store)["id"]
-    _arm(store, cand, "candidate", passed=9)
+    _arm(store, cand, "candidate", passed=10)
     _arm(store, cand, "current", passed=8)
     revisions.judge(store, "r", "implementer")
     for _ in range(revisions.REVERT_AFTER):
@@ -300,7 +300,7 @@ def test_the_overview_and_the_command_show_current_candidate_and_history(store: 
     from locks import analysis, cli
 
     cand = _candidate(store)["id"]
-    _arm(store, cand, "candidate", passed=9)
+    _arm(store, cand, "candidate", passed=10)
     _arm(store, cand, "current", passed=8)
     revisions.judge(store, "r", "implementer")
     nxt = _candidate(store, LESSONS[:1])["id"]
@@ -401,3 +401,14 @@ def test_a_trial_that_cannot_fill_its_arms_in_its_days_is_dropped_for_too_few_ta
     [found] = revisions.judge(store, "r", "implementer", now=later)
     assert found["record"] == "dropped" and found["reason"].startswith("too few tasks here to judge it: in 14 days")
     assert revisions.state(store, "r", "implementer")["candidate"] is None
+
+
+def test_a_difference_one_task_would_turn_adopts_nothing():
+    """82% against 80% over ten first tries adopted a revision that was reverted the day after."""
+    arm = {"pass_first": 0.8, "attempts_to_pass": 1.2, "blockers": 0.2, "tasks": 10}
+    said, why = revisions.verdict({**arm, "pass_first": 0.82}, arm)
+    assert said == "dropped" and "by more than one task of the arm" in why
+    assert revisions.verdict({**arm, "pass_first": 0.9}, arm)[0] == "dropped"  # exactly one task
+    assert revisions.verdict({**arm, "pass_first": 1.0}, arm)[0] == "adopted"
+    assert revisions.verdict({**arm, "blockers": 0.15}, arm)[0] == "dropped"
+    assert revisions.verdict({**arm, "blockers": 0.0}, arm)[0] == "adopted"

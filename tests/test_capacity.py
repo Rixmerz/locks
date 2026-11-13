@@ -352,3 +352,23 @@ def test_max_parallel_says_it_is_a_ceiling_over_a_level_that_adapts(capsys):
     assert "a ceiling only: the level under it already adapts to the API, memory, disk and load" in out
     assert cli.main(["config", "max_parallel", "auto"]) == 0
     assert "a ceiling only" not in capsys.readouterr().out
+
+
+def test_a_worktree_is_counted_at_what_the_ones_on_this_disk_hold(tmp_path):
+    assert capacity.worktree_mb(tmp_path, now=0.0) is None  # no worktree: nothing measured
+    for n, mb in ((1, 1), (2, 3), (3, 5)):
+        tree = tmp_path / "worktrees" / f"task-{n}"
+        tree.mkdir(parents=True)
+        (tree / "build.bin").write_bytes(b"x" * mb * capacity.MB)
+    # The first reading is kept for `MEASURE_EVERY_S`; then the median of the trees is read.
+    assert capacity.worktree_mb(tmp_path, now=1.0) is None
+    measured = capacity.worktree_mb(tmp_path, now=capacity.MEASURE_EVERY_S + 1.0)
+    assert measured == 3
+    (tmp_path / "worktrees" / "task-2" / "more.bin").write_bytes(b"x" * 4 * capacity.MB)
+    assert capacity.worktree_mb(tmp_path, now=capacity.MEASURE_EVERY_S + 2.0) == 3  # kept, not walked again
+    # Never under the constant; a repository whose trees hold more is counted at what they hold.
+    assert capacity.per_worktree_mb(Machine(8, None, 500_000, None, 3)) == capacity.WORKTREE_DISK_MB
+    big = Machine(8, None, 7000, None, 3200)
+    assert capacity.per_worktree_mb(big) == 3200 and capacity.holds(big) == 2
+    assert capacity.holds(Machine(8, None, 7000)) == 6
+    assert "3200 MB a worktree" in capacity._described(big)

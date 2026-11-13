@@ -330,6 +330,15 @@ def _same_failing(attempts: Sequence[Attempt], seen: str) -> Decision | None:
                  "its work stays on its branch"))
 
 
+#: What `cli.main` says when a worker tries to start locks work; read back from an attempt.
+WORKER_GUARD = "it does not start locks work"
+
+
+def _met_worker_guard(last: Attempt) -> bool:
+    """Whether the attempt's own evidence or answer shows locks' worker guard refused it."""
+    return WORKER_GUARD in last.evidence or WORKER_GUARD in last.summary
+
+
 def decide(
     ladder: Sequence[Cell],
     attempts: Sequence[Attempt],
@@ -393,6 +402,16 @@ def _decide(
                                  "a refusal is a setting: a retry, or a stronger model, gets the same refusal",
                                  *([f"the rules that let it through, one per program: {', '.join(last.allow)}"]
                                    if last.allow else [])))
+
+    if _met_worker_guard(last):
+        # The task asks its worker to start locks work, which no worker may (`cli.main`'s guard):
+        # more effort or another model meets the same refusal. Whatever it did is kept, and what
+        # it could not start is the orchestrator's to run.
+        return Decision(Move.DECIDE, reason="the task needs locks work started (a run, a workflow, the queue), "
+                                            "which a worker never starts: its work is kept; run that part from "
+                                            "the session",
+                        because=(seen, f"its worker was refused by the guard: \"{WORKER_GUARD}\"",
+                                 "a climb meets the same guard: a worker of any cell is refused it"))
 
     if (unknown := _unknown_base(last, seen)) is not None:
         return unknown

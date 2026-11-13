@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.108.1] - 2026-11-13
+
+### Fixed
+
+- A worker that locks' own guard refused to start locks work (a run, a workflow, the queue) stops the task as a `decision` at once, its work kept, instead of climbing: more effort met the same refusal twice before a third cell said so.
+
 ## [0.108.0] - 2026-11-13
 
 ### Added

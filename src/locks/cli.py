@@ -32,7 +32,7 @@ from locks import (
 )
 from locks import findings as findings_mod
 from locks.classify import classify
-from locks.escalate import Attempt, Failure
+from locks.escalate import WORKER_GUARD, Attempt, Failure
 from locks.matrix import EFFORTS, KINDS, LADDERS, MODEL_ORDER, Cell
 from locks.store import FIX_OUTCOMES, Store, home
 from locks.text import clip, title_of
@@ -3792,7 +3792,7 @@ def main(argv: list[str] | None = None) -> int:
     if os.environ.get("LOCKS_WORKER_TASK") and _starts_work(args):
         # A worker is one attempt of one task: work it starts would run outside its
         # task's checks, its turns and its account. What is left goes in its result.
-        print(f"locks: this is a worker of task #{os.environ['LOCKS_WORKER_TASK']}: it does not start locks work. "
+        print(f"locks: this is a worker of task #{os.environ['LOCKS_WORKER_TASK']}: {WORKER_GUARD}. "
               "Say what is left in your result block instead.", file=sys.stderr)
         return 2
     with contextlib.suppress(OSError):

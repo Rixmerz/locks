@@ -803,7 +803,8 @@ yields the default kind, not a guess.
 - Two corrections in a row on one model, each leaving the independent check's
   blockers, go to the next model, not the next effort.
 - A refused attempt blocks; it never climbs, whatever else it ended with,
-  unless the worker found the task wrong. A refused write to a file in the
+  unless the worker found the task wrong. One refused by locks' own worker guard (`escalate.WORKER_GUARD`:
+  the task asks a worker to start locks work) is a `decision`, its work kept. A refused write to a file in the
   worker's own directory that git shows changed anyway is no refusal: it
   stopped nothing.
 - A reading task's answer is its deliverable: findings, broken code included,

@@ -1758,6 +1758,11 @@ def run(
                                                   prompt) if p)
             # Only the first try forks the trunk; a later one goes on from its own attempts.
             branch = forking if forking is not None and not attempts else None
+            if branch is not None and not trunks.same_model(branch, cell.model):
+                # A fix forks its author only on the author's model: another model never inherits an approach.
+                say(f"locks: #{task['id']} starts fresh, not as a fork of step {branch.get('step')!r}: it starts on "
+                    f"{cell}, and that step wrote on {branch.get('cell')}")
+                branch = None
             spec = launch.LaunchSpec(
                 model_id=models.pinned(cell.model),
                 permission_mode=grants.mode_for(cell.model),

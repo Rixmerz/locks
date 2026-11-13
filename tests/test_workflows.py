@@ -1303,8 +1303,9 @@ def test_the_bundled_feature_parallel_plans_builds_in_parts_joins_and_reviews_li
     assert steps["review"]["needs"] == ["integrate"]
     feature = {s["id"]: s for s in workflows.load("feature", git_repo, "bundled")["steps"]}
     for sid in ("review", "refute", "fix", "recheck"):
-        assert {k: v for k, v in steps[sid].items() if k != "needs"} == \
-            {k: v for k, v in feature[sid].items() if k != "needs"}
+        # feature's fix forks its build; feature-parallel's build ran in parts, one session each.
+        assert {k: v for k, v in steps[sid].items() if k not in ("needs", "trunk")} == \
+            {k: v for k, v in feature[sid].items() if k not in ("needs", "trunk")}
     assert "several areas" in defn["description"] and "`feature`" in defn["description"]
 
     started = workflows.start(store, "feature-parallel", git_repo, {"goal": "the orders view"})

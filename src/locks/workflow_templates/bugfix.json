@@ -38,7 +38,8 @@
       "needs": [
         "refute"
       ],
-      "prompt": "Fix the confirmed findings below, in the fix for: {bug}\n\nRun the tests before you stop."
+      "prompt": "Fix the confirmed findings below, in the fix for: {bug}\n\nRun the tests before you stop.",
+      "trunk": "repair"
     },
     {
       "id": "recheck",

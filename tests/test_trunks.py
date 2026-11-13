@@ -23,7 +23,7 @@ def _steps(*extra):
 
 @pytest.mark.parametrize(("step", "said"), [
     ({"id": "b", "prompt": "b", "trunk": "ghost"}, "trunk names 'ghost', which is no step before it"),
-    ({"id": "b", "prompt": "b", "trunk": "make", "needs": ["make"]}, "a trunk is a reading step"),
+    ({"id": "b", "prompt": "b", "trunk": "make", "needs": ["make"]}, "only a ledger's fix forks the step that wrote"),
     ({"id": "b", "prompt": "b", "trunk": "plan", "needs": ["look"]}, "does not wait on it"),
     ({"id": "b", "prompt": "b", "kind": "review-routine", "trunk": "plan", "needs": ["plan"]},
      "forks only a trunk that decided nothing"),
@@ -236,3 +236,20 @@ def test_feature_parallel_s_parts_fork_the_plan_s_session(git_repo, store: Store
     for spec in parts:
         assert spec.resume_session == "plan-sess" and spec.fork_session
         assert spec.resume_note == spec.prompt and "Your part:" in spec.prompt
+
+
+def test_a_fix_forks_the_step_that_wrote_the_change_on_its_model_only(tmp_path: Path):
+    steps = _steps({"id": "rev", "prompt": "r", "kind": "review-routine", "needs": ["make"]},
+                   {"id": "ref", "prompt": "r", "kind": "review-routine", "ledger": "refute", "needs": ["rev"]},
+                   {"id": "fix", "prompt": "f", "kind": "implement", "ledger": "fix", "trunk": "make",
+                    "needs": ["ref"]})
+    workflows.normalize(steps)  # accepted: the author goes on to fix its own change
+    for name in ("feature", "bugfix", "tracer-slice"):
+        defn = json.loads((workflows.bundled_dir() / f"{name}.json").read_text(encoding="utf-8"))
+        fix = next(s for s in defn["steps"] if s["id"] == "fix")
+        assert fix["trunk"] in ("build", "repair")
+    wrote = {"step": "make", "task": 4, "session": "s", "cell": "sonnet/high", "wrote": True}
+    assert trunks.same_model(wrote, "sonnet") and not trunks.same_model(wrote, "opus")
+    assert trunks.same_model({**wrote, "wrote": False}, "opus")  # a reading trunk forks on any model
+    said = trunks.note(wrote, role="", capabilities="", workdir=tmp_path, base=None)
+    assert "your own session" in said and "which only read" not in said and str(tmp_path) in said

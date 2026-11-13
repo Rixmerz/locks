@@ -419,3 +419,15 @@ def test_a_skip_never_lands_on_a_rung_that_needs_an_approval_nor_touches_a_retry
     assert decide(IMPLEMENT, [broke("sonnet/medium")], skips=skips).move is Move.RETRY
     turns = decide(IMPLEMENT, [fail("sonnet/medium", Failure.TURNS_EXHAUSTED)], skips=skips)
     assert turns.move is Move.MORE_TURNS and turns.standard is None
+
+
+def test_a_worker_the_guard_refused_locks_work_is_a_decision_not_a_climb():
+    """Task 132 asked its worker to start a workflow run: the guard refused it, and the
+    inconclusive answer climbed effort twice before a third cell called it a spec_bug."""
+    from locks.escalate import WORKER_GUARD
+    met = Attempt(Cell("sonnet", "medium"), 30, False, Failure.INCONCLUSIVE, "could not reproduce",
+                  evidence=f"$ bin/locks workflow run x -> 'locks: this is a worker of task #1: {WORKER_GUARD}.'")
+    d = decide(IMPLEMENT, [met])
+    assert d.move is Move.DECIDE and "never starts" in d.reason
+    assert decide(IMPLEMENT, [Attempt(Cell("sonnet", "medium"), 30, False, Failure.INCONCLUSIVE,
+                                          "no verdict")]).move is not Move.DECIDE

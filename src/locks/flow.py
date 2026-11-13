@@ -454,6 +454,50 @@ def _by_names(task: dict, mine: tuple[str, ...], ahead: list[dict]) -> dispatch.
     return None
 
 
+def chain(store: Store, task: dict, where: Path | None) -> str | None:
+    """A task the dispatcher held behind other work for the files it names or declares, started
+    now that the work passed: when that work changed one of those files and its kept branch is
+    not merged yet, the task starts on that branch, as work queued `--after` it would, instead of
+    on a base without the change it waited for (two branches changing one file, a conflict for
+    the person to merge). Its `base` is set and a `chained` event says why; None, and the base as
+    before, in every other case: the work did not pass, changed none of those files, kept no
+    branch here, its late check is still to come, or the task has a start already (a workflow
+    step, a release, a resume). Git is read here, so the caller holds no lock."""
+    try:
+        options = json.loads(task.get("options") or "{}")
+        if (options.get("base") or options.get(after.KEY) or task.get("workflow_run")
+                or store.attempts(task["id"]) or store.last_event(task["id"], "chained")
+                or store.last_event(task["id"], "released")):
+            return None
+        waits = [e["data"] for e in store.events_of(task["id"], "dispatch_decided")
+                 if not e["data"].get("parallel") and e["data"].get("by") == "surfaces" and e["data"].get("behind")]
+        if not waits:
+            return None
+        ahead = store.get_task(int(waits[-1]["behind"]))
+        if ahead is None or ahead["status"] != "done":
+            return None
+        deferred, read = store.last_event(ahead["id"], "verifier_deferred"), store.last_event(ahead["id"], "verified")
+        if deferred is not None and (read is None or read["id"] < deferred["id"]):
+            return None  # its independent check is still to come: it may yet be reopened
+        commit, branch, paths = after.kept_start(store, ahead["id"], where)
+        mine = dispatch.declared_surfaces(task) or dispatch.named_surfaces(task)
+        shared = [p for p in paths if surfaces.allows(mine, p) or dispatch.names_touch(mine, [p])]
+        if not commit or not shared:
+            return None
+        why = (f"waited for #{ahead['id']}, which passed and changed {', '.join(shared[:5])}"
+               + (f" and {len(shared) - 5} more" if len(shared) > 5 else "")
+               + f", which this task names: this starts on {branch} ({commit[:12]}), the branch it kept, so "
+               "it builds on that change; nothing is merged or rebased")
+        options["base"] = commit
+        task["options"] = json.dumps(options)
+        store.update_task(task["id"], options=task["options"])
+        store.add_event(task["id"], "chained", after={"task": ahead["id"]}, base=commit, branch=branch,
+                        files=shared[:20], why=why)
+        return why
+    except Exception:  # where it starts never stops a task from starting
+        return None
+
+
 def with_changes(store: Store, task: dict) -> dict:
     """A running task with the files git shows it changed so far in its worktree, as
     `changed`; as it is when git cannot say (no worktree, no attempt started yet)."""
@@ -796,6 +840,9 @@ class _Process:
                         + (" (killed: the kernel does so when memory runs out)" if killed else ""),
                         log=getattr(self, "log", None), start=getattr(self, "log_from", 0),
                         extra={"starved": "memory"} if killed else {})
+            # What its dead attempt spent and the session it ran in, as the sweep keeps them: the
+            # dispatcher sees most deaths first, and its resume goes on in that session.
+            _lost_cost(self.store, task)
             stops.record(self.store, self.task_id, stop, pid=None, current_cell=None)
             self.store.pause_lane(task["repo"], f"task #{self.task_id}: its process exited unexpectedly")
             return "interrupted"
@@ -994,6 +1041,7 @@ def work(
                 launched += claimed
                 for task, where in claimed:
                     try:
+                        chain(store, task, where)
                         out.append(start(task, where))
                     except Exception:
                         # Whatever raised, a task claimed this round with no process yet would stay

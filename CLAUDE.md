@@ -725,6 +725,10 @@ yields the default kind, not a guess.
   that negates it ("do not edit X", "never touch Y", `dispatch._negated`) names nothing.
   A folder named beside files inside it names those files alone, and a bare file name may be the file another
   task names with its folder (`dispatch.names_touch`).
+  A task held so starts on the branch the work ahead kept once that passed, when it changed one of those files
+  and is not merged yet (`flow.chain`, a `chained` event, read outside the dispatcher's lock): never when the
+  work did not pass, changed none of them, or its late check is still to come. Queueing says, never acts on, work
+  with the same text queued or running and a declared surface that is a whole folder (`cli._queue_notes`).
 - `locks roles import` reads Claude Code agents (a file or a folder, read only) into the
   person's roles: their instructions kept, `model` dropped, their tool list as the built-in
   tools taken away, their kinds read from their name and description; a role of the same
@@ -1318,6 +1322,8 @@ yields the default kind, not a guess.
   A resume after a death goes on in the dead worker's own session (`orchestrate._dead_session`, the session the
   sweep kept on `attempt_lost`, `launch.INTERRUPTED_PROMPT`, `attempt_started.after_death`): only at the same cell
   and model, in its worktree, its transcript still there; else it starts fresh and says why.
+  The dispatcher keeps that record too when it sees the death first (`flow._Process.poll`; `doctor`:
+  `death-left-no-record`), and an attempt is kept under the number its worker ran as, row and event alike.
 - Each request is read for its way (`locks.route`, the `route` setting), with no model:
   the session itself (a turn, reading, what points back into the conversation), parts
   side by side (`PARALLEL_POINTS`, `PARALLEL_AREAS` or `PARALLEL_PIECES`), else the

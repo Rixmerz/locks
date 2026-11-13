@@ -110,6 +110,30 @@ def _task(status: tuple[str, ...]):
                                if t["status"] in ("queued", "running") or store.final_event(t["id"]) is not None), None)
 
 
+def test_a_worker_killed_mid_attempt_goes_on_in_its_own_session_when_it_is_resumed(world, tmp_path):
+    world.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
+    world.script([{"match": "make the greeting", "do": [{"die": True, "session": "sess-killed"},
+                                                         {"pass": True, "write": {"hi.txt": "hi\n"}}]}])
+    world.locks("queue", "add", "--kind", "implement", "make the greeting file for the app")
+    ended = world.wait(_task(("done", "failed", "blocked", "review")), "the killed task to end")
+    assert ended["status"] == "done"
+    first, second = world.calls()
+    assert "--resume" not in first["argv"]
+    assert second["argv"][second["argv"].index("--resume") + 1] == "sess-killed"
+    assert "--fork-session" not in second["argv"] and second["cwd"] == first["cwd"]
+    store = Store.open()
+    try:
+        assert store.last_event(ended["id"], "attempt_lost")["data"]["session"] == "sess-killed"
+        started = store.last_event(ended["id"], "attempt_started")["data"]
+        assert started["resumed"] == "sess-killed" and started["after_death"] is True
+        # The attempt is kept under the number its worker ran as, on its row and on its event alike.
+        assert started["seq"] == 2 == store.last_event(ended["id"], "attempt_finished")["data"]["seq"]
+        assert [a["seq"] for a in store.attempts(ended["id"])] == [2]
+    finally:
+        store.close()
+    world.healthy()
+
+
 def test_a_worker_killed_mid_attempt_is_resumed_by_the_dispatcher_and_the_lane_goes_on(world):
     world.script([{"match": "make the greeting", "do": [{"die": True}, {"pass": True, "write": {"hi.txt": "hi\n"}}]}])
     world.locks("queue", "add", "--kind", "implement", "make the greeting file for the app")

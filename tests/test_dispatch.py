@@ -709,3 +709,18 @@ def test_a_died_task_a_person_asked_to_cancel_is_never_resumed_on_its_own(store:
     assert dispatch.recover(store, tmp_path, os.environ, popen=lambda argv, **kw: started.append(argv)) == []
     assert started == [] and store.events_of(task["id"], "auto_resumed") == []
     assert store.last_event(task["id"], "reported") == before
+
+
+def test_a_wait_says_how_long_tasks_like_the_one_ahead_took_here(store: Store, monkeypatch):
+    from locks import progress
+
+    ahead = store.create_task("build the export", status="queued", source="queue", repo="r")
+    held = store.create_task("change the export", status="queued", source="queue", repo="r")
+    store.set_parallel(held["id"], False, "its surfaces may touch those of the work ahead")
+    line = dispatch.waiting(store, store.get_task(held["id"]))
+    assert line == f"waits for #{ahead['id']}: its surfaces may touch those of the work ahead"  # too few passes
+    monkeypatch.setattr(progress, "estimate", lambda s, t: {"p50_s": 540.0, "p90_s": 900.0, "samples": 6, "by": "x"})
+    assert dispatch.waiting(store, store.get_task(held["id"])).endswith(
+        f"; tasks like #{ahead['id']} took ≈9m here")
+    monkeypatch.setattr(progress, "estimate", lambda s, t: 1 / 0)
+    assert dispatch.waiting(store, store.get_task(held["id"])) == line

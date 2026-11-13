@@ -76,6 +76,7 @@ FIXED_IN = {
     "clean-review-read-nothing": "0.91.0",
     "transcript-ahead-of-usage": "0.99.0",
     "trial-verdict-turned": "0.100.1",
+    "death-left-no-record": "0.104.0",
 }
 #: An attempt that ran this long per turn it counted kept a count the CLI restarted.
 WALL_PER_TURN_S = 300
@@ -860,6 +861,33 @@ def tools_logged_off(store: Store, *, since: str | None, **_) -> Iterable[Findin
         yield _history("tools-logged-off", sorted(before), None)
 
 
+def deaths_left_no_record(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
+    """A task resumed after it died whose dead attempt left no `attempt_lost`: what it spent was
+    never added to the task's cost and the resume could not go on in its session. Before 0.104.0
+    only the sweep kept that record, and the dispatcher, which sees most deaths first, kept none."""
+    before: list[int] = []
+    for event in store.events_of_kinds(["auto_resumed"], since=since):
+        if event["data"].get("cause") != "died":
+            continue
+        task_id = int(event["task_id"])
+        earlier = [e for e in store.events(task_id=task_id, limit=1000)
+                   if e["id"] < event["id"] and e["kind"] in ("attempt_started", "attempt_finished", "attempt_lost")]
+        if not earlier or earlier[-1]["kind"] != "attempt_started":
+            continue
+        # The release its dead attempt started under: an `auto_resumed` event keeps none.
+        if _fixed("death-left-no-record", earlier[-1]["data"].get("version")):
+            before.append(task_id)
+            continue
+        task = store.get_task(task_id)
+        yield Finding("death-left-no-record", SUSPECT,
+                      f"#{task_id} was resumed after attempt {earlier[-1]['data'].get('seq')} died, and nothing "
+                      "kept what that attempt spent or the session it ran in",
+                      "its cost is short by that attempt; `locks show` lists what was kept", task_id,
+                      task["repo"] if task else None)
+    if before:
+        yield _history("death-left-no-record", sorted(set(before)), None)
+
+
 def problems_opened_by_a_race(store: Store, *, since: str | None, **_) -> Iterable[Finding]:
     """A problem a task opened with a pass and no failure of its own: its only attempts beside the
     pass were a race's other try stopped because the pass came first (`attempt_finished.raced` and
@@ -997,7 +1025,7 @@ RULES: tuple[Callable[..., Iterable[Finding]], ...] = (
     flake_fixes_checked_once, turns_under_the_wall, pickups_nobody_saw, died_after_a_pass, resumed_after_it_landed,
     swept_before_its_pid, indexes_not_ready, specs_with_no_code, advised_again_in_a_prompt,
     habit_reviews_unapplied, tools_logged_off, problems_opened_by_a_race, clean_reviews_read_nothing,
-    transcripts_ahead_of_usage, trial_verdicts_turned,
+    transcripts_ahead_of_usage, trial_verdicts_turned, deaths_left_no_record,
 )
 
 

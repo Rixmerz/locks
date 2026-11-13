@@ -249,6 +249,11 @@ def test_the_report_says_what_the_record_decided_beyond_the_standards(store: Sto
         {"id": note, "title": "a title", "reason": "disproven: 67% against 100%"}]}]
     text = evolution.text(evolution.report(store, days=0))
     assert "recall in r: decided, last arm fused" in text and "primer in r: still trying" in text
+    # A trial still running says how many briefs drew an arm of it and since when; a decided one does not.
+    primer = next(t for t in found["trials"] if t["trial"] == "primer")
+    assert primer["briefs"] >= 1
+    assert f"primer in r: still trying ({primer['briefs']} brief(s) drew an arm since " in text
+    assert "recall in r: decided, last arm" in text
     assert "1 still candidates (1 of them no brief recalled yet)" in text and "7 runs, 2 found something" in text
     assert evolution.learned(store, repo="elsewhere") == {"trials": [], "roles": [], "notes": [],
                                                           "habits": found["habits"]}

@@ -340,7 +340,9 @@ def _route(store: Store, task_id: int, text: str, cwd: str | None, transcript: s
 
         share, tokens = None, None
         if transcript:
-            context = compaction.read_context(Path(transcript))
+            context = compaction.read_context(
+                Path(transcript), model_hint=store.meta(compaction.MODEL_META + str(session_id)) if session_id
+                else None, env=os.environ)
             tokens = context.tokens
             share = context.tokens / context.window if context.tokens else None
         key = repo.key(cwd)
@@ -716,6 +718,11 @@ def session_start(
     key = repo.key(cwd) if cwd else None
     shed_line = _shed_when_low(store, root)
     store.touch_session(session_id, cwd, key)
+    if isinstance(event.get("model"), str) and event["model"]:
+        # The window `[1m]` names is in this id only: the transcript's model id never says it.
+        from locks import compaction
+
+        store.set_meta(compaction.MODEL_META + str(session_id), event["model"])
     blocks: list[str] = []
     _export(env, "LOCKS_SESSION_ID", str(session_id))
     _record_loaded(root, str(session_id))

@@ -1154,7 +1154,9 @@ yields the default kind, not a guess.
   words are kept as typed; harness text (commands, reminders) is not theirs.
 - Compacting is the orchestrating session's call (`compact orchestrator`, the
   default): locks' moment reaches it as advice with its reasons, never as a
-  compaction, and it compacts with the mod's `compact` tool
+  compaction (judged against the window the session runs in, `[1m]` read from its SessionStart's model, and kept
+  below where the harness compacts by itself: `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
+  or an automatic compaction the transcript keeps; while work it sent runs, from `RUNNING_SHARE`), and it compacts with the mod's `compact` tool
   (`compaction.request`), on that advice or on its own, run when its turn ends
   with no check of the cache, the size or the cooldown. What it asks to keep is
   quoted apart and marked as the session's (`kept_by_session`), never mixed

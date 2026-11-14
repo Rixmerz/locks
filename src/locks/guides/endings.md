@@ -46,8 +46,8 @@ branch is not their checkout: nothing is there until it is merged.
   The report's `stopped by …` line says which, and the line under it is the
   command that continues it. Tell the user both, in those words. Its work
   so far is on its branch, marked unverified. When the user grants what was
-  refused, give them that command to run (`locks resume <id> --allow "<the refused rule>"`):
-  the person runs it, never you.
+  refused, run that command (`locks resume <id> --allow "<the refused rule>"`) yourself:
+  Claude Code asks them to approve it, and that approval is their grant.
   It is not a new task, and you never redo it by hand. When the person
   wants the rule for every task here, add `--keep`: one approval per
   program, not one per task.
@@ -73,10 +73,12 @@ A resume you start on your own, with nothing the person just granted,
 carries `--unattended`: it refuses what only they can clear (a refused
 rule, a cell that needs their approval) and stops after two runs' worth of
 attempts. A resume that carries what they granted in this conversation
-(`--allow`, `--allow-approval`, `--keep`) is theirs to run, not yours: give
-them the line, to type in a terminal or after `!` in this prompt. Claude
-Code's permission check refuses it from an agent as a change to its own
-permissions.
+(`--allow`, `--allow-approval`, `--keep`) needs their yes in this conversation
+first; then run it yourself, and Claude Code asks them to approve the call:
+that approval is their grant. Never ask the person to type a `locks` command.
+When Claude Code refuses it outright (a mode with no prompt), point them to the
+stop's button on the board (`/locks:ui`), which grants the same from locks'
+own account of the stop.
 
 A task that stops pauses its lane, and the queued work behind it waits.
 When its ending says the lane is paused, deal with the stop first, then

@@ -1,0 +1,30 @@
+{
+  "name": "tracer-contract",
+  "description": "TRACER phase 0: draft the expectation contract (the MEV's owner, metric, target, quality floor, validation window, MoSCoW) and the audience profiles from what the person said, mark every gap as an open question, then wait for the person's sign-off. Writes only docs/tracer/",
+  "inputs": [
+    "goal"
+  ],
+  "steps": [
+    {
+      "id": "draft",
+      "title": "Draft the contract and the audiences",
+      "kind": "docs",
+      "surfaces": [
+        "docs/tracer/**"
+      ],
+      "prompt": "Draft the TRACER expectation contract for: {goal}\n\nWrite docs/tracer/contract.md: the outcome owner; the metric, its current value and its target (no metric means the project is not ready for TRACER: say so instead of inventing one); the quality floor; the validation window and who validates; a MoSCoW list where each item says whether it moves the metric (items that do not are Could and go to docs/tracer/backlog.md). Write docs/tracer/audiences.md: for each audience, who they are, what they are trying to get done, what they know and do not know, their words, their devices and context, accessibility needs (default WCAG 2.2 AA), what they must never see, and the product genre they recognise. Use only what the request and the repository say: every value you do not have is a line starting `OPEN:` with the question to ask, never a guess. List the open questions in your summary."
+    },
+    {
+      "id": "signoff",
+      "title": "The person signs the contract off",
+      "needs": [
+        "draft"
+      ],
+      "ask": "Read docs/tracer/contract.md and docs/tracer/audiences.md (and answer their OPEN: lines in the files). Is the expectation contract signed off?",
+      "options": [
+        "signed",
+        "not yet"
+      ]
+    }
+  ]
+}

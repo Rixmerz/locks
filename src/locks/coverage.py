@@ -70,6 +70,8 @@ _CORE: tuple[Feature, ...] = (
     _e("dispatch-decision", "routing", "Haiku's call on whether queued work runs beside running work",
        "dispatch_decided"),
     _e("preflight", "routing", "a check that cannot start found before a worker is spent", "preflight"),
+    _e("slice-unready", "routing", "a TRACER slice its files show not ready, stopped before a worker",
+       "unready"),
     # checks
     _e("independent-check", "checks", "the independent verifier read a change", "verified"),
     _e("verifier-sampling", "checks", "a pass let through unchecked by skip-lot sampling", "verifier_sampled"),

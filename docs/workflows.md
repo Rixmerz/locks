@@ -15,6 +15,11 @@ runs are in `locks stats`.
 | `panel` | a change that touches correctness, security, speed and tests at once | four blind reviews (one lens each), refute, fix, re-check | $0.79 |
 | `design-review` | a design document before any code | four blind readings (one lens each), refute; no fix | $0.76 |
 | `drift` | whether a folder of documents still says what the code does | one read-only comparison | $0.01 |
+| `tracer-contract` | TRACER phase 0: the expectation contract and the audiences, drafted with every gap an open question | draft (docs only), the person's sign-off | not measured yet |
+| `tracer-spec` | TRACER phase 1, base round: requirements, capability map, critical flows, floors | write (docs only), flows, blind validation, refute, fix, re-check | not measured yet |
+| `tracer-empathy` | TRACER phase 1, empathy round: each capability read as its audience | read, propose, the person accepts, apply to the specs | not measured yet |
+| `tracer-design` | TRACER phase 1: the design base from documented systems, and the identity | propose, the person chooses, record | not measured yet |
+| `tracer-slices` | TRACER phase 1: the slice plan, skeleton first | plan, blind check, refute, fix, re-check | not measured yet |
 | `tracer-slice` | one vertical slice in a repository that keeps the TRACER method (`docs/tracer/`) | build, critical verify against the flow's CORRECT lines, refute, fix, re-check | $1.13, 221 s |
 
 A review chain costs nothing more when its review is clean: refute and fix run only on rows the

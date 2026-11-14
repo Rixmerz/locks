@@ -1,0 +1,58 @@
+{
+  "name": "tracer-empathy",
+  "description": "TRACER phase 1, empathy round: each capability read through its audience profile, expectations proposed as basic, performance or differentiator, the person accepts or rejects them, and the accepted ones become specs marked as born in the empathy round. Writes only docs/tracer/ and openspec/",
+  "inputs": [
+    "focus"
+  ],
+  "requires": [
+    "docs/tracer"
+  ],
+  "steps": [
+    {
+      "id": "read",
+      "title": "Read each capability as its audience",
+      "kind": "review-routine",
+      "prompt": "Read, without changing any file, the capabilities of docs/tracer/capabilities.md that {focus} covers, each through its audience profile in docs/tracer/audiences.md. For each: what they are trying to get done, in their words; what they know and do not; where they would get stuck or frustrated; what they take for granted; what the product genre taught them to expect. List every expectation you find with its capability and its class: basic (its absence makes the product feel broken), performance (more is better) or differentiator (not expected, valued), and whether the specs already hold it. Report the expectations the specs miss in `findings`, `where` naming the capability."
+    },
+    {
+      "id": "propose",
+      "title": "Write the proposals down",
+      "kind": "docs",
+      "needs": [
+        "read"
+      ],
+      "surfaces": [
+        "docs/tracer/empathy/**"
+      ],
+      "prompt": "Write the expectations the empathy reading found for {focus}, one file per capability in docs/tracer/empathy/<capability>.md: each expectation with its class and status `proposed`, and for each capability which basic ones enter the MEV (every one), which performance ones move the metric, and the one deliberate differentiator. Decide nothing silently: the person accepts or rejects them."
+    },
+    {
+      "id": "accept",
+      "title": "The person accepts or rejects them",
+      "needs": [
+        "propose"
+      ],
+      "ask": "Read docs/tracer/empathy/ and mark each proposed expectation accepted or rejected in the files. Apply the accepted ones to the specs now?",
+      "options": [
+        "apply",
+        "not yet"
+      ]
+    },
+    {
+      "id": "apply",
+      "title": "Turn the accepted ones into specs",
+      "kind": "docs",
+      "needs": [
+        "accept"
+      ],
+      "when": {
+        "accept": "apply"
+      },
+      "surfaces": [
+        "docs/tracer/**",
+        "openspec/**"
+      ],
+      "prompt": "Turn every expectation marked accepted in docs/tracer/empathy/ for {focus} into specs: improve or add the requirements and scenarios, each marked as born in the empathy round, and the CORRECT lines of the flows they reach. Every rejected or out-of-cut one goes to docs/tracer/deferred.md with its reason. Write no code."
+    }
+  ]
+}

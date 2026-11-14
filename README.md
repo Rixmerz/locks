@@ -166,9 +166,23 @@ audience profiles, identity, component floors, anti-pattern catalogue and the
 critical flows its request names before any code, and the independent check
 holds the change to those flows' CORRECT lines and the catalogue, judged as the
 audience would. `locks workflow run tracer-slice "<slice>"` builds one slice
-test-first and verifies it blind, with the review chain after it. TRACER's
-phases that need the person (contract, empathy round, scope filter) stay in the
-session, with its own plugin. The `tracer` setting turns it off.
+test-first and verifies it blind, with the review chain after it. The `tracer`
+setting turns it off.
+
+TRACER is a way of working, not only documents: `locks method tracer on` puts a
+project on it. `locks method` then says the phase the project is in, read from
+what `docs/tracer/` already holds (contract, spec, empathy round, flows and
+floors, design system, slice plan, slices), and the bundled workflow of that
+phase: `tracer-contract`, `tracer-spec`, `tracer-empathy`, `tracer-design`,
+`tracer-slices`, then `tracer-slice` for each slice. Their writing steps are held
+to `docs/tracer/` and `openspec/` by their surfaces, so no worker of a spec
+phase writes code, and the decisions that are the person's (the contract's
+sign-off, which expectations enter, the design base) are question steps. A build
+request in such a project hears the phase it would skip, or the next slice;
+advice, never a block. A slice's Definition of Ready is read from its files
+before any worker: one whose requirements, empathy round, capability, flows or
+floors are missing stops as `unready`, naming what is missing. `locks method`
+also counts the expectations the slices' verifiers found that no spec covered.
 
 ### engram, for teams that already use it
 

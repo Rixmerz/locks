@@ -1,0 +1,46 @@
+{
+  "name": "tracer-design",
+  "description": "TRACER phase 1, design system and identity: two or three documented design systems from the catalogue (never one invented for the project) proposed with brand overlays for the screens that define the product, the person chooses, and the choice is recorded. Writes only docs/tracer/",
+  "inputs": [
+    "brief"
+  ],
+  "requires": [
+    "docs/tracer"
+  ],
+  "steps": [
+    {
+      "id": "propose",
+      "title": "Propose documented systems",
+      "kind": "docs",
+      "surfaces": [
+        "docs/tracer/**"
+      ],
+      "prompt": "Propose the design base for: {brief}\n\nFrom docs/tracer/audiences.md, the contract and the product genre, choose two or three documented design systems (from TRACER's design catalogue when it is available, or the company's own documented one): never one invented for the project. Write them in docs/tracer/design-system.md as options `first`, `second` and `third`, each with why it fits the audience, its components and tokens, its limits, and a brand overlay for the screens that define the product. Decide nothing: the person chooses."
+    },
+    {
+      "id": "choose",
+      "title": "The person chooses",
+      "needs": [
+        "propose"
+      ],
+      "ask": "Read the options in docs/tracer/design-system.md. Which one is the base?",
+      "options": [
+        "first",
+        "second",
+        "third"
+      ]
+    },
+    {
+      "id": "record",
+      "title": "Record the choice and the identity",
+      "kind": "docs",
+      "needs": [
+        "choose"
+      ],
+      "surfaces": [
+        "docs/tracer/**"
+      ],
+      "prompt": "Record the design base the person chose in the step before for {brief}: keep only that option in docs/tracer/design-system.md (the others under a short `Rejected` section with why), and write docs/tracer/identity.md from its brand overlay: voice, colour and type tokens, imagery, and what the product never shows."
+    }
+  ]
+}

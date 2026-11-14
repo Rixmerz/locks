@@ -353,10 +353,23 @@ def _route(store: Store, task_id: int, text: str, cwd: str | None, transcript: s
         store.add_event(task_id, "routed", **chosen.data(), context_tokens=tokens,
                         worker_tokens=footprint[0] if footprint else None,
                         read_chars=chars, read_calls=calls, read_said=bool(heavy))
-        return "\n".join(s for s in (chosen.advice(), heavy) if s) or None
+        return "\n".join(s for s in (chosen.advice(), heavy, _method_line(store, key, cwd, text)) if s) or None
     except Exception:  # the turn goes on
         note_error(home(), "route")
         return None
+
+
+def _method_line(store: Store, key: str | None, cwd: str, text: str) -> str | None:
+    """On a project the person put on TRACER, a build request hears the phase it would skip, or the next
+    slice (`method.State.advice`): said, never a block. Read with no model; any other request hears nothing."""
+    from locks import classify, method, specs
+
+    if not method.on(store, key) or not classify.opens_with_change(text):
+        return None
+    found = classify.by_rules(text)
+    if found is not None and found.kind not in specs.FIRST_KINDS:
+        return None
+    return method.state(Path(repo.toplevel(Path(cwd)) or cwd)).advice()
 
 
 def _handed_back(store: Store, event: Mapping[str, Any], agent_id: str, text: str) -> None:

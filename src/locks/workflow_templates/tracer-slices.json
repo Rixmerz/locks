@@ -1,0 +1,64 @@
+{
+  "name": "tracer-slices",
+  "description": "TRACER phase 1, the slice plan: the skeleton first, then slices of 1 to 3 days, one capability each, with their requirements and critical flows and a forecast; read blind against the specs and fixed where confirmed. Writes only docs/tracer/slices.md",
+  "inputs": [
+    "focus"
+  ],
+  "requires": [
+    "docs/tracer"
+  ],
+  "steps": [
+    {
+      "id": "plan",
+      "title": "Plan the slices",
+      "kind": "docs",
+      "start": "sonnet/high",
+      "surfaces": [
+        "docs/tracer/slices.md"
+      ],
+      "prompt": "Write the TRACER slice plan for: {focus}\n\nIn docs/tracer/slices.md, as one table with the columns Slice, Capability, Requirements, Flows, Builds on, Days, Status: first the skeleton (one flow end to end on the final architecture, with deployment, CI and the end-to-end runner), then slices of 1 to 3 days, each on exactly one capability of docs/tracer/capabilities.md, listing the requirements and critical flows it covers, what it builds on, and Status `planned`. Below the table, the forecast: the slice count times two days, as a wide range."
+    },
+    {
+      "id": "check",
+      "title": "Read the plan blind",
+      "kind": "review-routine",
+      "needs": [
+        "plan"
+      ],
+      "prompt": "Read, without changing any file, the slice plan in docs/tracer/slices.md for: {focus}\n\nHold it to the method: the skeleton comes first; every slice lands on exactly one capability and fits 1 to 3 days; every MEV requirement and critical flow is in a slice; no slice needs architecture the skeleton does not have; what a slice builds on comes before it. Report each in `findings` with `where` (the row), `what`, `evidence_class`, `cause` and `proof`. Say plainly when there is none."
+    },
+    {
+      "id": "refute",
+      "title": "Decide what the reading only read",
+      "kind": "review-routine",
+      "ledger": "refute",
+      "needs": [
+        "check"
+      ],
+      "prompt": "Decide, without changing any file, the findings on the TRACER slice plan in docs/tracer/slices.md for: {focus}"
+    },
+    {
+      "id": "fix",
+      "title": "Fix the confirmed findings",
+      "kind": "docs",
+      "ledger": "fix",
+      "needs": [
+        "refute"
+      ],
+      "surfaces": [
+        "docs/tracer/slices.md"
+      ],
+      "prompt": "Fix the confirmed findings below in the TRACER slice plan in docs/tracer/slices.md for: {focus}. Change only docs/tracer/slices.md."
+    },
+    {
+      "id": "recheck",
+      "title": "Check each fix",
+      "kind": "review-routine",
+      "ledger": "recheck",
+      "needs": [
+        "fix"
+      ],
+      "prompt": "Check, without changing any file, the fix just made in the TRACER slice plan in docs/tracer/slices.md for: {focus}"
+    }
+  ]
+}

@@ -1105,7 +1105,9 @@ yields the default kind, not a guess.
   and each attempt on stderr as they happen; stdout stays the report.
 - `PostToolUse` runs on every tool call: its fast path in `__main__.py`
   imports only `locks.signature` and appends one line. Do not add a database
-  write, a git call or an orchestrator import to it.
+  write, a git call or an orchestrator import to it. The line keeps the call's `duration_ms` as Claude
+  Code's PostToolUse gives it (`ms`, a column of `tool_events`), never a time of its own; `locks stats` shows
+  where the workers' timed calls spent their time (`Store.tool_time`), observed.
 - The trace (`locks.trace`) is the one record that keeps a tool's arguments and output: the person's
   opt-in (`trace`, off by default), in their locks home only, secrets masked, a worker's own transcript kept
   beside it when its attempt ends (`launch._keep_worker_transcript`: a `claude -p` worker fires no Stop of the person's), written by its own

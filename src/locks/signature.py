@@ -144,6 +144,9 @@ def entry(event: Mapping[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
         "sig": signature(tool, event.get("tool_input")),
         "arg_hash": arg_hash(event.get("tool_input")),
         "ok": int(ok),
+        # Claude Code says how long the call took (`duration_ms`); a build that does not leaves it out.
+        **({"ms": int(event["duration_ms"])} if isinstance(event.get("duration_ms"), (int, float))
+           and not isinstance(event.get("duration_ms"), bool) and event["duration_ms"] >= 0 else {}),
     }
 
 

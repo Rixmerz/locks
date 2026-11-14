@@ -121,7 +121,8 @@ def test_the_dispatch_instructions_send_the_request_through_a_quoted_heredoc():
 #: What the Agent Skills spec allows in a SKILL.md's frontmatter (anthropics/skills' validator), and
 #: the keys Claude Code itself reads on a plugin's skills.
 SPEC_KEYS = {"name", "description", "license", "allowed-tools", "metadata", "compatibility"}
-CLAUDE_CODE_KEYS = {"argument-hint", "disable-model-invocation", "model", "user-invocable"}
+# `context: fork` and `background` run a skill in a fork of the session (read from the 2.1 CLI's skill loader).
+CLAUDE_CODE_KEYS = {"argument-hint", "disable-model-invocation", "model", "user-invocable", "context", "background"}
 
 
 def _frontmatter(text: str) -> dict[str, str]:

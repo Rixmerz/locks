@@ -9,6 +9,8 @@ description: >-
   Use when the person asks whether locks works as expected, to audit or debug locks' behaviour, to
   analyse a session or a task, for insights, observability or tracing, or how to improve locks
   from its own records.
+context: fork
+background: false
 ---
 
 # locks insight

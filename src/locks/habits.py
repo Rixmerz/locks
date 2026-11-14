@@ -97,7 +97,7 @@ def _load_file(store: Store, path: Path) -> int:
                 try:
                     record = json.loads(raw)
                     store.add_tool_event(**{k: record.get(k) for k in (
-                        "ts", "session_id", "task_id", "attempt", "tool", "sig", "arg_hash", "ok")})
+                        "ts", "session_id", "task_id", "attempt", "tool", "sig", "arg_hash", "ok", "ms")})
                     count += 1
                 except (ValueError, TypeError, sqlite3.IntegrityError):
                     continue  # a line without what a call keeps (its time, its signature) is no call

@@ -226,6 +226,8 @@ OPEN_FOR_A_RELAY = ("queued", "running", "blocked", "needs_approval", "replan")
 #: alters a table that exists, so each one is added here when it is missing.
 #: Append-only: a column is never renamed or removed once a database has it.
 _ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    # How long the call took, as Claude Code's PostToolUse reports it (`duration_ms`); none before it did.
+    "tool_events": {"ms": "INTEGER"},
     # A habit's runs whose check found something: the linter's findings after an edit, shown to
     # the session; never a failure of the hook (`habits.run_habit`).
     "habits": {"caught": "INTEGER NOT NULL DEFAULT 0"},
@@ -307,8 +309,8 @@ SETUP_RETRIES = 100
 # Bump SCHEMA_VERSION by hand, and SCHEMA_HASH with it, whenever SCHEMA, the append-only
 # triggers, _ADDED_COLUMNS or a migration changes: an open whose file carries this
 # `user_version` runs none of them. tests/test_store_open.py fails on a stale hash.
-SCHEMA_VERSION = 1
-SCHEMA_HASH = "ad51750d0b432871ed85cd42aa5dbb23bea65aea701a5edc3d1f86ef87c41c09"
+SCHEMA_VERSION = 2
+SCHEMA_HASH = "05125b8c163f4e88fc19375ccd200cb0494121eeb58da2c4529d77381b87dc30"
 
 
 @contextlib.contextmanager
@@ -1402,6 +1404,23 @@ class Store:
         return [float(r[0] or 0) for r in rows]
 
     # --- habits ------------------------------------------------------------------
+
+    def tool_time(self, task_ids: Iterable[int], *, top: int = 8) -> list[dict[str, Any]]:
+        """Where the workers' tool calls of these tasks spent their time, by signature: the calls Claude Code
+        timed (`ms`, from its PostToolUse), how many, their total and their longest. The verifier's calls,
+        kept under no attempt, are left out. Observed."""
+        ids = sorted({int(t) for t in task_ids})
+        rows: dict[str, dict[str, Any]] = {}
+        for at in range(0, len(ids), 500):
+            chunk = ids[at:at + 500]
+            for sig, n, total, longest in self._conn.execute(
+                    f"SELECT sig, COUNT(*), SUM(ms), MAX(ms) FROM tool_events WHERE ms IS NOT NULL "  # noqa: S608
+                    f"AND attempt IS NOT NULL AND task_id IN ({', '.join('?' for _ in chunk)}) GROUP BY sig", chunk):
+                row = rows.setdefault(sig, {"sig": sig, "calls": 0, "ms": 0, "longest_ms": 0})
+                row["calls"] += int(n)
+                row["ms"] += int(total or 0)
+                row["longest_ms"] = max(row["longest_ms"], int(longest or 0))
+        return sorted(rows.values(), key=lambda r: -r["ms"])[:top]
 
     def add_tool_event(self, **record: Any) -> None:
         record = {"ts": now(), **record}

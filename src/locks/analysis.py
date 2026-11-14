@@ -713,6 +713,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # Each climb of a ladder and whether the attempt it started passed (observed): a rung's record.
         "climbs": climbs_by_rung(store, {r["task"]: r["kind"] for r in found}, since=since),
         "expensive": expensive(found),
+        # Where the workers' tool calls spent their time, as Claude Code timed them (observed).
+        "tool_time": store.tool_time(r["task"] for r in found),
         # The parts of a fan-out that stopped on a point, per repository (observed).
         "parts_on_a_point": parts_on_a_point(found),
     }
@@ -1062,6 +1064,11 @@ def text(report: Mapping[str, Any]) -> str:
                 lines.append(f"  {_name(row['repo']):<16} {row['kind']:<12} {s['points']} points, {s['tier']} risk, "
                              f"{s['areas']} area(s)  from {row['start']:<13} predicted {row['predicted']:>3}  first "
                              f"tries passed {row['passed_first']} ({rate})")
+        if report.get("tool_time"):
+            lines += ["", "where the workers' tool calls spent their time (as Claude Code timed each call; observed):"]
+            for row in report["tool_time"]:
+                lines.append(f"  {row['sig'][:40]:<40} calls {row['calls']:>5}  {_seconds(row['ms'] / 1000):>7}  "
+                             f"longest {_seconds(row['longest_ms'] / 1000)}")
         if report.get("climbs"):
             lines += ["", "climbs by rung (observed: each climb of a ladder, and whether the attempt it started "
                       "passed):"]

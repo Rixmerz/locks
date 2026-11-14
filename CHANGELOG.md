@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.110.0] - 2026-11-14
+
+### Added
+
+- Each tool call keeps how long it took, as Claude Code's `PostToolUse` reports it (`duration_ms`), and `locks stats` shows where the workers' tool calls spent their time: by signature, the calls, their total and the longest. The store's schema moves to version 2 (one added column).
+- `/locks:insight` runs in a fork of the session (`context: fork`, in the foreground): the traces, the analysis and doctor it reads stay out of the context every later turn re-reads, and only its report comes back.
+
 ## [0.109.0] - 2026-11-14
 
 ### Added

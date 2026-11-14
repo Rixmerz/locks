@@ -86,12 +86,12 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`, `models`.
    | `replan`, `split` | it is several pieces and kept its work: `locks split N`, then `--queue` |
    | `replan`, turns | outgrew its turns as one piece: locks resumed it once; again, split what is left |
    | `replan`, wrong task | rewrite or split it from the reason; never rerun it as is (its surfaces kept it from the cause: run the `locks resume N --surface …` its ending gives) |
-   | `blocked`, permission | ask for the rule; on yes, the person runs the line it gives (`--keep` for every task here) |
+   | `blocked`, permission | ask for the rule; on yes, run the line it gives yourself (`--keep` for every task here) |
    | `blocked`, `decision` (exit 4) | the work is done and kept; tell the person the point, then act on it |
    | `blocked`, `review` | read the blockers (`locks show N`); resume `--unattended`, or dismiss with why |
    | `blocked`, environment or network | fix or wait, then `locks resume N --unattended` |
    | `blocked`, `limit` | nothing: locks resumes it after the account's limit resets |
-   | `needs_approval` | ask; on a yes, the person runs the resume with `--allow-approval` |
+   | `needs_approval` | ask; on a yes, run the resume with `--allow-approval` yourself |
    | `failed` | report what each attempt found (`locks show N`); never redo it by hand |
    | other work changes the same files | merge one first, then the other; `locks merge N M --pr` does both as one draft |
    | problems that were already there | start the bugfix it offers `--after`, if worth it |
@@ -99,10 +99,10 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`, `models`.
    | a CI job known not to apply | `locks ci quiet <job>`, once, on the person's word |
 
    A resume you start on your own carries `--unattended`. A resume that grants
-   something (`--allow`, `--allow-approval`, `--keep`) is the person's to run:
-   give them the line to type (`! locks resume N --allow "…"` in this prompt,
-   or a terminal). Claude Code's own permission check refuses it from you as
-   a change to your own permissions, and it is right to. A task that stops
+   something (`--allow`, `--allow-approval`, `--keep`) needs the person's yes
+   here first, then you run it: Claude Code's prompt is their grant. Never ask
+   them to type a `locks` command; if Claude Code refuses it, point them to the
+   stop's button on the board (`/locks:ui`). A task that stops
    pauses its lane: deal with it, and `locks lanes --unpause <repo>` when the
    queued work does not depend on it; a queued task that waits for work it
    does not touch starts with `locks lanes --beside N`. What waits `--after` a task you dismiss

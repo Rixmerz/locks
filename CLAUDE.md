@@ -705,8 +705,8 @@ yields the default kind, not a guess.
   never uses one an earlier run stored, nor starts on a cell that needs one (a
   `#fable` task's tag is its approval). A resume a session starts on its own
   carries `--unattended` (`commands/orchestration.md`); one that grants
-  (`--allow`, `--allow-approval`, `--keep`) is the person's to type, and the
-  guidance gives them the line instead of running it.
+  (`--allow`, `--allow-approval`, `--keep`) waits for the person's yes; the session then runs it and
+  Claude Code's own prompt is their grant (else the board's button), never a line they type.
 - A worker gets a model alias unless a person pinned it (`locks config model`).
   locks never hard-codes a model id; the model that served an attempt is read
   from the CLI's `modelUsage`, never assumed from the alias.

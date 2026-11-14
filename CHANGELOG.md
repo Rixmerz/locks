@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.111.1] - 2026-11-14
+
+### Changed
+
+- The orchestrating session no longer asks the person to type a `locks` command. A resume that grants
+  (`--allow`, `--allow-approval`, `--keep`) waits for the person's yes in the conversation, then the session
+  runs it and Claude Code's permission prompt is their approval; where Claude Code refuses it outright, the
+  session points to the stop's button on the board instead of a line to type (`commands/orchestration.md`,
+  `locks guide endings`).
+
 ## [0.111.0] - 2026-11-14
 
 ### Changed

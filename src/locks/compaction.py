@@ -49,6 +49,7 @@ Stdlib only, no model call: the Stop hook runs it.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -78,6 +79,22 @@ WINDOW = 200_000
 #: id Claude Code writes there does not name it, and the latest context may be
 #: small again after a compaction).
 WINDOW_1M = 1_000_000
+#: What sets the harness's own compaction, read from the session's environment: the window it
+#: compacts in (tokens, clamped to the model's), the share of it it compacts at, and turning it off.
+AUTO_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+AUTO_PCT_ENV = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+AUTO_OFF_ENV = ("DISABLE_AUTO_COMPACT", "DISABLE_COMPACT")
+#: How far below the share the harness compacts at the pressing and urgent shares stay, and the
+#: least of any share: advice that lands after the harness's own compaction is no advice.
+PRESSING_GAP = 0.10
+URGENT_GAP = 0.05
+MIN_SHARE = 0.05
+#: From this share, while work this session sent still runs, the session is told it is a moment to
+#: decide (compact now, or after that work's ending), before the harness decides for it.
+RUNNING_SHARE = 0.65
+#: The store's meta key, per session, of the model its SessionStart named (`[1m]` is there, never
+#: in the transcript's model id).
+MODEL_META = "session-model:"
 #: How long the prompt cache keeps the session's prefix: five minutes on an API
 #: key, an hour on a subscription within its plan. The session's own responses
 #: say which (`cache_creation`); when they do not, the shorter.
@@ -165,6 +182,18 @@ class Context:
     ttl_known: bool = False
     last_turn_at: datetime | None = None
     turn_started: datetime | None = None
+    #: The share of `window` the harness compacts at, when its environment or an automatic
+    #: compaction of this session says it; None when nothing does.
+    auto_share: float | None = None
+    auto_off: bool = False
+
+    def shares(self) -> tuple[float, float, float]:
+        """Worth, pressing and urgent, each kept below where the harness compacts by itself."""
+        if self.auto_off or self.auto_share is None:
+            return WORTH_SHARE, PRESSING_SHARE, URGENT_SHARE
+        urgent = max(MIN_SHARE, min(URGENT_SHARE, self.auto_share - URGENT_GAP))
+        pressing = max(MIN_SHARE, min(PRESSING_SHARE, self.auto_share - PRESSING_GAP, urgent))
+        return max(MIN_SHARE, min(WORTH_SHARE, pressing - (PRESSING_SHARE - WORTH_SHARE))), pressing, urgent
 
 
 def _tail(transcript: Path, size: int = TAIL_BYTES) -> list[dict[str, Any]]:
@@ -204,12 +233,49 @@ def _size(entry: Mapping[str, Any]) -> int:
                                                "cache_creation_input_tokens"))
 
 
-def window_of(model: str | None, peak: int | None) -> int:
-    """The window a session runs in: `peak` is the largest context it showed."""
-    return WINDOW_1M if "[1m]" in (model or "").lower() or (peak or 0) > WINDOW else WINDOW
+def _positive(raw: Any) -> float | None:
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
-def read_context(transcript: Path) -> Context:
+def window_of(model: str | None, peak: int | None, env: Mapping[str, str] | None = None) -> int:
+    """The window a session runs in: `peak` is the largest context it showed (a compaction's
+    `preTokens` too). The harness's own compaction window (`AUTO_WINDOW_ENV`) narrows it."""
+    window = WINDOW_1M if "[1m]" in (model or "").lower() or (peak or 0) > WINDOW else WINDOW
+    cap = _positive((env or {}).get(AUTO_WINDOW_ENV))
+    return min(window, int(cap)) if cap else window
+
+
+def _boundary(entry: Mapping[str, Any]) -> tuple[str, int] | None:
+    """A compaction the transcript keeps: its trigger and the context it summarized."""
+    meta = entry.get("compactMetadata")
+    if entry.get("subtype") != "compact_boundary" or not isinstance(meta, dict):
+        return None
+    try:
+        return str(meta.get("trigger") or ""), int(meta.get("preTokens") or 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def auto_share(env: Mapping[str, str] | None, window: int, autos: Sequence[int] = ()) -> tuple[float | None, bool]:
+    """Where the harness compacts by itself, as a share of `window`, and whether it is off: its
+    environment's override first, else the least context an automatic compaction of this session
+    summarized; None when neither says."""
+    env = env or {}
+    if any(str(env.get(k) or "").strip().lower() in ("1", "true", "yes") for k in AUTO_OFF_ENV):
+        return None, True
+    pct = _positive(env.get(AUTO_PCT_ENV))
+    if pct and pct <= 100:
+        return pct / 100, False
+    seen = [t for t in autos if t > 0]
+    return (min(1.0, min(seen) / window), False) if seen and window else (None, False)
+
+
+def read_context(transcript: Path, *, model_hint: str | None = None,
+                 env: Mapping[str, str] | None = None) -> Context:
     """The latest assistant message's context (input, cache read and cache
     creation tokens), its model, when it ended, when its turn started, and how
     long the cache keeps it as the session's own cache writes say. The window is
@@ -221,7 +287,8 @@ def read_context(transcript: Path) -> Context:
     last = started = None
     ttl, known = CACHE_TTL_S, False
     entries = _tail(transcript)
-    peak = max((_size(e) for e in entries), default=0)
+    bounds = [b for b in map(_boundary, entries) if b]
+    peak = max([*(_size(e) for e in entries), *(t for _, t in bounds)], default=0)
     for entry in reversed(entries):
         message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
         used = message.get("usage")
@@ -240,12 +307,14 @@ def read_context(transcript: Path) -> Context:
             started = _stamp(entry.get("timestamp"))
         if tokens is not None and started is not None and known:
             break
-    return Context(tokens=tokens, model=model, window=window_of(model, peak), ttl_s=ttl, ttl_known=known,
-                   last_turn_at=last, turn_started=started)
+    window = window_of(model_hint or model, peak, env)
+    share, off = auto_share(env, window, [t for trigger, t in bounds if trigger == "auto"])
+    return Context(tokens=tokens, model=model, window=window, ttl_s=ttl, ttl_known=known,
+                   last_turn_at=last, turn_started=started, auto_share=share, auto_off=off)
 
 
 def worth(context: Context) -> bool:
-    return bool(context.tokens) and context.tokens / context.window >= WORTH_SHARE
+    return bool(context.tokens) and context.tokens / context.window >= context.shares()[0]
 
 
 # --- the decision -----------------------------------------------------------------
@@ -260,6 +329,8 @@ class Signals:
     holding: int | None = None
     last_compaction: datetime | None = None
     worker: bool = False
+    #: Work this session sent that is still queued or running.
+    running: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,11 +348,14 @@ class Decision:
     warm_until: datetime | None = None
     warm_usd: float | None = None
     cold_usd: float | None = None
+    auto_share: float | None = None
+    running: tuple[int, ...] = ()
 
     def data(self) -> dict[str, Any]:
         return {"now": self.now, "because": list(self.because), "tokens": self.tokens, "window": self.window,
                 "ttl_s": self.ttl_s, "age_s": self.age_s, "warm_until": _iso(self.warm_until) if self.warm_until
-                else None, "warm_usd": self.warm_usd, "cold_usd": self.cold_usd}
+                else None, "warm_usd": self.warm_usd, "cold_usd": self.cold_usd, "auto_share": self.auto_share,
+                "running": list(self.running)}
 
 
 def cost(model: str | None, tokens: int) -> tuple[float | None, float | None]:
@@ -301,17 +375,26 @@ def decide(signals: Signals, at: datetime) -> Decision:
     if not c.tokens:
         return Decision(False, ("the transcript says nothing of the context's size",))
     share = c.tokens / c.window
-    size = f"context {c.tokens:,} tokens of {c.window:,} ({share:.0%})"
-    if share < WORTH_SHARE:
-        return Decision(False, (f"{size}: under the {WORTH_SHARE:.0%} worth compacting",), tokens=c.tokens,
-                        window=c.window)
-    held = [f"{size}: at least {WORTH_SHARE:.0%}, worth compacting"]
+    worth_at, pressing, urgent = c.shares()
+    auto = (" (the harness compacts by itself near "
+            f"{c.auto_share:.0%})" if c.auto_share is not None else " (the harness's own compaction is off)"
+            if c.auto_off else "")
+    size = f"context {c.tokens:,} tokens of {c.window:,} ({share:.0%}){auto}"
+    if share < worth_at:
+        return Decision(False, (f"{size}: under the {worth_at:.0%} worth compacting",), tokens=c.tokens,
+                        window=c.window, auto_share=c.auto_share)
+    held = [f"{size}: at least {worth_at:.0%}, worth compacting"]
     not_held = []
+    running = signals.running if share >= min(RUNNING_SHARE, pressing) else ()
     if signals.breaks:
         held.append("a natural break: " + "; ".join(signals.breaks[:3]))
-    elif share >= PRESSING_SHARE:
-        held.append(f"no natural break, but from {PRESSING_SHARE:.0%} the harness's own compaction is near: "
+    elif share >= pressing and not c.auto_off:
+        held.append(f"no natural break, but from {pressing:.0%} the harness's own compaction is near: "
                     "better now, at a moment locks can see")
+    elif running:
+        held.append("work this session sent still runs (" + ", ".join(f"#{n}" for n in running[:3])
+                    + "): decide now whether to compact before its ending or after it, before the harness "
+                    "decides for you")
     else:
         not_held.append("no natural break: no work this session sent ended and was reported, no branch was merged")
     if signals.holding:
@@ -335,13 +418,15 @@ def decide(signals: Signals, at: datetime) -> Decision:
     else:
         held.append(f"nothing compacted or suggested in the last {COOLDOWN_S // 60}m")
     warm, cold = cost(c.model, c.tokens)
-    if not_held and share >= URGENT_SHARE:
-        held.append(f"from {URGENT_SHARE:.0%} it is now whatever else holds it back")
+    extra = {"auto_share": c.auto_share, "running": running}
+    if not_held and share >= urgent and not c.auto_off:
+        held.append(f"from {urgent:.0%} it is now whatever else holds it back")
         not_held = [f"(overridden) {r}" for r in not_held]
         return Decision(True, (*held, *not_held), worth=True, tokens=c.tokens, window=c.window,
-                        ttl_s=c.ttl_s, age_s=age, warm_until=warm_until, warm_usd=warm, cold_usd=cold)
+                        ttl_s=c.ttl_s, age_s=age, warm_until=warm_until, warm_usd=warm, cold_usd=cold, **extra)
     return Decision(not not_held, (*held, *(f"not now: {r}" for r in not_held)), worth=True, tokens=c.tokens,
-                    window=c.window, ttl_s=c.ttl_s, age_s=age, warm_until=warm_until, warm_usd=warm, cold_usd=cold)
+                    window=c.window, ttl_s=c.ttl_s, age_s=age, warm_until=warm_until, warm_usd=warm, cold_usd=cold,
+                    **extra)
 
 
 # --- what the decision weighs, read from the store, git and the lock ---------------
@@ -404,17 +489,25 @@ def last_compaction(store: Store, session_id: str, at: datetime) -> datetime | N
     return max((s for s in stamps if s), default=None)
 
 
+def running(store: Store, session_id: str) -> tuple[int, ...]:
+    """Work this session sent that is still queued or running, oldest first."""
+    tasks = store.list_tasks(session_id=session_id, status=("queued", "running"), source=("locks", "queue"),
+                             limit=10)
+    return tuple(sorted(int(t["id"]) for t in tasks))
+
+
 def gather(store: Store, root: Path, *, session_id: str, transcript: Path, cwd: str | None, at: datetime,
-           worker: bool = False) -> Signals:
+           worker: bool = False, env: Mapping[str, str] | None = None) -> Signals:
     """Everything `decide` weighs. The context first: when it is not worth
-    compacting, nothing else is read."""
-    context = read_context(transcript)
+    compacting, nothing else is read. The model the session started on (its
+    SessionStart's) says a million-token window the transcript's id never names."""
+    context = read_context(transcript, model_hint=store.meta(MODEL_META + session_id), env=env)
     if worker or not worth(context):
         return Signals(context=context, worker=worker)
     since = (context.turn_started or at) - timedelta(seconds=BREAK_SLACK_S)
     return Signals(context=context, breaks=tuple(breaks(store, session_id, cwd, since)),
                    holding=holding(store, root, session_id, cwd),
-                   last_compaction=last_compaction(store, session_id, at))
+                   last_compaction=last_compaction(store, session_id, at), running=running(store, session_id))
 
 
 # --- what /compact is told ---------------------------------------------------------
@@ -522,7 +615,8 @@ def consider(store: Store, root: Path, *, session_id: str, transcript: Path, cwd
     if mode == "off" or env.get("LOCKS_WORKER_TASK"):
         return None
     at = at or datetime.now(UTC)
-    decision = decide(gather(store, root, session_id=session_id, transcript=transcript, cwd=cwd, at=at), at)
+    decision = decide(gather(store, root, session_id=session_id, transcript=transcript, cwd=cwd, at=at,
+                             env={**os.environ, **env}), at)
     if not decision.worth:
         return None
     if not decision.now and _said_not_now(store, session_id, at):
@@ -558,7 +652,7 @@ def request(store: Store, root: Path, *, session_id: str, cwd: str | None, why: 
     if turn is None:
         return {"error": "locks has seen no turn of this session yet"}
     transcript = transcript or scribe.find_transcript(session_id) or Path("/nonexistent")
-    context = read_context(transcript)
+    context = read_context(transcript, model_hint=store.meta(MODEL_META + session_id), env=os.environ)
     work, branches = what_is_open(store, session_id, cwd)
     keep_part = kept_by_session(keep) if keep.strip() else ""
     text = instructions(requests=_requests(root, session_id, transcript), open_work=work, branches=branches,
@@ -617,7 +711,10 @@ def advice(found: Mapping[str, Any]) -> str:
             "detail, call locks' `compact` tool (say in `keep` anything that must survive beyond the person's "
             "requests, the open work and branches, which locks keeps itself); it runs when this turn ends. If "
             "something in flight still needs the detail, answer in one line why not, and do nothing else: locks "
-            "looks again at the next break.")
+            "looks again at the next break."
+            + (" Work you sent still runs: its worker runs apart from this conversation and its ending reaches "
+               "you after a compaction too, so compacting now loses it nothing; waiting for its ending is your "
+               "call as well." if found["data"].get("running") else ""))
 
 
 # --- the hooks that see a compaction ----------------------------------------------------

@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [0.111.0] - 2026-11-14
+
+### Changed
+
+- The compaction advice is judged against the window the session really runs in and kept ahead of the
+  harness's own compaction: the model a session's SessionStart names (`[1m]`, which the transcript's model id
+  never says) and any compaction the transcript keeps (`preTokens`) set the window,
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` narrows it, and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` or the session's own
+  automatic compactions say where the harness compacts by itself; the worth, pressing and urgent shares stay
+  below that (`Context.shares`), and with the harness's compaction off nothing is pressing. While work the
+  session sent still runs, from `RUNNING_SHARE` of the window, the session is told it is the moment to decide
+  whether to compact before that work's ending or after it, before the harness decides for it.
+
 ## [0.110.0] - 2026-11-14
 
 ### Added

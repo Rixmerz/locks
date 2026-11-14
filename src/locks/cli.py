@@ -964,6 +964,36 @@ def cmd_specs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_method(args: argparse.Namespace) -> int:
+    """Whether the project is on TRACER, the phase it is in (read from `docs/tracer/`), its slices and the
+    workflow of the phase; `locks method tracer on|off` is the person's word, kept in the store's meta."""
+    from locks import method
+
+    where = Path(args.repo or os.getcwd()).resolve()
+    key = repo.key(where)
+    store = Store.open()
+    try:
+        if args.state is not None:
+            method.set_on(store, key, args.state == "on")
+        is_on = method.on(store, key)
+        kept = method.record(store, key)
+    finally:
+        store.close()
+    print("method: " + ("TRACER (build requests here hear the phase they skip, and slices are checked "
+                        "ready before a worker)" if is_on else "none (`locks method tracer on` puts this "
+                                                             "project on TRACER)"))
+    found = method.state(where, is_on=is_on)
+    for line in found.lines():
+        print("  " + line)
+    if line := kept.line():
+        print(line)
+        for example in kept.examples:
+            print(f"  - {example}")
+    if found.present:
+        print(found.advice())
+    return 0
+
+
 def cmd_pr(args: argparse.Namespace) -> int:
     """A draft pull request for the branch a task kept, its verdict as the description; on
     the person's word, since it pushes. `--dry-run` prints the description and pushes nothing."""
@@ -3667,6 +3697,13 @@ def build_parser() -> argparse.ArgumentParser:
     q = specs_sub.add_parser("first", help="spec-first here: on, off, or with neither, whether it is")
     q.add_argument("state", nargs="?", choices=("on", "off"))
     p.set_defaults(func=cmd_specs)
+
+    p = sub.add_parser("method", help="the TRACER phase this project is in, read from docs/tracer/, and the "
+                                      "workflow that does it; `tracer on` puts the project on the method")
+    p.add_argument("name", nargs="?", choices=("tracer",), help="the method")
+    p.add_argument("state", nargs="?", choices=("on", "off"))
+    p.add_argument("--repo", help="the checkout (default: here)")
+    p.set_defaults(func=cmd_method)
 
     p = sub.add_parser("pr", help="push the branch a task kept and open a draft pull request with its verdict, on "
                        "your word (needs gh)")

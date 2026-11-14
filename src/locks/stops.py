@@ -58,6 +58,8 @@ CAUSES = {
     "missing_dir": ("blocked", "environment"),
     # The preflight read that its check cannot start here: no worker ran, no attempt counted.
     "preflight": ("blocked", "environment"),
+    # A TRACER slice whose Definition of Ready its files do not meet: no worker ran.
+    "unready": ("blocked", "locks"),
     "approval": ("needs_approval", "locks"),
     "spec": ("replan", "worker"),
     "turns": ("replan", "locks"),
@@ -255,6 +257,8 @@ def what_to_do(stop: Stop) -> str:
         "environment": "fix what failed to run, then resume",
         "preflight": "its check cannot start here, so no worker ran and no attempt was counted: apply the fix "
                      "its reason names, then resume",
+        "unready": "the slice's Definition of Ready is not met, so no worker ran: write what its reason names "
+                   "(the TRACER phase it skipped), then resume",
         "network": "the network dropped and stayed down through locks' waits; its work is kept: resume it once "
                    "the network is back",
         "limit": "the account's usage limit stopped it; its work is kept: locks resumes it once the limit "

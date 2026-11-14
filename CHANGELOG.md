@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.109.0] - 2026-11-14
+
+### Added
+
+- TRACER as a way of working, not only documents: `locks method tracer on` puts a project on the method, and `locks method` says the phase it is in (read from what `docs/tracer/` holds), its slices and the bundled workflow of that phase. Five new workflows do the phases before the slices: `tracer-contract`, `tracer-spec`, `tracer-empathy`, `tracer-design` and `tracer-slices`; their writing steps are held to `docs/tracer/` and `openspec/` by their surfaces, and the person's decisions (the contract's sign-off, the expectations that enter, the design base) are question steps.
+- A build request in a project on the method hears the phase it would skip, or the next slice: advice, never a block.
+- A slice's Definition of Ready is checked in code before any worker (`ready: tracer` on `tracer-slice`'s build step): one whose requirements, empathy round, capability, critical flows or floors are missing stops as `unready`, naming what is missing.
+- `locks method` counts the expectations the slices' verifiers found that no CORRECT line, floor or catalogue entry covered.
+
 ## [0.108.1] - 2026-11-13
 
 ### Fixed

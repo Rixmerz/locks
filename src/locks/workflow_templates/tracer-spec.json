@@ -1,0 +1,78 @@
+{
+  "name": "tracer-spec",
+  "description": "TRACER phase 1, base round: every requirement of the MEV with WHEN/THEN scenarios, the capability map, then the critical flows (success and failure paths, WORKS and CORRECT), the component floors and the anti-pattern catalogue; read blind against the method's validation rules and fixed where confirmed. Writes only docs/tracer/ and openspec/",
+  "inputs": [
+    "focus"
+  ],
+  "requires": [
+    "docs/tracer"
+  ],
+  "steps": [
+    {
+      "id": "base",
+      "title": "Requirements and the capability map",
+      "kind": "docs",
+      "surfaces": [
+        "docs/tracer/**",
+        "openspec/**"
+      ],
+      "prompt": "Write the TRACER base round of the spec for: {focus}\n\nFrom docs/tracer/contract.md and docs/tracer/audiences.md, write every MEV requirement it covers with WHEN/THEN scenarios, each with an observable outcome, where the project keeps its specs (openspec/ by default). Group them by what the user can do in docs/tracer/capabilities.md; before adding a capability, search the existing ones (and the specs) and extend one that already covers it. Write no code."
+    },
+    {
+      "id": "flows",
+      "title": "Critical flows, floors and the catalogue",
+      "kind": "docs",
+      "needs": [
+        "base"
+      ],
+      "surfaces": [
+        "docs/tracer/**",
+        "openspec/**"
+      ],
+      "prompt": "For every capability the base round wrote or changed for {focus}, write at least one critical flow in docs/tracer/flows/<name>.md that a person of its audience makes through the real interface: the success path and the failure paths (invalid input, network or server error, no permission, empty data, and any of the domain), every criterion with its WORKS half (the technical result) and its CORRECT half (what the person sees and can do, line by line, each line checkable). List the components each capability uses and their floors, tuned to the audience, in docs/tracer/floors.md, and keep docs/tracer/anti-patterns.md current. Write no code."
+    },
+    {
+      "id": "check",
+      "title": "Validate it strictly",
+      "kind": "review-routine",
+      "needs": [
+        "flows"
+      ],
+      "prompt": "Read, without changing any file, the TRACER spec written for: {focus}\n\nHold it to the method's validation: no requirement without a scenario, no scenario without an observable outcome, no capability without a critical flow, no flow without its failure paths, no CORRECT line a person could not check, no capability that duplicates another, nothing that contradicts docs/tracer/contract.md or the audience it serves. Report each in `findings` with `where` (file:line), `what`, `evidence_class`, `cause` and `proof` (the quoted line). Say plainly when there is none."
+    },
+    {
+      "id": "refute",
+      "title": "Decide what the reading only read",
+      "kind": "review-routine",
+      "ledger": "refute",
+      "needs": [
+        "check"
+      ],
+      "prompt": "Decide, without changing any file, the findings on the TRACER spec for: {focus}"
+    },
+    {
+      "id": "fix",
+      "title": "Fix the confirmed findings",
+      "kind": "docs",
+      "ledger": "fix",
+      "needs": [
+        "refute"
+      ],
+      "surfaces": [
+        "docs/tracer/**",
+        "openspec/**"
+      ],
+      "prompt": "Fix the confirmed findings below in the TRACER spec for: {focus}. Change only docs/tracer/ and the specs; write no code."
+    },
+    {
+      "id": "recheck",
+      "title": "Check each fix",
+      "kind": "review-routine",
+      "ledger": "recheck",
+      "needs": [
+        "fix"
+      ],
+      "prompt": "Check, without changing any file, the fix just made in the TRACER spec for: {focus}"
+    }
+  ]
+}

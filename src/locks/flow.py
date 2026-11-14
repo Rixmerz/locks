@@ -420,6 +420,7 @@ def queued_options(task: dict, defaults: Options) -> Options:
         touches=tuple(raw.get("touches") or defaults.touches),
         reviewed_next=bool(raw.get("reviewed_next")) or defaults.reviewed_next,
         whole=bool(raw.get("whole")) or defaults.whole,
+        ready=raw.get("ready") or defaults.ready,
         loop=raw.get("loop") or defaults.loop,
         trunk_for=bool(raw.get("trunk_for")) or defaults.trunk_for,
         trunk=raw.get("trunk") or defaults.trunk,

@@ -12,6 +12,7 @@
       "id": "build",
       "title": "Build the slice, test-first",
       "kind": "feature",
+      "ready": "tracer",
       "prompt": "Build this TRACER slice: {slice}\n\nFirst check it is ready, from docs/tracer/ and the project's specs: its requirements exist with scenarios, it lands on one capability of docs/tracer/capabilities.md and duplicates none, its audience, critical flows (success and failure paths, WORKS and CORRECT) and inherited component floors are written, and it needs no new architecture. If one of these is missing, change nothing and report it as the task being wrong, naming what is missing.\n\nThen read the audience profile, the flows, the floors, docs/tracer/identity.md and the anti-pattern catalogue before any code. Turn each scenario into a test and each critical flow into an interface-driven end-to-end test that asserts its CORRECT lines; see them fail; implement until they pass, touching only what the slice needs. Link every new or changed symbol and test to its requirement (`@spec:`). Note anything outside the slice in your result instead of building it."
     },
     {

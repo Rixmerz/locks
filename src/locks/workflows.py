@@ -58,7 +58,7 @@ TOP_KEYS = frozenset({"name", "description", "inputs", "steps", "version", "requ
 #: approvals and capabilities are the person's flags on `run`, never a file's.
 STEP_KEYS = frozenset({"id", "title", "prompt", "kind", "needs", "verify", "start", "max_turns",
                        "memory", "role", "surfaces", "ledger", "fanout", "integrate", "trunk",
-                       "when", "ask", "options", "workflow", "with"})
+                       "when", "ask", "options", "workflow", "with", "ready"})
 #: A question step (`ask`) waits on the person and a sub-workflow step (`workflow`) runs another
 #: saved workflow: neither runs a worker of its own, so neither takes a worker's fields.
 ASK_KEYS = frozenset({"id", "title", "needs", "when", "ask", "options"})
@@ -324,6 +324,8 @@ def normalize(defn: Mapping[str, Any], name: str | None = None) -> dict[str, Any
         if step.get("role") is not None and (not isinstance(step["role"], str)
                                              or not re.match(r"^[a-z0-9][a-z0-9_-]{0,63}$", step["role"])):
             errors.append(f"{where}: role is a role's name (`locks roles list`)")
+        if step.get("ready") is not None and step["ready"] != "tracer":
+            errors.append(f"{where}: ready is \"tracer\": the slice's Definition of Ready, checked before a worker")
         if step.get("surfaces") is not None:
             try:
                 if not isinstance(step["surfaces"], list):
@@ -1753,6 +1755,8 @@ def _queue_step(store: Store, run: Mapping[str, Any], defn: Mapping[str, Any], s
         "run_verify": options.get("verify") if not step.get("kind") and not step.get("verify")
         and step.get("ledger") in (None, "fix") else None,
         "max_turns": step.get("max_turns"),
+        # A TRACER slice: its Definition of Ready is read from the files before any worker (`method.unready`).
+        "ready": step.get("ready"),
         "allow_tools": options.get("allow_tools") or None, "allow_approval": options.get("allow_approval") or None,
         "base": base, "step_role": step.get("role"),
         # Another repository a run queued after work there reads (`after.reads`).

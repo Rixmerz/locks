@@ -31,6 +31,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/ledger.py` | a review's findings as one frozen ledger `F1..Fn`: who decides each row (refuter, fix, re-check), two rounds, then the person |
 | `src/locks/specs.py` | whether a repository's OpenSpec specs keep up with its code: days and code commits since `openspec/` changed, the writing brief's line and the ending's offer, the files of a change that owe a spec, and livespec's `validate_openspec` for the specs' structure (`locks specs`, on a temporary copy of `openspec/`); git and livespec, no model |
 | `src/locks/tracer.py` | the TRACER method of a repository that keeps one (`docs/tracer/`): the method's files in a writing brief, and the CORRECT lines of the flows a request names, the anti-pattern catalogue and, with a measuring neighbour, each floor and anti-pattern beside the tool that measures it in the independent check's; read only |
+| `src/locks/method.py` | TRACER as the way a project is built (`locks method tracer on`, the store's meta): the phase it is in, read from what `docs/tracer/` holds, and the bundled workflow of each phase (`tracer-contract`, `-spec`, `-empathy`, `-design`, `-slices`, `-slice`); a slice's Definition of Ready read from its files (`unready`, a step's `ready: tracer`); the expectations slices' verifiers found no spec covered (`record`); read only, no model |
 | `src/locks/risk.py` | a change's tier (passive, medium, high) from its request, kind and files; only raised; no model |
 | `src/locks/points.py` | a task's size on the Fibonacci scale, no model: the estimate when it is planned (criteria, kind, risk and its areas, files named, livespec's reach, length) and the realized size when it ends (files, lines, turns, wall time, attempts) |
 | `src/locks/standards.py` | where a repository's tasks of each kind and size start, as measured: a standard per points band, the calibration's two rules, each change's verdict and its revert; recorded, never edited |
@@ -896,7 +897,11 @@ yields the default kind, not a guess.
   header, never the header row), and the method's files are carried up to
   `tracer.BRIEF_CHARS`; what does not fit is named by section with its lines (`text.outline`,
   `path:start-end`, up to `tracer.OUTLINE_CHARS`), the rest said by count. Its phases that need the person (contract, empathy, scope)
-  stay in the session; `tracer-slice` is the bundled workflow for one slice.
+  stay in the session; `tracer-slice` is the bundled workflow for one slice. A project the person put on
+  the method (`locks method tracer on`) hears, on a build request, the phase it would skip or the next slice
+  (advice, never a block); a step with `ready: tracer` is stopped as `unready` before any worker when its
+  files do not meet the slice's Definition of Ready (`method.unready`); the phases' writing steps are held to
+  `docs/tracer/` and `openspec/` by their surfaces, and the person's decisions are question steps.
 - What livespec's index says a change reaches (`adapter.assess`: specs touched, callers outside it) goes in
   the independent check's brief as where to probe, data, never findings (`orchestrate._impact`); whether
   workers handed livespec call it is counted from the tool-call log (`Store.capability_use`), observed, never

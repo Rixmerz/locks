@@ -77,6 +77,7 @@ from locks import dossier as dossier_mod
 from locks import evidence as evidence_mod
 from locks import findings as findings_mod
 from locks import ledger as ledger_mod
+from locks import method as method_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import points as points_mod
@@ -210,6 +211,8 @@ class Options:
     reviewed_next: bool = False
     #: The session's word that the task is one piece (`--whole`): out of turns, it gets more.
     whole: bool = False
+    #: A TRACER slice (`ready: tracer` on its step): its Definition of Ready is read before any worker.
+    ready: str | None = None
     #: What follows a run's ending (filing what it learned, the late independent check) goes on
     #: in a child process, so the command that started it returns at its ending (`locks run`,
     #: `run-queued`). Off, it runs in this process before `run` returns (tests, the bench).
@@ -237,6 +240,7 @@ class Options:
                   "ledger": self.ledger, "add_dirs": list(self.add_dirs), "services": list(self.services),
                   "run_verify": self.run_verify, "parts": self.parts, "integrate": self.integrate,
                   "touches": list(self.touches), "reviewed_next": self.reviewed_next, "whole": self.whole,
+                  "ready": self.ready,
                   # What `flow.queued_options` reads back: a resume stored without them lost them
                   # for every resume after it (a step's start cell, its turns, its base commit).
                   "start": self.start.label if self.start else None, "max_turns": self.max_turns,
@@ -1705,6 +1709,13 @@ def run(
             report.stop = stops.Stop("environment", f"its worktree could not be made: {no_worktree}"[:500],
                                      extra={"starved": "disk"} if launch.NO_SPACE.search(no_worktree or "") else {})
             report.status, report.summary = "blocked", report.stop.reason
+        elif options.ready and (unready := method_mod.unready(
+                repo_dir, f"{task.get('title') or ''}\n{task.get('body') or ''}")):
+            # The slice's Definition of Ready is not met in its files: no worker is spent to find that out.
+            report.stop = stops.Stop("unready", "the slice is not ready: it lacks " + "; ".join(unready),
+                                     extra={"missing": unready})
+            store.add_event(task["id"], "unready", missing=unready)
+            report.status, report.summary, ready = "blocked", report.stop.reason, False
         elif options.verify and not (flight := _preflight(
                 options.verify, workdir, task, store, say,
                 installing=bool(workspace is not None and workspace.stale))).ok:

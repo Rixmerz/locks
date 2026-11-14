@@ -15,7 +15,7 @@ runs are in `locks stats`.
 | `panel` | a change that touches correctness, security, speed and tests at once | four blind reviews (one lens each), refute, fix, re-check | $0.79 |
 | `design-review` | a design document before any code | four blind readings (one lens each), refute; no fix | $0.76 |
 | `drift` | whether a folder of documents still says what the code does | one read-only comparison | $0.01 |
-| `tracer-contract` | TRACER phase 0: the expectation contract and the audiences, drafted with every gap an open question | draft (docs only), the person's sign-off | not measured yet |
+| `tracer-contract` | TRACER phase 0: the expectation contract and the audiences, drafted with every gap an open question | draft (docs only), the person's sign-off | draft step: $0.02, 67 s (haiku/medium) |
 | `tracer-spec` | TRACER phase 1, base round: requirements, capability map, critical flows, floors | write (docs only), flows, blind validation, refute, fix, re-check | not measured yet |
 | `tracer-empathy` | TRACER phase 1, empathy round: each capability read as its audience | read, propose, the person accepts, apply to the specs | not measured yet |
 | `tracer-design` | TRACER phase 1: the design base from documented systems, and the identity | propose, the person chooses, record | not measured yet |

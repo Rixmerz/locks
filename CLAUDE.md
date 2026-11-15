@@ -50,7 +50,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
 | `src/locks/forensics.py` | `locks forensics`: where money, the cache and tool friction went, read from a copy of the store (a SQLite backup, or `--db`), never the live file; the cache share from the sessions' usage, else from the workers' attempts; every figure observed, none modeled; no model (`docs/observability.md`) |
-| `src/locks/footprint.py` | `locks footprint`: each `briefed` event's footprint (context and system characters, skills, the release) as the median per kind and release, and a release that grew it `GROWTH` times named; said, never acted on |
+| `src/locks/footprint.py` | `locks footprint`: each `briefed` event's footprint (context and system characters, skills, the release) as the median per kind and release of tasks outside a workflow, and a release that grew it `GROWTH` times named when both sides hold `MIN_TASKS`; said, never acted on |
 | `src/locks/skill_use.py` | `locks skills`: per skill, the briefs that carried it, their pass-first and when last carried; `active`, `stale`, `dormant` or `pinned` (`--pin`, in the locks home); a dormant one is said, never moved or deleted |
 | `src/locks/notes_fork.py` | `notes_fork` (off by default): a session's notes filed by a fork of the session instead of Haiku, tried in turns per project and kept where it kept no fewer facts a filing; its cost recorded, never the criterion |
 | `bench/ab/` | the A/B of two locks checkouts on trap tasks (one waste class each), judged by the store's records and a hidden check (real money: run on purpose) |
@@ -1107,7 +1107,7 @@ yields the default kind, not a guess.
   imports only `locks.signature` and appends one line. Do not add a database
   write, a git call or an orchestrator import to it. The line keeps the call's `duration_ms` as Claude
   Code's PostToolUse gives it (`ms`, a column of `tool_events`), never a time of its own; `locks stats` shows
-  where the workers' timed calls spent their time (`Store.tool_time`), observed.
+  where the workers' timed calls spent their time (`Store.tool_time`; a call timed longer than its attempt ran is a machine that slept, left out and counted), observed.
 - The trace (`locks.trace`) is the one record that keeps a tool's arguments and output: the person's
   opt-in (`trace`, off by default), in their locks home only, secrets masked, a worker's own transcript kept
   beside it when its attempt ends (`launch._keep_worker_transcript`: a `claude -p` worker fires no Stop of the person's), written by its own

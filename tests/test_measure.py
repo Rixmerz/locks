@@ -27,12 +27,35 @@ def _task(store: Store, kind: str = "implement") -> int:
 def test_footprint_names_a_release_that_grew_the_brief() -> None:
     store = _store()
     for version, chars in (("0.70.0", 1000), ("0.71.0", 1500)):
-        tid = _task(store)
-        store.add_event(tid, "briefed", kind="implement", context_chars=chars, system_chars=0, version=version)
+        for _ in range(footprint.MIN_TASKS):
+            tid = _task(store)
+            store.add_event(tid, "briefed", kind="implement", context_chars=chars, system_chars=0, version=version)
     conn = sqlite3.connect(home() / "locks.db")
     got = footprint.report(conn)["implement"]
     assert [r["version"] for r in got["releases"]] == ["0.70.0", "0.71.0"]
     assert got["grew"] == [{"from": "0.70.0", "to": "0.71.0", "ratio": 1.5}]
+
+
+def test_footprint_compares_only_tasks_outside_a_workflow_and_never_a_handful() -> None:
+    store = _store()
+    for version, chars in (("0.70.0", 1000), ("0.71.0", 1000)):
+        for _ in range(footprint.MIN_TASKS):
+            tid = _task(store)
+            store.add_event(tid, "briefed", kind="implement", context_chars=chars, system_chars=0, version=version)
+    # A workflow step's brief carries the steps before it: heavy, and no release's doing.
+    for _ in range(footprint.MIN_TASKS * 2):
+        tid = _task(store)
+        store._conn.execute("UPDATE tasks SET workflow_run = 1 WHERE id = ?", (tid,))
+        store.add_event(tid, "briefed", kind="implement", context_chars=9000, system_chars=0, version="0.71.0")
+    # Three briefs of a review grew 3x: too few to name.
+    for version, chars, n in (("0.70.0", 1000, footprint.MIN_TASKS), ("0.71.0", 3000, 3)):
+        for _ in range(n):
+            tid = _task(store, "review")
+            store.add_event(tid, "briefed", kind="review", context_chars=chars, system_chars=0, version=version)
+    store._conn.commit()
+    got = footprint.report(sqlite3.connect(home() / "locks.db"))
+    assert got["implement"]["grew"] == [] and got["implement"]["releases"][1]["tasks"] == footprint.MIN_TASKS
+    assert got["review"]["grew"] == [] and got["review"]["releases"][1]["tasks"] == 3
 
 
 def test_skill_states_and_pins() -> None:

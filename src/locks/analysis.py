@@ -715,6 +715,7 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "expensive": expensive(found),
         # Where the workers' tool calls spent their time, as Claude Code timed them (observed).
         "tool_time": store.tool_time(r["task"] for r in found),
+        "tool_time_impossible": store.tool_time_impossible(r["task"] for r in found),
         # The parts of a fan-out that stopped on a point, per repository (observed).
         "parts_on_a_point": parts_on_a_point(found),
     }
@@ -1069,6 +1070,9 @@ def text(report: Mapping[str, Any]) -> str:
             for row in report["tool_time"]:
                 lines.append(f"  {row['sig'][:40]:<40} calls {row['calls']:>5}  {_seconds(row['ms'] / 1000):>7}  "
                              f"longest {_seconds(row['longest_ms'] / 1000)}")
+            if report.get("tool_time_impossible"):
+                lines.append(f"  ({report['tool_time_impossible']} call(s) left out: each timed longer than its "
+                             "whole attempt ran, a machine that slept)")
         if report.get("climbs"):
             lines += ["", "climbs by rung (observed: each climb of a ladder, and whether the attempt it started "
                       "passed):"]

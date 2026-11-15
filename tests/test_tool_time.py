@@ -37,3 +37,18 @@ def test_the_time_reaches_the_store_and_the_workers_tool_time_is_shown(store: St
     shown = analysis.text({**report, "tool_time": rows})
     assert "where the workers' tool calls spent their time" in shown and "bash:pytest" in shown
     assert "2.0m" in shown and "longest 90s" in shown
+
+
+def test_a_call_longer_than_its_attempt_is_a_machine_that_slept_and_is_left_out(store: Store, git_repo, tmp_path):
+    task = store.create_task("do it", status="done", source="cli", kind="implement")
+    tid = int(task["id"])
+    store._conn.execute("INSERT INTO attempts (task_id, seq, cell, max_turns, passed, duration_s, created_at) "
+                        "VALUES (?, 1, 'sonnet/medium', 10, 1, 600, '2026-01-01')", (tid,))
+    for sig, ms in (("bash:sed", 31_000_000), ("bash:pytest", 120_000)):
+        store.add_tool_event(session_id="w", task_id=tid, attempt=1, sig=sig, arg_hash="h", ok=1, ms=ms)
+    rows = store.tool_time([tid])
+    assert [r["sig"] for r in rows] == ["bash:pytest"] and store.tool_time_impossible([tid]) == 1
+    seed(git_repo, tmp_path, store)
+    report = analysis.compute(store, days=0, keep_runs=None)
+    shown = analysis.text({**report, "tool_time": rows, "tool_time_impossible": 1})
+    assert "1 call(s) left out" in shown

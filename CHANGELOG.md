@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.111.2] - 2026-11-15
+
+### Fixed
+
+- `locks stats` no longer counts a worker's tool call timed longer than the whole attempt it ran in (a
+  machine that slept read as an 8-hour `sed`); it says how many it left out (`Store.tool_time_impossible`).
+- `locks footprint` compares releases only on briefs of tasks outside a workflow, whose briefs carry what
+  earlier steps said, and names a release's growth only when both sides hold `MIN_TASKS` (10) briefs.
+
 ## [0.111.1] - 2026-11-14
 
 ### Changed

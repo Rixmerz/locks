@@ -353,6 +353,13 @@ def _in(column: str, values: Iterable[str] | None) -> tuple[str | None, list[str
 PULSE = "pulse"
 
 
+#: A worker's timed call that could have happened: under an attempt, and no longer than that attempt ran
+#: (an attempt not yet timed, `duration_s` 0, bounds nothing).
+_POSSIBLE_CALL = ("LEFT JOIN attempts a ON a.task_id = e.task_id AND a.seq = e.attempt "
+                  "WHERE e.ms IS NOT NULL AND e.attempt IS NOT NULL "
+                  "AND (a.duration_s IS NULL OR a.duration_s <= 0 OR e.ms <= a.duration_s * 1000)")
+
+
 class Store:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -1408,19 +1415,34 @@ class Store:
     def tool_time(self, task_ids: Iterable[int], *, top: int = 8) -> list[dict[str, Any]]:
         """Where the workers' tool calls of these tasks spent their time, by signature: the calls Claude Code
         timed (`ms`, from its PostToolUse), how many, their total and their longest. The verifier's calls,
-        kept under no attempt, are left out. Observed."""
+        kept under no attempt, are left out, and so is a call timed longer than its whole attempt ran
+        (`attempts.duration_s`): no call outlasts the attempt it ran in, so such a time spans a machine that
+        slept, never work (`tool_time_impossible` counts them). Observed."""
         ids = sorted({int(t) for t in task_ids})
         rows: dict[str, dict[str, Any]] = {}
         for at in range(0, len(ids), 500):
             chunk = ids[at:at + 500]
             for sig, n, total, longest in self._conn.execute(
-                    f"SELECT sig, COUNT(*), SUM(ms), MAX(ms) FROM tool_events WHERE ms IS NOT NULL "  # noqa: S608
-                    f"AND attempt IS NOT NULL AND task_id IN ({', '.join('?' for _ in chunk)}) GROUP BY sig", chunk):
+                    f"SELECT e.sig, COUNT(*), SUM(e.ms), MAX(e.ms) FROM tool_events e {_POSSIBLE_CALL} "  # noqa: S608
+                    f"AND e.task_id IN ({', '.join('?' for _ in chunk)}) GROUP BY e.sig", chunk):
                 row = rows.setdefault(sig, {"sig": sig, "calls": 0, "ms": 0, "longest_ms": 0})
                 row["calls"] += int(n)
                 row["ms"] += int(total or 0)
                 row["longest_ms"] = max(row["longest_ms"], int(longest or 0))
         return sorted(rows.values(), key=lambda r: -r["ms"])[:top]
+
+    def tool_time_impossible(self, task_ids: Iterable[int]) -> int:
+        """The timed calls of these tasks' workers that `tool_time` leaves out: each timed longer than the
+        attempt it ran in, a suspend of the machine read as a call."""
+        ids = sorted({int(t) for t in task_ids})
+        found = 0
+        for at in range(0, len(ids), 500):
+            chunk = ids[at:at + 500]
+            found += int(self._conn.execute(
+                "SELECT COUNT(*) FROM tool_events e JOIN attempts a ON a.task_id = e.task_id AND a.seq = e.attempt "  # noqa: S608
+                f"WHERE e.ms IS NOT NULL AND a.duration_s > 0 AND e.ms > a.duration_s * 1000 "
+                f"AND e.task_id IN ({', '.join('?' for _ in chunk)})", chunk).fetchone()[0])
+        return found
 
     def add_tool_event(self, **record: Any) -> None:
         record = {"ts": now(), **record}

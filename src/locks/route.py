@@ -30,6 +30,9 @@ from locks.classify import asks_for_change, by_rules, opens_with_change
 from locks.matrix import READ_ONLY_KINDS
 
 MAIN, WORKER, PARALLEL = "main", "worker", "parallel"
+#: Writing work that points back into the conversation: a fork of the session holds what it points to, and
+#: locks' check and verifier still read it (`locks run --fork-session`, `locks.host_fork`).
+FORK = "fork"
 #: At this size or under, the session does it: a worker's plan and cold start cost more than the work.
 MAIN_POINTS = 2
 #: At this size or over, or touching `PARALLEL_AREAS` areas or more, the work runs in parts.
@@ -118,6 +121,10 @@ _CONVERSATION = re.compile(
     re.IGNORECASE)
 
 
+#: An opening that orders a change the rules of `classify` do not read as one ("apply this…", "hotfix…").
+_ORDER = re.compile(r"^\W*(?:apply|aplica\w*|hot ?fix\w*|fix|arregla\w*|corrige|make|haz|do the same|use|usa)\b", re.I)
+
+
 def _sentence(text: str, at: int) -> str:
     start = max(text.rfind(mark, 0, at) for mark in ".!?\n")
     ends = [i for i in (text.find(mark, at) for mark in ".!?\n") if i >= 0]
@@ -182,6 +189,10 @@ class Route:
             return (f"locks route: a worker ({why}). Queue it (locks' `queue` tool, or `locks queue add`) with "
                     "the request written in full and its check, and go on here; do it yourself instead if it turns "
                     "out to need this conversation." + chain)
+        if self.mode == FORK:
+            return (f"locks route: a fork of this session ({why}). Send it with `locks queue add --fork-session "
+                    "\"<the request>\"` (or `locks run --fork-session`): its worker starts from this conversation, "
+                    "in its own worktree, and locks checks it as any task; do it yourself instead if it is a line.")
         if self.mode == PARALLEL:
             return (f"locks route: in parts, side by side ({why}). Run `locks workflow run feature \"<the request>\"` "
                     "(it splits by itself), or queue one task per independent piece, each with its own `--surface`, "
@@ -409,11 +420,15 @@ def choose(text: str, *, context_tokens: int | None = None, context_share: float
         if pieces >= PARALLEL_PIECES:
             why.append(f"{pieces} listed pieces in separate folders")
         return Route(PARALLEL, tuple(why), **base)
+    # Writing work the conversation holds the meaning of: a fork of this session when it is an order to
+    # change, else the session's own (a remark that points back is a turn, not work).
+    way = FORK if opens_with_change(text) or _ORDER.match(text) else MAIN
     if (leans := _CONVERSATION.search(text)) and size.points <= MAIN_POINTS + 1:
-        return Route(MAIN, (f"it leans on this conversation (\"{leans.group(0)}\"), which a worker does not see",),
-                     **base)
+        return Route(way, (f"it leans on this conversation (\"{leans.group(0)}\"), which a fresh worker does not "
+                            "see and a fork of this session does", f"{size.points} points of {kind}"), **base)
     if _DEICTIC.search(text):
-        return Route(MAIN, ("it points back into this conversation, which a worker does not see",), **base)
+        return Route(way, ("it points back into this conversation, which a fresh worker does not see and a fork "
+                            "of this session does", f"{size.points} points of {kind}"), **base)
     if footprint and context_tokens:
         measured_tokens, measured_turns = footprint
         # Each turn re-reads its context: a worker's measured reading per turn against this session's.

@@ -411,6 +411,9 @@ class LaunchSpec:
     #: The continued session is a fork (`--fork-session`), the one it came from kept as it was:
     #: more effort on the same model, at the new effort the cell gives.
     fork_session: bool = False
+    #: A transcript to place where `--resume` run in `launch_dir` finds it, for this attempt only: the
+    #: orchestrating session's, which a `--fork-session` task forks from another directory (`locks.host_fork`).
+    session_copy: str = ""
     #: What the session it continues had cost when it was last seen (`orchestrate.session_cost`): the CLI's
     #: `total_cost_usd` of a resumed or forked session is the whole session's, so the attempt's own is what
     #: it adds to this. 0 when it is not known: the attempt then keeps the CLI's figure, as before.
@@ -659,6 +662,11 @@ def run(
         spec = dataclasses.replace(spec, setting_sources=None)  # an older CLI has no such flag
     argv = build_argv(spec, claude_bin=claude_bin, mcp_config_path=mcp_path, prompt_path=prompt_path,
                       lean=lean_flags(claude_bin, os.environ))
+    placed = None
+    if spec.session_copy and spec.resume_session:
+        from locks import host_fork
+
+        placed = host_fork.place(spec.session_copy, spec.resume_session, spec.launch_dir, os.environ)
     before = tracked_state(spec.target_dir)
     started = time.monotonic()
     began = datetime.now(UTC).isoformat(timespec="seconds")
@@ -691,6 +699,8 @@ def run(
         raise LaunchError(f"{claude_bin!r} is not on PATH: a worker that cannot start is a "
                           "configuration problem, not a failed task") from exc
     finally:
+        if placed is not None:
+            placed.unlink(missing_ok=True)  # the host's own transcript stays where it was, and only there
         if mcp_path is not None:
             mcp_path.unlink(missing_ok=True)
         if prompt_path is not None:

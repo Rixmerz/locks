@@ -30,6 +30,18 @@
   told it is a new worker on a new task, its brief after. Tried fork against fresh per repository
   (`briefed.resident_arm`, judged as the trunk's trial), `attempt_started.forked_from`, and `locks stats`
   shows both arms. Never a resume, a race, a run in the checkout, an internal role or the verifier.
+- `locks run --fork-session` and `locks queue add --fork-session`: work that points back into the
+  conversation starts as a fork of the session that sent it (`locks.host_fork`), in its own worktree, its
+  role given as its first message, then goes through locks' check, the blind independent verifier and
+  escalation as any task; it starts fresh, and says why, with no session, no worktree, an unreadable
+  transcript, a context over 120k tokens or another model. Tried per repository against a fresh start
+  (`host_fork` setting, `briefed.host_fork_arm`). The router now advises such writing requests as a fork
+  (`route.FORK`) instead of leaving them to the session unchecked.
+- **What delegating costs the session that sent the work**: `locks stats` and the Analysis API's
+  `delegation` section say, per kind, the median wait from sending a task to hearing its ending (the
+  first `reported` event after its final `finished`), the share of it no turn of the session ran, and
+  the tokens and cost of the session's messages from the ending's delivery to the end of the turn that
+  took it (`analysis.delegation`, `Store.delegations_since`). Observed; what was not recorded is left out.
 
 ## [0.111.2] - 2026-11-15
 

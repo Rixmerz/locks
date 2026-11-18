@@ -424,6 +424,7 @@ def queued_options(task: dict, defaults: Options) -> Options:
         loop=raw.get("loop") or defaults.loop,
         trunk_for=bool(raw.get("trunk_for")) or defaults.trunk_for,
         trunk=raw.get("trunk") or defaults.trunk,
+        host_fork=raw.get("host_fork") or defaults.host_fork,
     )
 
 

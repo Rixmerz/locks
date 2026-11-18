@@ -22,7 +22,7 @@ AREAS = ("routing", "checks", "trials", "workflows", "memory", "habits", "evolut
 
 #: The arms of a brief, each a field of the `briefed` event: a trial ran when the field is there.
 BRIEFED_ARMS = ("primer_arm", "trunk_arm", "resident_arm", "critique_arm", "dossier_arm", "evidence_arm", "method_arm",
-                "recall_arm", "revision_arm", "read_handoff_arm")
+                "recall_arm", "revision_arm", "read_handoff_arm", "host_fork_arm")
 
 
 @dataclass(frozen=True, slots=True)

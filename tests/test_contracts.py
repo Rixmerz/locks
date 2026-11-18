@@ -468,3 +468,14 @@ def test_a_real_self_check_is_what_route_evidence_reads(git_repo, store, no_veri
     session = store.route_evidence("implement", repo)["session"]
     assert session["tasks"] == 1 and session["passed_first"] == 1
     assert session["check_p50_s"] is not None
+
+
+def test_the_arm_a_brief_drew_for_the_host_fork_is_what_the_trial_reads_back(store):
+    from locks import host_fork
+
+    assert re.search(r"\*\*host_forked", (SRC / "orchestrate.py").read_text())
+    assert host_fork.KEY == "host_fork_arm" and host_fork.WHY_KEY == "host_fork_why"
+    task = store.create_task("t", status="done", source="locks", repo="r", cwd="/tmp")
+    store.add_event(task["id"], "briefed", **{host_fork.KEY: "fresh", host_fork.WHY_KEY: "the host fork trial"})
+    store.add_attempt(task["id"], cell="sonnet/high", max_turns=10, passed=1)
+    assert host_fork.trial(store, "r")["fresh"]["passed"] == 1

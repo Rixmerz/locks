@@ -287,6 +287,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         add_dirs=tuple(str(Path(d).expanduser().resolve()) for d in args.add_dir or ()),
         services=tuple(args.service or ()),
         whole=bool(getattr(args, "whole", False)),
+        host_fork=_host_fork(args),
         # What follows the ending (notes, the late independent check) goes on in a child: the command
         # returns at its ending.
         detach_after=True,
@@ -1879,6 +1880,20 @@ def _check_lines(check: dict) -> list[str]:
     return lines
 
 
+FORK_SESSION_HELP = ("start the task's first try as a fork of this session (work that points back into the "
+                     "conversation), in its own worktree, then locks' check, verifier and escalation as any; "
+                     "fresh, and said, when it cannot fork")
+
+
+def _host_fork(args: argparse.Namespace) -> dict | None:
+    """What `--fork-session` forks: the sending session's id, or why there is none (`host_fork.source`)."""
+    if not getattr(args, "fork_session", False):
+        return None
+    from locks import host_fork
+
+    return host_fork.source()
+
+
 def cmd_queue(args: argparse.Namespace) -> int:
     store = Store.open()
     try:
@@ -1896,7 +1911,8 @@ def cmd_queue(args: argparse.Namespace) -> int:
                                          "add_dirs": [str(Path(d).expanduser().resolve()) for d in args.add_dir]
                                          if args.add_dir else None,
                                          "services": args.service or None,
-                                         "whole": True if args.whole else None}.items() if v is not None}
+                                         "whole": True if args.whole else None,
+                                         "host_fork": _host_fork(args)}.items() if v is not None}
             if args.after is not None:
                 try:
                     options[after.KEY] = after.target_of(store, args.after)
@@ -3214,6 +3230,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="queue it and start its lane's dispatcher instead of running it here; prints its "
                         "number, and its ending reaches the session that sent it")
     p.add_argument("--whole", action="store_true", help=WHOLE_HELP)
+    p.add_argument("--fork-session", action="store_true", help=FORK_SESSION_HELP)
     p.add_argument("--notify", action="append", metavar="SESSION", help=NOTIFY_HELP)
     p.set_defaults(func=cmd_run)
 
@@ -3287,6 +3304,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a server the task needs up, started before the work and stopped after (repeatable)")
     p.add_argument("--after", type=_after_ref, metavar="N", help=AFTER_HELP)
     p.add_argument("--whole", action="store_true", help=WHOLE_HELP)
+    p.add_argument("--fork-session", action="store_true", help=FORK_SESSION_HELP)
     p.add_argument("--notify", action="append", metavar="SESSION", help=NOTIFY_HELP)
     p.add_argument("--json", action="store_true", help="print the queued task as JSON")
     p.set_defaults(func=cmd_queue)

@@ -22,7 +22,11 @@ def test_a_short_turn_reading_and_the_conversation_stay_with_the_session():
     assert read.mode == route.MAIN and "reading" in read.reasons[0]
     said = route.choose("Apply this to the export command as we discussed above, with its test",
                         context_tokens=600_000, footprint=FOOTPRINT)
-    assert said.mode == route.MAIN and "this conversation" in said.reasons[0] and said.advice() == ""
+    assert said.mode == route.FORK and "this conversation" in said.reasons[0]
+    assert "locks queue add --fork-session" in said.advice()
+    remark = route.choose("Espera eso te se jn problema de vuelta y es duplicar la quema de tokens al tener",
+                          context_tokens=600_000, footprint=FOOTPRINT)
+    assert remark.mode == route.MAIN and remark.advice() == ""
 
 
 def test_large_or_spread_work_runs_in_parts():

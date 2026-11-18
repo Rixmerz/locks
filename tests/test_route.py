@@ -257,3 +257,76 @@ def test_a_bug_sent_to_a_worker_is_told_of_the_bugfix_workflow():
     assert "locks workflow run bugfix" in found.advice()
     build = route.choose(MEDIUM, context_share=0.9)
     assert build.workflow == "" and "workflow" not in build.data() and "workflow run" not in build.advice()
+
+
+def _seed(store: Store) -> None:
+    for i in range(6):
+        t = store.create_task(f"worker {i}", status="done" if i else "failed", source="locks", repo="r",
+                              kind="implement", cost_usd=0.1 * (i + 1))["id"]
+        store.add_attempt(t, cell="sonnet/high", max_turns=30, passed=int(i % 2 == 0), duration_s=40.0)
+        store.add_event(t, "finished", status="done" if i else "failed", wall_s=30.0 + i)
+    for i, ok in enumerate((1, 1, 0)):
+        t = store.create_task(f"own {i}", status="done", source="locks", repo="r", kind="implement",
+                              options=json.dumps({"self_check": True}))["id"]
+        store.add_attempt(t, cell="sonnet/high", max_turns=1, passed=ok, duration_s=10.0 + i)
+    # A task with no options key, and one with unreadable options, are workers' and fail nothing.
+    store.create_task("other", status="done", source="locks", repo="elsewhere", kind="implement")
+
+
+def test_route_evidence_says_workers_and_the_sessions_own_record_with_counts(store: Store):
+    _seed(store)
+    record = store.route_evidence("implement", "r")
+    assert record["workers"]["tasks"] == 6 and record["workers"]["passed_first"] == 3
+    assert record["session"] == {"tasks": 3, "passed_first": 2, "check_p50_s": 11.0}
+    lines = route.evidence_lines(record)
+    assert lines[0].startswith("workers here, implement (6 ended task(s)): passed 3 of 6 first tries (50%)")
+    assert "median $0.30 a task" in lines[0] and "too few" not in lines[0]
+    assert "2 of 3 passed their first check (67%), median check 11s (only 3: too few" in lines[1]
+    empty = route.evidence_lines(store.route_evidence("implement", "nowhere"))
+    assert empty == ["workers here: no ended implement task on record.", "no record of the session's own work here."]
+    assert route.evidence_lines(None) == [] and route.explain_text(None) == ""
+
+
+def test_route_explain_command_prints_the_record(store: Store, git_repo, monkeypatch, capsys):
+    from locks import cli, repo
+
+    monkeypatch.chdir(git_repo)
+    key = repo.key(git_repo)
+    t = store.create_task("own", status="done", source="locks", repo=key, kind="implement",
+                          options=json.dumps({"self_check": True}))["id"]
+    store.add_attempt(t, cell="sonnet/high", max_turns=1, passed=1, duration_s=5.0)
+    store.close()
+    assert cli.main(["route", "explain", MEDIUM, "--kind", "implement"]) == 0
+    out = capsys.readouterr().out
+    assert "kind: implement" in out and "1 of 1 passed their first check" in out and "never a rule" in out
+    assert cli.main(["route", "explain"]) == 2
+
+
+def test_the_hook_appends_bounded_evidence_to_a_workers_advice_and_fails_open(store: Store, git_repo, monkeypatch):
+    from locks import project, repo
+
+    project.enroll(git_repo)
+    monkeypatch.setenv("LOCKS_ROUTE", "on")
+    key = repo.key(git_repo)
+    for i in range(40):
+        t = store.create_task(f"w {i}", status="done", source="locks", repo=key, kind="implement",
+                              cost_usd=1.0)["id"]
+        store.add_attempt(t, cell="sonnet/high", max_turns=30, passed=1, duration_s=4.0)
+    chosen = route.Route(route.WORKER, ("x",), kind="implement")
+    monkeypatch.setattr(route, "choose", lambda *_a, **_k: chosen)
+
+    def routed(tid: int) -> dict:
+        return [e for e in store.events(task_id=tid) if e["kind"] == "routed"][-1]["data"]
+
+    tid = store.create_task("turn", status="running", source="hook", repo=key, session_id="s")["id"]
+    said = hooks._route(store, tid, MEDIUM, str(git_repo), None, "s")
+    evidence = [s for s in said.splitlines() if s.startswith("locks route evidence:")]
+    assert said.startswith("locks route: a worker") and len(evidence) == 1
+    assert len(evidence[0]) <= route.EVIDENCE_CHARS and "passed 30 of 30 first tries" in evidence[0]
+    assert routed(tid)["evidence_shown"] is True
+    # A store that cannot answer leaves the advice as it was, and says no evidence was shown.
+    monkeypatch.setattr(store, "route_evidence", lambda *_a, **_k: 1 / 0)
+    tid = store.create_task("turn2", status="running", source="hook", repo=key, session_id="s")["id"]
+    out = hooks._route(store, tid, MEDIUM, str(git_repo), None, "s")
+    assert out.startswith("locks route: a worker") and "evidence" not in out
+    assert routed(tid)["evidence_shown"] is False

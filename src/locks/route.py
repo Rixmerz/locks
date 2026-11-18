@@ -25,6 +25,7 @@ from typing import Any
 from locks import criteria as criteria_mod
 from locks import points as points_mod
 from locks import risk as risk_mod
+from locks import text as text_mod
 from locks.classify import asks_for_change, by_rules, opens_with_change
 from locks.matrix import READ_ONLY_KINDS
 
@@ -327,6 +328,48 @@ def read_advice(chars: int, calls: int, explore: Mapping[str, Any] | None = None
         said += " An explore worker reads in its own context and leaves none of it here."
     return said + (" Reading that long is a worker's: `locks run --kind explore \"<question>\"` (or the `queue` tool), "
                    "and this session reads its report.")
+
+
+#: Below this many tasks a record is said with its count and called too few to read a rate from.
+EVIDENCE_MIN = 5
+#: The most an explanation adds to the prompt hook's advice.
+EVIDENCE_CHARS = 600
+
+
+def evidence_lines(record: Mapping[str, Any] | None) -> list[str]:
+    """The measured record of a kind here (`Store.route_evidence`), said as observed figures with their
+    counts: never a rule, and below `EVIDENCE_MIN` tasks said to be too few."""
+    if not record:
+        return []
+    kind = record.get("kind") or "?"
+    w, s = record.get("workers") or {}, record.get("session") or {}
+    out = []
+    tries = int(w.get("first_tries") or 0)
+    if not w.get("tasks"):
+        out.append(f"workers here: no ended {kind} task on record.")
+    else:
+        rate = (f"passed {w.get('passed_first', 0)} of {tries} first tries "
+                f"({w.get('passed_first', 0) / tries:.0%})" if tries else "no first try on record")
+        took = f", median {w['p50_s']:.0f}s to pass over {w.get('passes', 0)} pass(es)" \
+            if w.get("p50_s") is not None else ""
+        cost = f", median ${w['cost_p50']:.2f} a task" if w.get("cost_p50") is not None else ""
+        few = f" (only {w['tasks']} task(s): too few to read a rate from)" if w["tasks"] < EVIDENCE_MIN else ""
+        out.append(f"workers here, {kind} ({w['tasks']} ended task(s)): {rate}{took}{cost}{few} (observed).")
+    if not s.get("tasks"):
+        out.append("no record of the session's own work here.")
+    else:
+        n = int(s["tasks"])
+        took = f", median check {s['check_p50_s']:.0f}s" if s.get("check_p50_s") is not None else ""
+        few = f" (only {n}: too few to read a rate from)" if n < EVIDENCE_MIN else ""
+        out.append(f"the session's own {kind} work here, checked with `locks check`: {s.get('passed_first', 0)} of "
+                   f"{n} passed their first check ({s.get('passed_first', 0) / n:.0%}){took}{few} (observed).")
+    return out
+
+
+def explain_text(record: Mapping[str, Any] | None) -> str:
+    """The explanation the prompt hook appends to a worker's advice, bounded by `EVIDENCE_CHARS`."""
+    lines = evidence_lines(record)
+    return text_mod.clip("locks route evidence: " + " ".join(lines), EVIDENCE_CHARS, one_line=True) if lines else ""
 
 
 def choose(text: str, *, context_tokens: int | None = None, context_share: float | None = None,

@@ -1230,8 +1230,35 @@ def cmd_events(args: argparse.Namespace) -> int:
 
 
 def cmd_route(args: argparse.Namespace) -> int:
+    if args.text == "explain":
+        return cmd_route_explain(args)
     args.dry_run, args.after = True, None
     return cmd_run(args)
+
+
+def cmd_route_explain(args: argparse.Namespace) -> int:
+    """`locks route explain "<request>"`: the measured record of the request's kind here, workers'
+    and the session's own checked work, as observed figures with their counts; never a rule."""
+    request = " ".join(getattr(args, "rest", None) or []).strip()
+    if request == "-":
+        request = sys.stdin.read().strip()
+    if not request:
+        print('usage: locks route explain "<request>"', file=sys.stderr)
+        return 2
+    from locks import route as route_mod
+
+    chosen = route_mod.choose(request)
+    kind = args.kind or chosen.kind or "implement"
+    store = Store.open()
+    try:
+        record = store.route_evidence(kind, _repo_key(args))
+    finally:
+        store.close()
+    print(f"kind: {kind}" + (f" (the route reads: {chosen.mode})" if chosen.kind else ""))
+    for line in route_mod.evidence_lines(record):
+        print(line)
+    print("Observed figures, never a rule: the session weighs them.")
+    return 0
 
 
 def cmd_classify(args: argparse.Namespace) -> int:
@@ -3216,8 +3243,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-report", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_resume)
 
-    p = sub.add_parser("route", help="show where a task would start and how it would climb")
+    p = sub.add_parser("route", help="show where a task would start and how it would climb; "
+                                     "`route explain \"<request>\"` says the measured record of its kind here")
     run_args(p)
+    p.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_route)
 
     p = sub.add_parser("classify", help="the kind of work a request is")

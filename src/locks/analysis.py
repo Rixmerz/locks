@@ -386,9 +386,13 @@ def routing(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     overriding it: the evidence a route is calibrated by (issue #124)."""
     out: dict[str, dict[str, Any]] = {}
     for r in rows:
-        row = out.setdefault(str(r.get("mode") or "?"), {"advised": 0, "sent": 0})
+        row = out.setdefault(str(r.get("mode") or "?"), {"advised": 0, "sent": 0, "evidence_shown": 0,
+                                                          "sent_with_evidence": 0})
         row["advised"] += 1
         row["sent"] += int(bool(r.get("sent")))
+        if r.get("evidence_shown"):
+            row["evidence_shown"] += 1
+            row["sent_with_evidence"] += int(bool(r.get("sent")))
     for row in out.values():
         row["sent_rate"] = _share(row["sent"], row["advised"])
     return dict(sorted(out.items()))
@@ -1038,7 +1042,9 @@ def text(report: Mapping[str, Any]) -> str:
         lines += self_check_lines(report.get("self_checks") or {})
         for mode, row in (report.get("routing") or {}).items():
             lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "
-                         f"{row['sent']} ({_rate(row['sent_rate'])}) (observed)")
+                         f"{row['sent']} ({_rate(row['sent_rate'])})"
+                         + (f"; evidence shown {row['evidence_shown']}, sent after {row['sent_with_evidence']}"
+                            if row.get("evidence_shown") else "") + " (observed)")
         if reads := report.get("heavy_reads"):
             lines.append(f"heavy reads said {reads['advised']} time(s) (the session read "
                          f"{route_mod.READ_HEAVY_CHARS:,} characters or more of tool output in a turn), the session "

@@ -117,7 +117,8 @@ def test_routing_counts_how_often_the_session_sent_work_after_each_advice(store:
     store.create_task("do it", status="queued", source="locks", repo="r", cwd="/tmp", session_id="s1")
     rows = store.routed_followed(repo="r")
     assert rows and rows[0]["mode"] == "worker" and rows[0]["sent"]
-    assert analysis.routing(rows)["worker"] == {"advised": 1, "sent": 1, "sent_rate": 1.0}
+    assert analysis.routing(rows)["worker"] == {
+        "advised": 1, "sent": 1, "evidence_shown": 0, "sent_with_evidence": 0, "sent_rate": 1.0}
 
 
 def test_a_note_workers_relied_on_takes_a_recalled_place_from_one_never_named(store: Store):

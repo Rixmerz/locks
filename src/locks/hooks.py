@@ -352,10 +352,17 @@ def _route(store: Store, task_id: int, text: str, cwd: str | None, transcript: s
         read = ((scribe.load(home(), session_id) if session_id else None) or {}).get("read") or {}
         chars, calls = int(read.get("chars") or 0), int(read.get("calls") or 0)
         heavy = route.read_advice(chars, calls, store.kind_record("explore", key) if chars else None)
+        evidence = ""
+        if chosen.mode == route.WORKER and chosen.kind:
+            try:  # the record is said beside a worker's advice; reading it never costs the advice
+                evidence = route.explain_text(store.route_evidence(chosen.kind, key))
+            except Exception:
+                note_error(home(), "route evidence")
         store.add_event(task_id, "routed", **chosen.data(), context_tokens=tokens,
                         worker_tokens=footprint[0] if footprint else None,
-                        read_chars=chars, read_calls=calls, read_said=bool(heavy))
-        return "\n".join(s for s in (chosen.advice(), heavy, _method_line(store, key, cwd, text)) if s) or None
+                        read_chars=chars, read_calls=calls, read_said=bool(heavy), evidence_shown=bool(evidence))
+        return "\n".join(s for s in (chosen.advice(), evidence, heavy, _method_line(store, key, cwd, text))
+                         if s) or None
     except Exception:  # the turn goes on
         note_error(home(), "route")
         return None

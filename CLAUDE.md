@@ -1356,7 +1356,10 @@ yields the default kind, not a guess.
   is said at the next prompt beside the route's advice (`route.read_advice`): what it read stays in
   the context every later turn re-reads, and what an explore worker here passes at, in time and
   cost (`Store.kind_record`, observed); kept on the `routed` event (`read_chars`, `read_said`) and
-  measured the same way (`locks stats`, `heavy reads said`). The session's own reading is where
+  measured the same way (`locks stats`, `heavy reads said`). A worker's advice carries the kind's measured record here
+  (`route.explain_text`, `Store.route_evidence`: workers' first tries, time and cost, and the session's own
+  `self_check` work; counts said, too few below `EVIDENCE_MIN`), kept as `routed.evidence_shown`;
+  `locks route explain` says it on demand. The session's own reading is where
   its money goes (this session: locks' injections 0.2% of its text, its own tool output 57%). A question about the work (an opening of doubt,
   `route.asks`: could, should, what if, vale la pena… with a question mark,
   wherever it falls; an opening that asks for a preference needs none, `_ASKS_UNMARKED`)

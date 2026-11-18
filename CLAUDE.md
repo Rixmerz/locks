@@ -45,7 +45,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/`, `scripts/demo.py` | the README's screenshots of `locks ui`, taken on demo data with generic project names: `scripts/demo.py DIR --shots` writes it with locks' own commands and the scenarios' fake `claude` (no money), spreads times and costs to a real worker's size, and takes them with Playwright |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `read_handoff`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -95,6 +95,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/naming.py` | Haiku names a session, started detached by the Stop hook; a name a person wrote is never replaced |
 | `src/locks/ui/` | `locks ui`: `api.py` turns the store into JSON (testable without a socket), `server.py` is the envelope and the routes, `static/` one ES module per screen, no build step; `svg.js` draws the workflow graphs and the project map node by node; `workers.js` the board's pixel-art workshop, one scene per running task from its phase and stage |
 | `src/locks/compact.py` | the facts of a session (requests verbatim, failed calls, changed files), written before a compaction and put back after it; no model call |
+| `src/locks/read_handoff.py` | the trial of naming, in a brief, the files the sending session already read and that are unchanged (`scribe.read_handoff`): `with`/`without` per repository and nature of work, judged on first tries and calls before the first change, pooled while short; no model |
 | `src/locks/scribe.py` | the scribe: at every turn's end, what a session's transcript gained (requests verbatim, corrections, files written, failed calls and the one that passed after), kept in the locks home; the thread a task the session sent gets in its brief, when the notes are due, and the relay to a fresh session; no model call |
 | `src/locks/analysis.py` | where locks' time and money go (`locks stats`, the UI's Analysis): runs from `planned` to `finished`, their timed phases (and the gaps before them: advance, pickup, spawn), attempts by cell, the session's thread in briefs, a session's own turns; read only, no model |
 | `src/locks/hooks.py` | Claude Code hooks: prompt ↔ task coupling, dead ends into context |
@@ -1174,7 +1175,12 @@ yields the default kind, not a guess.
   locks home, secrets masked. Its failure never costs a turn its endings. A
   task a session sent gets the part of the thread it needs in its brief,
   verbatim and marked as context, never instructions (the task's text is what
-  to do); an investigation gets none, and reading it never fails a run.
+  to do); an investigation gets none, and reading it never fails a run. The files the session read
+  with its own tools (`scribe.FILE_READERS`, kept with a hash of their first `HASH_BYTES` and size,
+  dropped when the session writes them) are named in the brief when still unchanged and inside the
+  task's repository (`scribe.read_handoff`, bounded by `READ_HANDOFF_CHARS`, the rest by count), as
+  context; whether that helps is a trial (`locks.read_handoff`, the `read_handoff` setting,
+  `briefed.read_handoff_arm` and its count `read_handoff`). Tests run with `LOCKS_READ_HANDOFF=off`.
 - A relay is the person's (`locks relay`, `/locks:relay`): taken once, by the
   next session that starts (or is cleared) in the same place, never by a
   resume, and dropped after `scribe.RELAY_HOURS`. The work the old session

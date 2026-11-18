@@ -82,6 +82,7 @@ from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import points as points_mod
 from locks import predict as predict_mod
+from locks import read_handoff as read_handoff_mod
 from locks import risk as risk_mod
 from locks import services as services_mod
 from locks import specs as specs_mod
@@ -1503,6 +1504,12 @@ def run(
         # does not start from the task's text alone.
         from_session, got = _session_context(task, text)
         context += from_session
+        # The files that session already read, unchanged since: handed or withheld by their trial
+        # (`locks.read_handoff`), kept either way so the arms can be compared.
+        handed_reads = _read_handoff(store, task, key, repo_dir, the_plan.kind)
+        if handed_reads.pop("_lines", None) is not None and handed_reads.get(read_handoff_mod.KEY) == "with":
+            context += handed_reads.pop("_text")
+        handed_reads.pop("_text", None)
         launch_dir = options.launch_dir.resolve() if options.launch_dir else workdir
 
         # Strict, as the prompt hook: a task's text shares a word or two with
@@ -1632,7 +1639,7 @@ def run(
                         # dossier says why (absent, stale, unreadable), never left to guess.
                         **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                            for st in the_plan.neighbours}} if the_plan.neighbours else {}),
-                        **primed, **worn, **trunked, **evidenced,
+                        **primed, **handed_reads, **worn, **trunked, **evidenced,
                         **methodical, **critiqued, **(the_plan.recalled or {}),
                         **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
                         **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
@@ -3187,6 +3194,29 @@ def _session_context(task: Mapping[str, object], text: str) -> tuple[list[str], 
     except (OSError, ValueError, KeyError, TypeError):
         return [], None
     return lines, (got if lines else None)
+
+
+def _read_handoff(store: Store, task: Mapping[str, object], repo: str | None, repo_dir: Path,
+                  kind: str) -> dict[str, Any]:
+    """The `briefed` fields of the read handoff's trial (`locks.read_handoff`), and under `_text` the
+    brief section the `with` arm carries; nothing when the setting is off or no file qualifies.
+    Reading it never fails the run."""
+    session_id = str(task.get("session_id") or "")
+    if not session_id or not read_handoff_mod.enabled() or not config.enabled("scribe", os.environ) \
+            or '"investigation"' in str(task.get("options") or ""):
+        return {}
+    from locks import scribe
+
+    try:
+        lines, count = scribe.read_handoff(scribe.load(home(), session_id), repo_dir)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    if not lines:
+        return {}
+    nature = read_handoff_mod.nature_of(kind)
+    arm, why = read_handoff_mod.arm_for(store, repo, int(task["id"]), nature)
+    return {read_handoff_mod.KEY: arm, read_handoff_mod.WHY_KEY: why, read_handoff_mod.NATURE_KEY: nature,
+            read_handoff_mod.COUNT_KEY: count if arm == "with" else 0, "_lines": count, "_text": lines}
 
 
 def _twins(store: Store, task: Mapping[str, object], repo_dir: Path) -> list[int]:

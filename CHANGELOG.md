@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- A task a session sent is told which files that session already read with its own tools and that are
+  unchanged since (`scribe.read_handoff`: path, when and a bounded hash kept per session as
+  `files_read`), within its repository and `scribe.READ_HANDOFF_CHARS`, the rest said by count; as
+  context, never instructions. A trial per repository and nature of work (`locks.read_handoff`,
+  `briefed.read_handoff_arm`, `with`/`without`, the count as `read_handoff`), judged on first tries and
+  calls before the first change, shown by `locks stats`; the `read_handoff` setting, on by default.
+
 ## [0.111.2] - 2026-11-15
 
 ### Fixed

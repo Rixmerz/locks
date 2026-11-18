@@ -123,6 +123,10 @@ DEFAULTS: dict[str, Any] = {
     # the dossier or none in turns, and it stays only where its arm passed first tries no less often and
     # no slower (`locks.dossier`). Off: the dossier is always briefed.
     "dossier_trial": True,
+    # A task a session sent is told which files that session already read, still unchanged, in its
+    # repository: tried per repository and nature of work against its absence (`locks.read_handoff`)
+    # and kept only where it won. Off: no brief names them.
+    "read_handoff": True,
     # A habit newly found in a project is reviewed by a read-only worker (its tool here, a
     # command scoped to the edited file, timed): its ending lists the install line for the
     # orchestrator to put to the person. Installing stays theirs (`locks habits install`).

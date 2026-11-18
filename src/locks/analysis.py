@@ -33,6 +33,7 @@ from locks import evidence as evidence_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import predict as predict_mod
+from locks import read_handoff as read_handoff_mod
 from locks import route as route_mod
 from locks.store import Store
 
@@ -679,6 +680,10 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # (`locks.dossier`), and where each stands now.
         "dossier": {n: dossier_mod.trial(store, repo, n) for n in dossier_mod.NATURES},
         "dossier_now": {n: dossier_mod.arm(store, repo, 0, n)[1] for n in dossier_mod.NATURES} if repo else {},
+        # Whether naming the files the sending session already read helps (`locks.read_handoff`).
+        "read_handoff": {n: read_handoff_mod.trial(store, repo, n) for n in read_handoff_mod.NATURES},
+        "read_handoff_now": {n: read_handoff_mod.arm(store, repo, 0, n)[1]
+                             for n in read_handoff_mod.NATURES} if repo else {},
         # Whether racing a first try paid, per repository and kind (`locks.racing`): its own window.
         "races": racing.table(store, repo),
         # What each blind review of a two-review ledger added that no other saw (`workflows.reviewer_yield`).
@@ -932,6 +937,18 @@ def text(report: Mapping[str, Any]) -> str:
                              f"tries {row['passed']}/{row['tries']} ({_rate(row['rate'])})  pass p50 {took}")
             if (report.get("dossier_now") or {}).get(nature):
                 lines.append(f"  now: {report['dossier_now'][nature]}")
+            lines.append("")
+        for nature, arms in (report.get("read_handoff") or {}).items():
+            if not any(row["tasks"] for row in arms.values()):
+                continue
+            lines.append(f"files the session already read, in the brief, {nature} work "
+                         "(its trial; first tries, calls before the first change):")
+            for arm, row in arms.items():
+                calls = row["calls_before_edit_p50"] if row["calls_before_edit_p50"] is not None else "-"
+                lines.append(f"  {arm + ' them':<12} tasks {row['tasks']:>4}  first tries {row['passed']}/"
+                             f"{row['tries']} ({_rate(row['rate'])})  calls before first change p50 {calls}")
+            if (report.get("read_handoff_now") or {}).get(nature):
+                lines.append(f"  now: {report['read_handoff_now'][nature]}")
             lines.append("")
         if rows := report.get("livespec_tokens"):
             lines.append("tokens per run by kind, livespec called against not called (observed, not a trial):")

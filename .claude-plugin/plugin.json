@@ -260,6 +260,12 @@
       "title": "Try livespec's answers in a brief against their absence",
       "description": "Where a repository has a livespec index, locks asks it and puts the answers in a worker's brief. Each repository tries that in turns against a brief without them, for reading and for writing work apart, and keeps them only where the briefs that carried them passed their first tries no less often and no slower. Off: the answers are always briefed.",
       "default": true
+    },
+    "read_handoff": {
+      "type": "boolean",
+      "title": "Hand a worker the files its session already read",
+      "description": "A task a session sends is told which files that session already read and that are unchanged since, so its worker need not search for them. Each repository tries that in turns against a brief without them and keeps it only where its first tries passed no worse and reached the first change in fewer calls. Off: no brief names them.",
+      "default": true
     }
   },
   "types": "./types/index.d.ts"

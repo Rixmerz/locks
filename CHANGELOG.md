@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- `locks route explain "<request>"` says the measured record of the request's kind in this repository:
+  workers' first tries passed, median time to pass and median cost per task, and the session's own work
+  checked with `locks check` (options `self_check`), with sample counts and "too few" below
+  `route.EVIDENCE_MIN`; observed, never a rule. The prompt hook appends the same lines (bounded by
+  `route.EVIDENCE_CHARS`) when it advises a worker, the `routed` event keeps `evidence_shown`, and
+  `locks stats`' route lines say how often evidence was shown and work sent after it.
+  `commands/orchestration.md` tells the session to run it instead of judging from its own sense.
+
 ## [0.111.2] - 2026-11-15
 
 ### Fixed

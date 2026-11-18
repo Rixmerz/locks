@@ -420,3 +420,21 @@ def test_the_review_a_run_held_back_as_unread_is_what_stats_reads_back(store):
     report = analysis.compute(store, days=0)
     assert report["reviews_unread"] == {"worker": 1, "worker_again": 1, "verifier": 1, "verifier_again": 0}
     assert "workers held 1 (1 unread again), independent checks run again 1 (0 unread twice)" in analysis.text(report)
+
+
+def test_the_evidence_a_routed_event_says_it_showed_is_what_stats_reads_back(store):
+    from locks import analysis
+
+    task = store.create_task("turn", status="done", source="hook", repo="r", session_id="s")["id"]
+    store.add_event(task, "routed", mode="worker", evidence_shown=True)
+    store.add_event(task, "routed", mode="worker", evidence_shown=False)
+    rows = store.routed_followed(repo="r")
+    assert [r["evidence_shown"] for r in rows] == [True, False]
+    assert analysis.routing(rows)["worker"]["evidence_shown"] == 1
+
+
+def test_self_check_written_in_options_is_what_route_evidence_reads(store):
+    t = store.create_task("x", status="done", source="locks", repo="r", kind="implement",
+                          options=json.dumps({"self_check": True}))["id"]
+    store.add_attempt(t, cell="sonnet/high", max_turns=1, passed=1, duration_s=12.0)
+    assert store.route_evidence("implement", "r")["session"] == {"tasks": 1, "passed_first": 1, "check_p50_s": 12.0}

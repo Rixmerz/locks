@@ -593,6 +593,76 @@ def turns(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _merged(spans: Iterable[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    out: list[tuple[datetime, datetime]] = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def delegation(rows: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[dict[str, Any]]:
+    """What delegating cost the session that sent the work, per kind (`Store.delegations_since`):
+    the wait from sending a task to hearing its ending (the first `reported` event after its final
+    `finished`), the share of it no turn of that session ran (idle, from the turns the coupling
+    records), and the re-entry: the tokens and cost of the session's messages, in the turn that ran
+    when the ending was handed over or the first one after, from that moment on. Endings handed over
+    together share their re-entry. Only what was recorded: a task never heard of has no wait, a
+    session with no recorded turn no idle share, a re-entry with no usage no tokens."""
+    turns: dict[str, list[tuple[int, datetime, datetime | None]]] = defaultdict(list)
+    for t in rows.get("turns") or ():
+        start = _when(t["created_at"])
+        if start is None:
+            continue
+        end = _when(t["updated_at"]) if t["status"] != "running" else None
+        turns[str(t["session_id"])].append((int(t["id"]), start, end))
+    usage_of: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
+    for u in rows.get("usage") or ():
+        usage_of[int(u["task_id"])].append(u)
+    heard = [r for r in rows.get("sent") or () if r.get("delivered")]
+    together = Counter((str(r["session_id"]), str(r["delivered"])) for r in heard)
+    kinds: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for r in heard:
+        sent, delivered = _when(r["created_at"]), _when(r["delivered"])
+        if sent is None or delivered is None or delivered < sent:
+            continue
+        mine = turns.get(str(r["session_id"]), [])
+        wait = (delivered - sent).total_seconds()
+        sample: dict[str, Any] = {"wait_s": wait, "idle": None, "tokens": None, "usd": None}
+        if mine and wait > 0:
+            busy = sum((min(b, delivered) - max(a, sent)).total_seconds() for a, b in _merged(
+                (a, b or delivered) for _, a, b in mine) if min(b, delivered) > max(a, sent))
+            sample["idle"] = max(0.0, 1 - busy / wait)
+        entry = next((tid for tid, a, b in mine if a <= delivered and (b is None or b >= delivered)), None)
+        if entry is None:
+            entry = next((tid for tid, a, _ in mine if a >= delivered), None)
+        spent = [u for u in usage_of.get(entry, []) if entry is not None and (_when(u["ts"]) or delivered) >= delivered]
+        if spent:
+            share = together[(str(r["session_id"]), str(r["delivered"]))]
+            sample["tokens"] = sum(int(u["input_tokens"] or 0) + int(u["output_tokens"] or 0)
+                                   + int(u["cache_read"] or 0) + int(u["cache_write"] or 0) for u in spent) / share
+            sample["usd"] = sum(usage.dollars(u["model"] or "", int(u["input_tokens"] or 0),
+                                              int(u["output_tokens"] or 0), int(u["cache_read"] or 0),
+                                              int(u["cache_write"] or 0)) for u in spent) / share
+        kinds[str(r["kind"] or "unknown")].append(sample)
+    out = []
+    for kind, samples in sorted(kinds.items()):
+        idle = [s["idle"] for s in samples if s["idle"] is not None]
+        entered = [s for s in samples if s["tokens"] is not None]
+        row: dict[str, Any] = {"kind": kind, "heard": len(samples),
+                               "wait_p50_s": pct((s["wait_s"] for s in samples), 0.5)}
+        if idle:
+            row |= {"idle_share_p50": round(pct(idle, 0.5) or 0.0, 2), "idle_samples": len(idle)}
+        if entered:
+            row |= {"reentry_tokens_p50": round(pct((s["tokens"] for s in entered), 0.5) or 0),
+                    "reentry_usd_p50": round(sorted(s["usd"] for s in entered)[math.ceil(len(entered) / 2) - 1], 4),
+                    "reentry_samples": len(entered)}
+        out.append(row)
+    return out
+
+
 def daily(found: Sequence[Mapping[str, Any]], turn_days: Mapping[str, int]) -> list[dict[str, Any]]:
     days: dict[str, dict[str, Any]] = defaultdict(lambda: {"runs": 0, "passed": 0, "cost_usd": 0.0, "hours": 0.0})
     for r in found:
@@ -718,6 +788,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "tool_time_impossible": store.tool_time_impossible(r["task"] for r in found),
         # The parts of a fan-out that stopped on a point, per repository (observed).
         "parts_on_a_point": parts_on_a_point(found),
+        # What delegating cost the session that sent the work: its wait, idle share and re-entry (observed).
+        "delegation": delegation(store.delegations_since(since, repo=repo)),
     }
     if keep_runs is None:
         report["runs"] = found
@@ -1013,6 +1085,12 @@ def text(report: Mapping[str, Any]) -> str:
             lines.append(f"heavy reads said {reads['advised']} time(s) (the session read "
                          f"{route_mod.READ_HEAVY_CHARS:,} characters or more of tool output in a turn), the session "
                          f"sent locks work after {reads['sent']} ({_rate(reads['sent_rate'])}) (observed)")
+        for row in report.get("delegation") or ():
+            lines.append(f"delegation {row['kind']}: heard {row['heard']}, wait p50 {_seconds(row['wait_p50_s'])}"
+                         + (f"  idle {_rate(row['idle_share_p50'])} ({row['idle_samples']})"
+                            if "idle_samples" in row else "")
+                         + (f"  re-entry {_tokens(row['reentry_tokens_p50'])} tokens ${row['reentry_usd_p50']:.3f}"
+                            f" ({row['reentry_samples']})" if "reentry_samples" in row else "") + " (observed)")
         for row in report.get("parts_on_a_point") or ():
             where = f" ({_name(row['repo'])})" if not report.get("repo") else ""
             lines.append(f"parts stopped on a point: {row['stopped']} of {row['parts']}{where} (observed)")

@@ -83,6 +83,10 @@ DEFAULTS: dict[str, Any] = {
     # that step's session, its role given as its first message there (`locks.trunks`); each
     # repository alternates forked and fresh first tries and keeps forking where it won.
     "trunk": True,
+    # A task sent with `--fork-session` starts as a fork of the session that sent it, its role given as
+    # its first message there (`locks.host_fork`); each repository alternates forked and fresh first
+    # tries and keeps forking where it won. Off: such a task starts fresh, as any.
+    "host_fork": True,
     # The independent check starts beside locks' own check, not after it: it reads the same
     # diff, a failed check stops it, and it is told not to run the check itself (`orchestrate.Ahead`).
     "overlap": True,

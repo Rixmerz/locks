@@ -49,6 +49,7 @@ from locks import (
     dispatch,
     grants,
     habits,
+    host_fork,
     isolate,
     launch,
     manifests,
@@ -228,6 +229,9 @@ class Options:
     #: The trunk this step's first attempt forks (`trunks.source`: its task, step and session),
     #: or why there is none (`missing`).
     trunk: dict | None = None
+    #: The orchestrating session this task's first attempt forks (`locks run --fork-session`,
+    #: `host_fork.source`: its id), or why there is none (`missing`).
+    host_fork: dict | None = None
 
     def stored(self) -> dict:
         """What a resumed run is started with again, as the task's `options`. A run
@@ -245,7 +249,7 @@ class Options:
                   # for every resume after it (a step's start cell, its turns, its base commit).
                   "start": self.start.label if self.start else None, "max_turns": self.max_turns,
                   "base": self.base, "carry": self.carry, "loop": self.loop,
-                  "trunk_for": self.trunk_for, "trunk": self.trunk,
+                  "trunk_for": self.trunk_for, "trunk": self.trunk, "host_fork": self.host_fork,
                   "max_attempts": self.max_attempts if self.max_attempts != Options.max_attempts else None}
         kept = {k: v for k, v in values.items() if v not in (None, [], False)}
         if not self.keep_learned:
@@ -1581,6 +1585,25 @@ def run(
             say(f"locks: #{task['id']} " + (f"forks step {trunk.get('step')!r}'s session (#{trunk.get('task')}) "
                                              f"on its first try: {trunked['trunk_why']}" if forking is not None
                                              else trunked["trunk_why"]))
+        # A task sent with `--fork-session` (`locks.host_fork`): its first try forks the session that sent
+        # it, or starts fresh by the trial or because there is nothing to fork; said and kept either way.
+        host_forking: dict[str, Any] | None = None
+        host_forked: dict[str, Any] = {}
+        if options.host_fork and host_fork.enabled() and forking is None and not store.attempts(task["id"]) \
+                and not resumed:
+            ready, why = host_fork.prepare(options.host_fork, worktree=workspace is not None)
+            if ready is None:
+                host_forked = {"host_fork_why": f"starts fresh, not as a fork of the session that sent it: {why}"}
+            else:
+                arm, arm_why = host_fork.arm(store, key, task["id"])
+                host_forked = {host_fork.KEY: arm, host_fork.WHY_KEY: arm_why,
+                               **({"host_fork_tokens": ready["tokens"]} if "tokens" in ready else {})}
+                if arm == "fork":
+                    host_forking = ready
+            say(f"locks: #{task['id']} " + (f"forks the session that sent it ({host_forking['session']}) on its "
+                                             f"first try: {host_forked[host_fork.WHY_KEY]}" if host_forking
+                                             else str(host_forked.get(host_fork.WHY_KEY)
+                                                      or host_forked["host_fork_why"])))
         # A worker handed a neighbour whose measurement its work owes (`locks.evidence`): held to it or
         # free by the trial, kept either way so the arms can be compared.
         evidenced: dict[str, Any] = {}
@@ -1632,7 +1655,7 @@ def run(
                         # dossier says why (absent, stale, unreadable), never left to guess.
                         **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                            for st in the_plan.neighbours}} if the_plan.neighbours else {}),
-                        **primed, **worn, **trunked, **evidenced,
+                        **primed, **worn, **trunked, **host_forked, **evidenced,
                         **methodical, **critiqued, **(the_plan.recalled or {}),
                         **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
                         **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
@@ -1797,6 +1820,13 @@ def run(
                 say(f"locks: #{task['id']} starts fresh, not as a fork of step {branch.get('step')!r}: it starts on "
                     f"{cell}, and that step wrote on {branch.get('cell')}")
                 branch = None
+            # Only the first try forks the session that sent it, and only on the model it ran on.
+            host_branch = host_forking if host_forking is not None and not attempts and branch is None else None
+            if host_branch is not None and not host_fork.same_model(host_branch, cell.model):
+                say(f"locks: #{task['id']} starts fresh, not as a fork of the session that sent it: it starts on "
+                    f"{cell}, and that session ran on "
+                    f"{host_branch.get('model') or 'a model its transcript does not name'}")
+                host_branch = None
             spec = launch.LaunchSpec(
                 model_id=models.pinned(cell.model),
                 permission_mode=grants.mode_for(cell.model),
@@ -1834,19 +1864,24 @@ def run(
                 # Kept only in a worktree, where its directory is the task's: a session in the
                 # person's checkout would be one of theirs.
                 persist_session=workspace is not None,
-                resume_session=branch["session"] if branch else resume,
-                resume_cost_usd=session_cost(store, branch["session"] if branch else resume),
-                fork_session=bool(branch) or fork,
+                resume_session=branch["session"] if branch else host_branch["session"] if host_branch else resume,
+                resume_cost_usd=session_cost(store, branch["session"] if branch else resume)
+                if not host_branch else host_fork.session_cost(host_branch),
+                fork_session=bool(branch) or bool(host_branch) or fork,
+                session_copy=host_branch["path"] if host_branch else "",
                 # A fork of the trunk is told it is a new worker, and its role: its system prompt is
                 # the trunk's record. Its brief follows.
                 resume_prompt=(trunks.note(branch, role=role_text, capabilities=hints, workdir=workdir,
                                            base=workspace.base if workspace else None) if branch
+                               else host_fork.note(role=role_text, capabilities=hints, workdir=workdir)
+                               if host_branch
                                else launch.DEEPER_PROMPT if fork
                                else _reshape_prompt([*history, *attempts], base_commit)
                                if decision is not None and decision.reshape
                                else launch.INTERRUPTED_PROMPT if interrupted and decision is None
                                else launch.CONTINUE_PROMPT),
-                resume_note=prompt if branch else "\n\n".join(resumed_with) if interrupted and decision is None
+                resume_note=prompt if branch or host_branch
+                else "\n\n".join(resumed_with) if interrupted and decision is None
                 else continuation_note([*history, *attempts][-1]) if resume else "",
             )
             store.update_task(task["id"], current_cell=cell.label)
@@ -1869,7 +1904,8 @@ def run(
                             **({"resumed": resume} if resume else {}), **({"fresh": fresh} if fresh else {}),
                             **({"after_death": True} if resume and interrupted and decision is None else {}),
                             **({"forked_trunk": {k: branch.get(k) for k in ("task", "step", "session")}}
-                               if branch else {}))
+                               if branch else {}),
+                            **({"forked_host": host_branch["session"]} if host_branch else {}))
             if resume and interrupted and decision is None:
                 say(f"locks: #{task['id']} attempt {nth} goes on in the session of the attempt whose worker died "
                     f"({resume})")

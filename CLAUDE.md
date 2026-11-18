@@ -45,7 +45,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/`, `scripts/demo.py` | the README's screenshots of `locks ui`, taken on demo data with generic project names: `scripts/demo.py DIR --shots` writes it with locks' own commands and the scenarios' fake `claude` (no money), spreads times and costs to a real worker's size, and takes them with Playwright |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `host_fork`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -100,6 +100,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/hooks.py` | Claude Code hooks: prompt ↔ task coupling, dead ends into context |
 | `src/locks/scripted.py` | whether a hook's session is a program's `claude -p` (print mode with `--json-schema`, a program's output format, or no terminal on its input), read from the nearest `claude` process above the hook (/proc on Linux, `ps` elsewhere, its terminal standing for its input's); stdlib, imports nothing of locks |
 | `src/locks/loops.py` | goals that run in rounds (`locks loop`): a definition, a diary and a state per loop in the person's locks home, each round a workflow run, the metric measured by locks, stops on evidence, strategies tried in arms; `loop_cli.py` is `locks loop …` and the detached `loop-runner` |
+| `src/locks/host_fork.py` | a task sent with `--fork-session` (work that points back into the conversation): its first try forks the session that sent it in its own worktree (the host's transcript copied into the worktree's Claude Code project folder for the attempt and removed after, `place`), its role as its first message (`note`), then locks' check, verifier and escalation as any; fresh, and said, with no session, no worktree, no transcript, a context over `MAX_TOKENS` or another model; the trial `host_fork_arm`; no model |
 | `src/locks/trunks.py` | a workflow step whose first try forks the session of a reading step before it (`trunk`): what it forks, the note that marks the role it takes from there, and the trial (`fork` against `fresh`) that keeps forking only where it paid; no model |
 | `src/locks/workflows.py` | saved chains of tasks: definitions in three scopes (project, user, bundled `workflow_templates/`), runs the engine advances when a step passes, each step on the commit the one before kept; a step that fans out over a plan's parts, one that joins their branches, a large change's review by area; the bundled templates (`feature`, `feature-parallel`, `bugfix`, `review-fix`, `dual-review`, `panel`, `tracer-slice`, `design-review`: four blind readings of a design document, one lens each, then a refuter, no fix; `drift`: one read-only step comparing a folder's documents with the code); steps that choose (`when`), ask the person (`ask`) or run another workflow (`workflow`); the graph as Mermaid (`render`); a change refused on a stale revision (`expect`); `workflow_cli.py` is `locks workflow …` |
 | `hooks/locks.tsx` | the mod (function hooks), a thin layer over `bin/locks`: model tools, waking the session on endings, a status line, `/locks` opens the web board; `hooks/locks-cli.ts` its engine-free helpers, `types/index.d.ts` its state contract, `hooks/locks.test.tsx` its tests |
@@ -1350,7 +1351,14 @@ yields the default kind, not a guess.
   every decision as a `routed` event to be measured (`locks stats` says how often the session sent
   locks work after each advice, `Store.routed_followed`), and never costs the turn. A bug sent to a
   worker is also told of the `bugfix` workflow (`route.WORKFLOW_FOR`, the event's `workflow`). It is
-  advice: the session decides. A turn that read `route.READ_HEAVY_CHARS` or more of tool output
+  advice: the session decides. Writing work that points back into the conversation (`_DEICTIC`,
+  `_CONVERSATION`) and is an order to change is advised as a fork of the session (`route.FORK`:
+  `locks queue add --fork-session`), never left to the session unchecked; a remark that points back stays
+  the session's. A `--fork-session` task's first try forks the sending session (`locks.host_fork`) only
+  in a worktree, on the model that session ran on (`same_model`), with its transcript readable and its
+  context under `host_fork.MAX_TOKENS`; else it starts fresh and says why. The independent check is never
+  a fork, and a new model starts fresh. Whether forking pays is a trial (`host_fork` setting,
+  `briefed.host_fork_arm`, `locks.arms`); tests run with `LOCKS_HOST_FORK=off`. A turn that read `route.READ_HEAVY_CHARS` or more of tool output
   with the session's own tools (the scribe's count per turn, `scribe.READ_TOOLS`, `state["read"]`)
   is said at the next prompt beside the route's advice (`route.read_advice`): what it read stays in
   the context every later turn re-reads, and what an explore worker here passes at, in time and
@@ -1422,7 +1430,11 @@ yields the default kind, not a guess.
   branch since the base its `finished` event keeps, or other work here that passed after it
   started): it may be fixed already.
 - A worker never inherits the host's session id (`CLAUDE_CODE_SESSION_ID`),
-  and an attempt never keeps the host's session as its own.
+  and an attempt never keeps the host's session as its own. The one exception is explicit: a task
+  sent with `--fork-session` (`locks.host_fork`) has its first attempt run `claude -p --resume <the
+  sending session> --fork-session`, read from `LOCKS_SESSION_ID` or `CLAUDE_CODE_SESSION_ID` by the
+  command that sent it, never by the worker's environment; the fork's new session id is what the attempt
+  keeps, and the host's session is left as it was.
 - A problem is solved when the work it is about passes: a task whose attempts left a failed
   fix, in this run or an earlier one, closes its own problem when it passes, and its pass
   closes the open problems of its repository its own text matches strictly

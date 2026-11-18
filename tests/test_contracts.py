@@ -420,3 +420,14 @@ def test_the_review_a_run_held_back_as_unread_is_what_stats_reads_back(store):
     report = analysis.compute(store, days=0)
     assert report["reviews_unread"] == {"worker": 1, "worker_again": 1, "verifier": 1, "verifier_again": 0}
     assert "workers held 1 (1 unread again), independent checks run again 1 (0 unread twice)" in analysis.text(report)
+
+
+def test_the_arm_a_brief_drew_for_the_host_fork_is_what_the_trial_reads_back(store):
+    from locks import host_fork
+
+    assert re.search(r"\*\*host_forked", (SRC / "orchestrate.py").read_text())
+    assert host_fork.KEY == "host_fork_arm" and host_fork.WHY_KEY == "host_fork_why"
+    task = store.create_task("t", status="done", source="locks", repo="r", cwd="/tmp")
+    store.add_event(task["id"], "briefed", **{host_fork.KEY: "fresh", host_fork.WHY_KEY: "the host fork trial"})
+    store.add_attempt(task["id"], cell="sonnet/high", max_turns=10, passed=1)
+    assert host_fork.trial(store, "r")["fresh"]["passed"] == 1

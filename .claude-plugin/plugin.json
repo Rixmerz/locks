@@ -260,6 +260,12 @@
       "title": "Try livespec's answers in a brief against their absence",
       "description": "Where a repository has a livespec index, locks asks it and puts the answers in a worker's brief. Each repository tries that in turns against a brief without them, for reading and for writing work apart, and keeps them only where the briefs that carried them passed their first tries no less often and no slower. Off: the answers are always briefed.",
       "default": true
+    },
+    "host_fork": {
+      "type": "boolean",
+      "title": "Start --fork-session tasks as a fork of the session that sent them",
+      "description": "A task sent with --fork-session (work that points back into the conversation) starts as a fork of the session that sent it, in its own worktree, then goes through locks' check, independent verifier and escalation as any. Each repository tries that in turns against a fresh start and keeps forking only where its first tries passed no less often. Off: such a task starts fresh.",
+      "default": true
     }
   },
   "types": "./types/index.d.ts"

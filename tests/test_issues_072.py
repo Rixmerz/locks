@@ -80,7 +80,8 @@ def test_from_ninety_percent_compaction_is_now_whatever_holds_it_back():
 def test_a_request_that_leans_on_the_conversation_stays_with_the_session():
     chosen = route.choose("hotfix the null check in the order handler during the incident",
                           context_tokens=150_000, footprint=(270_000, 20))
-    assert chosen.mode == route.MAIN and "leans on this conversation" in chosen.reasons[0]
+    assert chosen.mode == route.FORK and "leans on this conversation" in chosen.reasons[0]
+    assert "--fork-session" in chosen.advice()
 
 
 def test_a_resume_hears_its_instruction_and_the_notes_filed_since(store: Store):

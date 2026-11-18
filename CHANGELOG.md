@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- `locks run --fork-session` and `locks queue add --fork-session`: work that points back into the
+  conversation starts as a fork of the session that sent it (`locks.host_fork`), in its own worktree, its
+  role given as its first message, then goes through locks' check, the blind independent verifier and
+  escalation as any task; it starts fresh, and says why, with no session, no worktree, an unreadable
+  transcript, a context over 120k tokens or another model. Tried per repository against a fresh start
+  (`host_fork` setting, `briefed.host_fork_arm`). The router now advises such writing requests as a fork
+  (`route.FORK`) instead of leaving them to the session unchecked.
+
 ## [0.111.2] - 2026-11-15
 
 ### Fixed

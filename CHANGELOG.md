@@ -13,6 +13,11 @@
   transcript, a context over 120k tokens or another model. Tried per repository against a fresh start
   (`host_fork` setting, `briefed.host_fork_arm`). The router now advises such writing requests as a fork
   (`route.FORK`) instead of leaving them to the session unchecked.
+- **What delegating costs the session that sent the work**: `locks stats` and the Analysis API's
+  `delegation` section say, per kind, the median wait from sending a task to hearing its ending (the
+  first `reported` event after its final `finished`), the share of it no turn of the session ran, and
+  the tokens and cost of the session's messages from the ending's delivery to the end of the turn that
+  took it (`analysis.delegation`, `Store.delegations_since`). Observed; what was not recorded is left out.
 
 ## [0.111.2] - 2026-11-15
 

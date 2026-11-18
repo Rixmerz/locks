@@ -1859,6 +1859,10 @@ yields the default kind, not a guess.
   which split `queued_s` where they were measured; a phase
   a run never measured is left out of the breakdown, never guessed. The session
   thread comparison is observed, never presented as a trial.
+  What delegating costs the sending session (`analysis.delegation`) is read from records kept: the
+  wait from a task's creation to its first `reported` after its final `finished`, the share of it no
+  coupled turn of that session ran, and the usage of that session's messages from the delivery to the
+  end of the turn that took it; endings handed over together share it; what is unrecorded is left out.
 - Insights and the survey are read, never written, and never by a model: one
   project's tasks, habits, files, sessions and commits at a time; what crosses
   projects is counted (a session shape and the projects that show it), never

@@ -1112,6 +1112,36 @@ class Store:
             "GROUP BY t.id, u.model ORDER BY t.id", [since, *params]).fetchall()
         return [dict(r) for r in rows]
 
+    def delegations_since(self, since: str, *, repo: str | None = None) -> dict[str, list[dict]]:
+        """What delegating cost the sessions that sent work since `since`: each task a session sent
+        (`sent`: its kind, when it was sent, and when its ending was first handed over, the first
+        `reported` event after its final `finished`), the sessions' own turns (`turns`, from the
+        coupling), and the usage of those turns' messages with their times (`usage`). Read only."""
+        scope, params = ("AND repo = ?", [repo]) if repo is not None else ("", [])
+        sent = [dict(r) for r in self._conn.execute(
+            "SELECT t.id, t.session_id, t.kind, t.created_at, "  # noqa: S608
+            "(SELECT MIN(r.ts) FROM events r WHERE r.task_id = t.id AND r.kind = 'reported' AND r.id > "
+            "(SELECT MAX(f.id) FROM events f WHERE f.task_id = t.id AND f.kind = 'finished')) AS delivered "
+            "FROM tasks t WHERE t.source IN ('locks', 'queue') AND t.session_id IS NOT NULL "
+            f"AND t.created_at >= ? {scope.replace('repo', 't.repo')} ORDER BY t.id", [since, *params])]
+        sessions = sorted({str(r["session_id"]) for r in sent if r["delivered"]})
+        turns: list[dict] = []
+        used: list[dict] = []
+        for start in range(0, len(sessions), 500):
+            chunk = sessions[start:start + 500]
+            marks = ", ".join("?" * len(chunk))
+            turns += [dict(r) for r in self._conn.execute(
+                "SELECT id, session_id, status, created_at, updated_at FROM tasks "  # noqa: S608
+                f"WHERE source = 'hook' AND session_id IN ({marks}) AND updated_at >= ? ORDER BY created_at",
+                [*chunk, since])]
+        ids = [t["id"] for t in turns]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            used += [dict(r) for r in self._conn.execute(
+                "SELECT task_id, model, ts, input_tokens, output_tokens, cache_read, cache_write FROM usage "  # noqa: S608
+                f"WHERE task_id IN ({', '.join('?' * len(chunk))})", chunk)]
+        return {"sent": sent, "turns": turns, "usage": used}
+
     def events_of(self, task_id: int, kind: str) -> list[dict]:
         rows = self._conn.execute("SELECT * FROM events WHERE task_id = ? AND kind = ? ORDER BY id", (task_id, kind))
         return [{**dict(r), "data": json.loads(r["data"])} for r in rows]

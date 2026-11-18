@@ -552,3 +552,51 @@ def test_the_critique_trial_is_counted_from_the_parts_after_each_plan_and_shown_
     everywhere = analysis.compute(store, days=0)
     assert everywhere["critique_now"] is None and everywhere["critique"]["with"]["tasks"] == 1
     assert not any(line.startswith("  now: the critique") for line in analysis.text(everywhere).splitlines())
+
+
+def _at(store, task_id, created, updated=None):
+    store._conn.execute("UPDATE tasks SET created_at = ?, updated_at = ? WHERE id = ?",
+                        (created, updated or created, task_id))
+
+
+def test_delegation_measures_the_wait_the_idle_share_and_the_re_entry_of_the_session(store):
+    base = "2026-11-01T10:00:"
+    sent = store.create_task("build it", status="done", source="locks", repo="r", session_id="s", kind="implement")
+    _at(store, sent["id"], base + "00+00:00")
+    fin = store.add_event(sent["id"], "finished", status="done")
+    rep = store.add_event(sent["id"], "reported", via="stop")
+    store._conn.execute("UPDATE events SET ts = ? WHERE id = ?", (base + "50+00:00", fin))
+    store._conn.execute("UPDATE events SET ts = ? WHERE id = ?", (base + "50+00:00", rep))
+    # The sending turn ran 10 s of the 50 s wait; the turn that took the ending ran from 50 s to 59 s.
+    first = store.create_task("t1", status="done", source="hook", repo="r", session_id="s")
+    _at(store, first["id"], base + "00+00:00", base + "10+00:00")
+    after = store.create_task("t2", status="done", source="hook", repo="r", session_id="s")
+    _at(store, after["id"], base + "50+00:00", base + "59+00:00")
+    store.add_usage(message_id="m0", session_id="s", task_id=after["id"], repo="r", model="sonnet",
+                    input_tokens=1000, output_tokens=500, ts=base + "49+00:00")  # before delivery: not re-entry
+    store.add_usage(message_id="m1", session_id="s", task_id=after["id"], repo="r", model="sonnet",
+                    input_tokens=1000, output_tokens=500, cache_read=2000, ts=base + "55+00:00")
+    # Sent work never heard of has no wait: left out, never guessed.
+    store.create_task("other", status="running", source="locks", repo="r", session_id="s", kind="docs")
+    rows = analysis.delegation(store.delegations_since("", repo="r"))
+    assert rows == [{"kind": "implement", "heard": 1, "wait_p50_s": 50.0, "idle_share_p50": 0.8,
+                     "idle_samples": 1, "reentry_tokens_p50": 3500,
+                     "reentry_usd_p50": round(analysis.usage.dollars("sonnet", 1000, 500, 2000), 4),
+                     "reentry_samples": 1}]
+    report = {"delegation": rows}
+    assert report["delegation"][0]["idle_share_p50"] == 0.8
+
+
+def test_delegation_without_turns_or_usage_leaves_those_out(store):
+    sent = store.create_task("q", status="done", source="queue", repo="r", session_id="s2", kind="explore")
+    store.add_event(sent["id"], "finished", status="done")
+    store.add_event(sent["id"], "reported", via="prompt")
+    rows = analysis.delegation(store.delegations_since("", repo="r"))
+    assert len(rows) == 1 and rows[0]["kind"] == "explore" and rows[0]["heard"] == 1
+    assert "idle_samples" not in rows[0] and "reentry_samples" not in rows[0]
+    from .test_standards import finished
+
+    finished(store, ("haiku/medium", True), kind="explore")
+    report = analysis.compute(store, days=0, repo="r")
+    assert report["delegation"][0]["kind"] == "explore"
+    assert "delegation explore: heard 1" in analysis.text(report)

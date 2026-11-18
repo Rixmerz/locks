@@ -12,6 +12,12 @@
   context, never instructions. A trial per repository and nature of work (`locks.read_handoff`,
   `briefed.read_handoff_arm`, `with`/`without`, the count as `read_handoff`), judged on first tries and
   calls before the first change, shown by `locks stats`; the `read_handoff` setting, on by default.
+- **Resident workers** (`locks.resident`, the `resident` setting, on by default): a task outside a workflow
+  run whose role's last worker in the repository passed within `resident.WITHIN_S`, on the same model, with
+  room left in its context (`trunks.MAX_TOKENS`), starts its first try as a fork of that worker's session,
+  told it is a new worker on a new task, its brief after. Tried fork against fresh per repository
+  (`briefed.resident_arm`, judged as the trunk's trial), `attempt_started.forked_from`, and `locks stats`
+  shows both arms. Never a resume, a race, a run in the checkout, an internal role or the verifier.
 
 ## [0.111.2] - 2026-11-15
 

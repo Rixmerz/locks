@@ -59,6 +59,7 @@ from locks import (
     project,
     racing,
     repo,
+    resident,
     revisions,
     roles,
     runtime,
@@ -1588,6 +1589,25 @@ def run(
             say(f"locks: #{task['id']} " + (f"forks step {trunk.get('step')!r}'s session (#{trunk.get('task')}) "
                                              f"on its first try: {trunked['trunk_why']}" if forking is not None
                                              else trunked["trunk_why"]))
+        # A task outside a workflow run whose role's last worker here passed a moment ago starts as a
+        # fork of that worker's session (`locks.resident`): forked or fresh by its trial, kept either way.
+        if forking is None and not options.trunk and resident.enabled() and workspace is not None \
+                and not resumed and not store.attempts(task["id"]) and not task.get("workflow_run") \
+                and the_plan.race is None and the_plan.role is not None and role_name not in roles.INTERNAL:
+            prior = resident.source(store, key, role_name, task["id"], the_plan.start.model)
+            if prior is not None:
+                held_tokens = trunks.context_tokens(prior["session"])
+                if held_tokens is not None and held_tokens > trunks.MAX_TOKENS:
+                    trunked = {resident.WHY: f"starts fresh, not as a fork of #{prior['task']}: its context held "
+                                             f"{held_tokens} tokens, over {trunks.MAX_TOKENS}"}
+                else:
+                    arm, arm_why = resident.arm(store, key, task["id"])
+                    trunked = {resident.KEY: arm, resident.WHY: arm_why, "resident_task": prior["task"]}
+                    if arm == "fork":
+                        forking = dict(prior)
+                say(f"locks: #{task['id']} " + (f"forks the session of #{prior['task']}, the last {role_name} worker "
+                                                 f"here, on its first try: {trunked[resident.WHY]}"
+                                                 if forking is not None else trunked[resident.WHY]))
         # A worker handed a neighbour whose measurement its work owes (`locks.evidence`): held to it or
         # free by the trial, kept either way so the arms can be compared.
         evidenced: dict[str, Any] = {}
@@ -1846,8 +1866,11 @@ def run(
                 fork_session=bool(branch) or fork,
                 # A fork of the trunk is told it is a new worker, and its role: its system prompt is
                 # the trunk's record. Its brief follows.
-                resume_prompt=(trunks.note(branch, role=role_text, capabilities=hints, workdir=workdir,
-                                           base=workspace.base if workspace else None) if branch
+                resume_prompt=(resident.note(branch, capabilities=hints, workdir=workdir,
+                                             base=workspace.base if workspace else None)
+                               if branch and branch.get("resident")
+                               else trunks.note(branch, role=role_text, capabilities=hints, workdir=workdir,
+                                                base=workspace.base if workspace else None) if branch
                                else launch.DEEPER_PROMPT if fork
                                else _reshape_prompt([*history, *attempts], base_commit)
                                if decision is not None and decision.reshape
@@ -1875,7 +1898,9 @@ def run(
                                 "skills": list(briefing.skills)} if briefing else {}),
                             **({"resumed": resume} if resume else {}), **({"fresh": fresh} if fresh else {}),
                             **({"after_death": True} if resume and interrupted and decision is None else {}),
-                            **({"forked_trunk": {k: branch.get(k) for k in ("task", "step", "session")}}
+                            **({"forked_from": branch.get("task"), "forked_session": branch.get("session")}
+                               if branch and branch.get("resident") else
+                               {"forked_trunk": {k: branch.get(k) for k in ("task", "step", "session")}}
                                if branch else {}))
             if resume and interrupted and decision is None:
                 say(f"locks: #{task['id']} attempt {nth} goes on in the session of the attempt whose worker died "

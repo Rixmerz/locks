@@ -147,6 +147,12 @@
       "description": "A workflow step that names a reading step before it as its trunk (a plan, an exploration) starts as a fork of that step's session instead of reading the code again: its role reaches it as its first message after the fork, and the trunk's part is served by the prompt cache to every step that forks it. Each repository alternates forked and fresh first tries until each side has 10, then keeps forking only where it won (first tries no worse, fewer calls before the first change or less time). Off: every step starts fresh.",
       "default": true
     },
+    "resident": {
+      "type": "boolean",
+      "title": "Tasks fork the last worker of their role",
+      "description": "A task outside a workflow whose role's last worker in this repository passed within the hour, on the same model, starts as a fork of that worker's session instead of reading the code cold, told it is a new worker on a new task. Each repository alternates forked and fresh first tries until each side has 10, then keeps forking only where it won. Off: every task starts fresh.",
+      "default": true
+    },
     "overlap": {
       "type": "boolean",
       "title": "Run the independent check beside locks' check",

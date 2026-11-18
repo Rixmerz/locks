@@ -25,7 +25,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from locks import behavior, launch, racing, revisions, trunks, trust, usage, workflows
+from locks import behavior, launch, racing, resident, revisions, trunks, trust, usage, workflows
 from locks import cells as cells_mod
 from locks import critique as critique_mod
 from locks import dossier as dossier_mod
@@ -670,6 +670,9 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # Workflow steps that fork the reading step before them, against fresh ones (`locks.trunks`).
         "trunk": trunks.trial(store, repo),
         "trunk_now": trunks.arm(store, repo, 0)[1] if repo else None,
+        # Tasks whose first try forked the last passing worker of their role here (`locks.resident`).
+        "resident": resident.trial(store, repo),
+        "resident_now": resident.arm(store, repo, 0)[1] if repo else None,
         "role_revisions": revisions.overview(store, repo),
         # Whether workers handed livespec used it, and how their attempts went: observed, not a trial.
         "livespec_use": capability_use(store.capability_use("livespec", since=since, repo=repo)),
@@ -977,6 +980,18 @@ def text(report: Mapping[str, Any]) -> str:
                              f"{row['input_tokens_p50'] or '—'}  time p50 {f'{took}s' if took is not None else '—'}")
             if report.get("trunk_now"):
                 lines.append(f"  now: {report['trunk_now']}")
+        res = report.get("resident") or {}
+        if any(row["tasks"] for row in res.values()):
+            lines += ["", "tasks that fork the last worker of their role here (the resident trial; first tries):"]
+            for arm, row in res.items():
+                rate = row["passed_first"] / row["tasks"] if row["tasks"] else None
+                calls = row["calls_before_edit_p50"]
+                took = row["duration_p50_s"]
+                lines.append(f"  {arm:<11} tasks {row['tasks']:>4}  first {_rate(rate):>4}  calls before the first "
+                             f"change p50 {calls if calls is not None else '—'}  input p50 "
+                             f"{row['input_tokens_p50'] or '—'}  time p50 {f'{took}s' if took is not None else '—'}")
+            if report.get("resident_now"):
+                lines.append(f"  now: {report['resident_now']}")
         if report.get("role_revisions"):
             lines += ["", "the roles' lessons here (a revision on trial, its arms' first tries, and its history):"]
             lines += ["  " + line for line in revisions.text(report["role_revisions"], lessons=False)]

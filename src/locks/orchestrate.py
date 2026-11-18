@@ -59,6 +59,7 @@ from locks import (
     project,
     racing,
     repo,
+    resident,
     revisions,
     roles,
     runtime,
@@ -82,6 +83,7 @@ from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import points as points_mod
 from locks import predict as predict_mod
+from locks import read_handoff as read_handoff_mod
 from locks import risk as risk_mod
 from locks import services as services_mod
 from locks import specs as specs_mod
@@ -1503,6 +1505,12 @@ def run(
         # does not start from the task's text alone.
         from_session, got = _session_context(task, text)
         context += from_session
+        # The files that session already read, unchanged since: handed or withheld by their trial
+        # (`locks.read_handoff`), kept either way so the arms can be compared.
+        handed_reads = _read_handoff(store, task, key, repo_dir, the_plan.kind)
+        if handed_reads.pop("_lines", None) is not None and handed_reads.get(read_handoff_mod.KEY) == "with":
+            context += handed_reads.pop("_text")
+        handed_reads.pop("_text", None)
         launch_dir = options.launch_dir.resolve() if options.launch_dir else workdir
 
         # Strict, as the prompt hook: a task's text shares a word or two with
@@ -1581,6 +1589,25 @@ def run(
             say(f"locks: #{task['id']} " + (f"forks step {trunk.get('step')!r}'s session (#{trunk.get('task')}) "
                                              f"on its first try: {trunked['trunk_why']}" if forking is not None
                                              else trunked["trunk_why"]))
+        # A task outside a workflow run whose role's last worker here passed a moment ago starts as a
+        # fork of that worker's session (`locks.resident`): forked or fresh by its trial, kept either way.
+        if forking is None and not options.trunk and resident.enabled() and workspace is not None \
+                and not resumed and not store.attempts(task["id"]) and not task.get("workflow_run") \
+                and the_plan.race is None and the_plan.role is not None and role_name not in roles.INTERNAL:
+            prior = resident.source(store, key, role_name, task["id"], the_plan.start.model)
+            if prior is not None:
+                held_tokens = trunks.context_tokens(prior["session"])
+                if held_tokens is not None and held_tokens > trunks.MAX_TOKENS:
+                    trunked = {resident.WHY: f"starts fresh, not as a fork of #{prior['task']}: its context held "
+                                             f"{held_tokens} tokens, over {trunks.MAX_TOKENS}"}
+                else:
+                    arm, arm_why = resident.arm(store, key, task["id"])
+                    trunked = {resident.KEY: arm, resident.WHY: arm_why, "resident_task": prior["task"]}
+                    if arm == "fork":
+                        forking = dict(prior)
+                say(f"locks: #{task['id']} " + (f"forks the session of #{prior['task']}, the last {role_name} worker "
+                                                 f"here, on its first try: {trunked[resident.WHY]}"
+                                                 if forking is not None else trunked[resident.WHY]))
         # A worker handed a neighbour whose measurement its work owes (`locks.evidence`): held to it or
         # free by the trial, kept either way so the arms can be compared.
         evidenced: dict[str, Any] = {}
@@ -1632,7 +1659,7 @@ def run(
                         # dossier says why (absent, stale, unreadable), never left to guess.
                         **({"neighbours": {st.name: st.state + (f": {clip(st.detail, 160)}" if st.detail else "")
                                            for st in the_plan.neighbours}} if the_plan.neighbours else {}),
-                        **primed, **worn, **trunked, **evidenced,
+                        **primed, **handed_reads, **worn, **trunked, **evidenced,
                         **methodical, **critiqued, **(the_plan.recalled or {}),
                         **({notes.BRIEFED: [int(n["id"]) for n in the_plan.notes]} if the_plan.notes else {}),
                         **({notes.WITHHELD: list(the_plan.withheld)} if the_plan.withheld else {}))
@@ -1839,8 +1866,11 @@ def run(
                 fork_session=bool(branch) or fork,
                 # A fork of the trunk is told it is a new worker, and its role: its system prompt is
                 # the trunk's record. Its brief follows.
-                resume_prompt=(trunks.note(branch, role=role_text, capabilities=hints, workdir=workdir,
-                                           base=workspace.base if workspace else None) if branch
+                resume_prompt=(resident.note(branch, capabilities=hints, workdir=workdir,
+                                             base=workspace.base if workspace else None)
+                               if branch and branch.get("resident")
+                               else trunks.note(branch, role=role_text, capabilities=hints, workdir=workdir,
+                                                base=workspace.base if workspace else None) if branch
                                else launch.DEEPER_PROMPT if fork
                                else _reshape_prompt([*history, *attempts], base_commit)
                                if decision is not None and decision.reshape
@@ -1868,7 +1898,9 @@ def run(
                                 "skills": list(briefing.skills)} if briefing else {}),
                             **({"resumed": resume} if resume else {}), **({"fresh": fresh} if fresh else {}),
                             **({"after_death": True} if resume and interrupted and decision is None else {}),
-                            **({"forked_trunk": {k: branch.get(k) for k in ("task", "step", "session")}}
+                            **({"forked_from": branch.get("task"), "forked_session": branch.get("session")}
+                               if branch and branch.get("resident") else
+                               {"forked_trunk": {k: branch.get(k) for k in ("task", "step", "session")}}
                                if branch else {}))
             if resume and interrupted and decision is None:
                 say(f"locks: #{task['id']} attempt {nth} goes on in the session of the attempt whose worker died "
@@ -3187,6 +3219,29 @@ def _session_context(task: Mapping[str, object], text: str) -> tuple[list[str], 
     except (OSError, ValueError, KeyError, TypeError):
         return [], None
     return lines, (got if lines else None)
+
+
+def _read_handoff(store: Store, task: Mapping[str, object], repo: str | None, repo_dir: Path,
+                  kind: str) -> dict[str, Any]:
+    """The `briefed` fields of the read handoff's trial (`locks.read_handoff`), and under `_text` the
+    brief section the `with` arm carries; nothing when the setting is off or no file qualifies.
+    Reading it never fails the run."""
+    session_id = str(task.get("session_id") or "")
+    if not session_id or not read_handoff_mod.enabled() or not config.enabled("scribe", os.environ) \
+            or '"investigation"' in str(task.get("options") or ""):
+        return {}
+    from locks import scribe
+
+    try:
+        lines, count = scribe.read_handoff(scribe.load(home(), session_id), repo_dir)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    if not lines:
+        return {}
+    nature = read_handoff_mod.nature_of(kind)
+    arm, why = read_handoff_mod.arm_for(store, repo, int(task["id"]), nature)
+    return {read_handoff_mod.KEY: arm, read_handoff_mod.WHY_KEY: why, read_handoff_mod.NATURE_KEY: nature,
+            read_handoff_mod.COUNT_KEY: count if arm == "with" else 0, "_lines": count, "_text": lines}
 
 
 def _twins(store: Store, task: Mapping[str, object], repo_dir: Path) -> list[int]:

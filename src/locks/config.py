@@ -83,6 +83,9 @@ DEFAULTS: dict[str, Any] = {
     # that step's session, its role given as its first message there (`locks.trunks`); each
     # repository alternates forked and fresh first tries and keeps forking where it won.
     "trunk": True,
+    # A task outside a workflow whose role's last worker here passed within `resident.WITHIN_S` starts
+    # as a fork of that worker's session (`locks.resident`), tried fork against fresh per repository.
+    "resident": True,
     # The independent check starts beside locks' own check, not after it: it reads the same
     # diff, a failed check stops it, and it is told not to run the check itself (`orchestrate.Ahead`).
     "overlap": True,
@@ -123,6 +126,10 @@ DEFAULTS: dict[str, Any] = {
     # the dossier or none in turns, and it stays only where its arm passed first tries no less often and
     # no slower (`locks.dossier`). Off: the dossier is always briefed.
     "dossier_trial": True,
+    # A task a session sent is told which files that session already read, still unchanged, in its
+    # repository: tried per repository and nature of work against its absence (`locks.read_handoff`)
+    # and kept only where it won. Off: no brief names them.
+    "read_handoff": True,
     # A habit newly found in a project is reviewed by a read-only worker (its tool here, a
     # command scoped to the edited file, timed): its ending lists the install line for the
     # orchestrator to put to the person. Installing stays theirs (`locks habits install`).

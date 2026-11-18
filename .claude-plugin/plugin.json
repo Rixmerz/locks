@@ -147,6 +147,12 @@
       "description": "A workflow step that names a reading step before it as its trunk (a plan, an exploration) starts as a fork of that step's session instead of reading the code again: its role reaches it as its first message after the fork, and the trunk's part is served by the prompt cache to every step that forks it. Each repository alternates forked and fresh first tries until each side has 10, then keeps forking only where it won (first tries no worse, fewer calls before the first change or less time). Off: every step starts fresh.",
       "default": true
     },
+    "resident": {
+      "type": "boolean",
+      "title": "Tasks fork the last worker of their role",
+      "description": "A task outside a workflow whose role's last worker in this repository passed within the hour, on the same model, starts as a fork of that worker's session instead of reading the code cold, told it is a new worker on a new task. Each repository alternates forked and fresh first tries until each side has 10, then keeps forking only where it won. Off: every task starts fresh.",
+      "default": true
+    },
     "overlap": {
       "type": "boolean",
       "title": "Run the independent check beside locks' check",
@@ -259,6 +265,12 @@
       "type": "boolean",
       "title": "Try livespec's answers in a brief against their absence",
       "description": "Where a repository has a livespec index, locks asks it and puts the answers in a worker's brief. Each repository tries that in turns against a brief without them, for reading and for writing work apart, and keeps them only where the briefs that carried them passed their first tries no less often and no slower. Off: the answers are always briefed.",
+      "default": true
+    },
+    "read_handoff": {
+      "type": "boolean",
+      "title": "Hand a worker the files its session already read",
+      "description": "A task a session sends is told which files that session already read and that are unchanged since, so its worker need not search for them. Each repository tries that in turns against a brief without them and keeps it only where its first tries passed no worse and reached the first change in fewer calls. Off: no brief names them.",
       "default": true
     }
   },

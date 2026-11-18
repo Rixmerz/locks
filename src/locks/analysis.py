@@ -25,7 +25,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from locks import behavior, launch, racing, revisions, trunks, trust, usage, workflows
+from locks import behavior, launch, racing, resident, revisions, trunks, trust, usage, workflows
 from locks import cells as cells_mod
 from locks import critique as critique_mod
 from locks import dossier as dossier_mod
@@ -33,6 +33,7 @@ from locks import evidence as evidence_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import predict as predict_mod
+from locks import read_handoff as read_handoff_mod
 from locks import route as route_mod
 from locks.store import Store
 
@@ -701,6 +702,9 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # Workflow steps that fork the reading step before them, against fresh ones (`locks.trunks`).
         "trunk": trunks.trial(store, repo),
         "trunk_now": trunks.arm(store, repo, 0)[1] if repo else None,
+        # Tasks whose first try forked the last passing worker of their role here (`locks.resident`).
+        "resident": resident.trial(store, repo),
+        "resident_now": resident.arm(store, repo, 0)[1] if repo else None,
         "role_revisions": revisions.overview(store, repo),
         # Whether workers handed livespec used it, and how their attempts went: observed, not a trial.
         "livespec_use": capability_use(store.capability_use("livespec", since=since, repo=repo)),
@@ -710,6 +714,10 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # (`locks.dossier`), and where each stands now.
         "dossier": {n: dossier_mod.trial(store, repo, n) for n in dossier_mod.NATURES},
         "dossier_now": {n: dossier_mod.arm(store, repo, 0, n)[1] for n in dossier_mod.NATURES} if repo else {},
+        # Whether naming the files the sending session already read helps (`locks.read_handoff`).
+        "read_handoff": {n: read_handoff_mod.trial(store, repo, n) for n in read_handoff_mod.NATURES},
+        "read_handoff_now": {n: read_handoff_mod.arm(store, repo, 0, n)[1]
+                             for n in read_handoff_mod.NATURES} if repo else {},
         # Whether racing a first try paid, per repository and kind (`locks.racing`): its own window.
         "races": racing.table(store, repo),
         # What each blind review of a two-review ledger added that no other saw (`workflows.reviewer_yield`).
@@ -966,6 +974,18 @@ def text(report: Mapping[str, Any]) -> str:
             if (report.get("dossier_now") or {}).get(nature):
                 lines.append(f"  now: {report['dossier_now'][nature]}")
             lines.append("")
+        for nature, arms in (report.get("read_handoff") or {}).items():
+            if not any(row["tasks"] for row in arms.values()):
+                continue
+            lines.append(f"files the session already read, in the brief, {nature} work "
+                         "(its trial; first tries, calls before the first change):")
+            for arm, row in arms.items():
+                calls = row["calls_before_edit_p50"] if row["calls_before_edit_p50"] is not None else "-"
+                lines.append(f"  {arm + ' them':<12} tasks {row['tasks']:>4}  first tries {row['passed']}/"
+                             f"{row['tries']} ({_rate(row['rate'])})  calls before first change p50 {calls}")
+            if (report.get("read_handoff_now") or {}).get(nature):
+                lines.append(f"  now: {report['read_handoff_now'][nature]}")
+            lines.append("")
         if rows := report.get("livespec_tokens"):
             lines.append("tokens per run by kind, livespec called against not called (observed, not a trial):")
             lines += [_tokens_line(r) for r in rows]
@@ -1010,6 +1030,18 @@ def text(report: Mapping[str, Any]) -> str:
                              f"{row['input_tokens_p50'] or '—'}  time p50 {f'{took}s' if took is not None else '—'}")
             if report.get("trunk_now"):
                 lines.append(f"  now: {report['trunk_now']}")
+        res = report.get("resident") or {}
+        if any(row["tasks"] for row in res.values()):
+            lines += ["", "tasks that fork the last worker of their role here (the resident trial; first tries):"]
+            for arm, row in res.items():
+                rate = row["passed_first"] / row["tasks"] if row["tasks"] else None
+                calls = row["calls_before_edit_p50"]
+                took = row["duration_p50_s"]
+                lines.append(f"  {arm:<11} tasks {row['tasks']:>4}  first {_rate(rate):>4}  calls before the first "
+                             f"change p50 {calls if calls is not None else '—'}  input p50 "
+                             f"{row['input_tokens_p50'] or '—'}  time p50 {f'{took}s' if took is not None else '—'}")
+            if report.get("resident_now"):
+                lines.append(f"  now: {report['resident_now']}")
         if report.get("role_revisions"):
             lines += ["", "the roles' lessons here (a revision on trial, its arms' first tries, and its history):"]
             lines += ["  " + line for line in revisions.text(report["role_revisions"], lessons=False)]

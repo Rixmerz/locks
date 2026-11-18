@@ -18,6 +18,18 @@
   `route.EVIDENCE_CHARS`) when it advises a worker, the `routed` event keeps `evidence_shown`, and
   `locks stats`' route lines say how often evidence was shown and work sent after it.
   `commands/orchestration.md` tells the session to run it instead of judging from its own sense.
+- A task a session sent is told which files that session already read with its own tools and that are
+  unchanged since (`scribe.read_handoff`: path, when and a bounded hash kept per session as
+  `files_read`), within its repository and `scribe.READ_HANDOFF_CHARS`, the rest said by count; as
+  context, never instructions. A trial per repository and nature of work (`locks.read_handoff`,
+  `briefed.read_handoff_arm`, `with`/`without`, the count as `read_handoff`), judged on first tries and
+  calls before the first change, shown by `locks stats`; the `read_handoff` setting, on by default.
+- **Resident workers** (`locks.resident`, the `resident` setting, on by default): a task outside a workflow
+  run whose role's last worker in the repository passed within `resident.WITHIN_S`, on the same model, with
+  room left in its context (`trunks.MAX_TOKENS`), starts its first try as a fork of that worker's session,
+  told it is a new worker on a new task, its brief after. Tried fork against fresh per repository
+  (`briefed.resident_arm`, judged as the trunk's trial), `attempt_started.forked_from`, and `locks stats`
+  shows both arms. Never a resume, a race, a run in the checkout, an internal role or the verifier.
 
 ## [0.111.2] - 2026-11-15
 

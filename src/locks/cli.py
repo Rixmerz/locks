@@ -2024,6 +2024,27 @@ def cmd_survey(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    """`locks check`: the session's own change, checked by locks with no worker (`locks.self_check`)."""
+    from locks import self_check
+
+    if os.environ.get("LOCKS_WORKER_TASK"):
+        print("locks: a worker does not run `locks check`: its work is checked by locks", file=sys.stderr)
+        return 2
+    store = Store.open()
+    try:
+        out = self_check.run(store, Path.cwd(), args.request, verify=args.verify, base=args.base,
+                             kind=args.kind, model=args.model, session_id=os.environ.get("LOCKS_SESSION_ID"),
+                             say=lambda line: print(line, file=sys.stderr))
+    except self_check.NothingToCheck as exc:
+        print(f"locks: nothing to check: {exc}", file=sys.stderr)
+        return self_check.EXIT_NOTHING
+    finally:
+        store.close()
+    print(json.dumps(out.card(), indent=2) if args.json else self_check.text(out))
+    return self_check.EXIT_PASS if out.passed else self_check.EXIT_BLOCKED
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     """Where locks' time and money go, read from the store: no model."""
     from datetime import UTC, datetime, timedelta
@@ -3376,6 +3397,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", type=int)
     p.add_argument("--stat", action="store_true", help="only the files and their lines")
     p.set_defaults(func=cmd_peek)
+
+    p = sub.add_parser("check", help="validate work the session did itself: locks' check and the independent "
+                       "verifier on the checkout's own diff, no worker")
+    p.add_argument("--request", required=True, help="what the change was asked to do, verbatim")
+    p.add_argument("--verify", help="the check command locks runs on the change")
+    p.add_argument("--base", help="the commit the change is read against (default: HEAD with uncommitted "
+                   "changes, else where HEAD left the trunk)")
+    p.add_argument("--kind", help="the kind of work (default: classified from --request)")
+    p.add_argument("--model", help="the model the independent check runs on (at high effort)")
+    p.add_argument("--json", action="store_true", help="the verdict card as JSON")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("show", help="one task: its attempts and its messages")
     p.add_argument("id", type=int)

@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `locks check --request "<text>" [--verify CMD] [--base REV]`: work the session did itself, validated with no
+  worker. locks snapshots the checkout's diff as a commit no ref holds, and in a temporary worktree runs its own check
+  (base comparison and flake rerun as for a worker) and the independent verifier, blind and read-only. The task is
+  recorded with `options.self_check` (planned, `self_checked`, `verified`, `finished`), passes as `done` or stops
+  as `review`; `locks stats` counts it and `locks coverage` names it.
+
 ## [0.111.2] - 2026-11-15
 
 ### Fixed

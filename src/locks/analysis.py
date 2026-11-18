@@ -485,6 +485,33 @@ def reviews_unread(store: Store, task_ids: set[int], *, since: str | None = None
             "verifier": found[("verifier", False)], "verifier_again": found[("verifier", True)]}
 
 
+def self_checks(store: Store, *, since: str | None = None, repo: str | None = None) -> dict[str, Any]:
+    """The session's own work checked by `locks check` (tasks whose options hold `self_check`): how many
+    ended, how many passed, and what their independent checks cost. Observed, never a rule's input."""
+    query = ("SELECT status, cost_usd FROM tasks WHERE source = 'check' AND options LIKE '%\"self_check\": true%' "
+             "AND status != 'running'")
+    params: list[Any] = []
+    if since:
+        query += " AND created_at >= ?"
+        params.append(since)
+    if repo is not None:
+        query += " AND repo = ?"
+        params.append(repo)
+    rows = store._conn.execute(query, params).fetchall()
+    n = len(rows)
+    passed = sum(1 for r in rows if r["status"] == "done")
+    return {"n": n, "passed": passed, "pass_rate": passed / n if n else None,
+            "cost_usd": round(sum(float(r["cost_usd"] or 0) for r in rows), 4)}
+
+
+def self_check_lines(row: Mapping[str, Any]) -> list[str]:
+    """`locks stats`' line of `locks check`; none while none ran."""
+    if not row or not row.get("n"):
+        return []
+    return ["", f"self-checks (`locks check`, the session's own work): {row['n']}, passed {row['passed']} "
+            f"({_rate(row['pass_rate'])}), independent checks ${row['cost_usd']:.2f}"]
+
+
 def unread_lines(held: Mapping[str, int]) -> list[str]:
     """`locks stats`' line of the reviews held back as unread; none while none was."""
     if not any(held.values()):
@@ -691,6 +718,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "behavior": behavior.table(events, {r["task"]: r["kind"] for r in found}),
         # The reviews held back for reporting no finding and reading nothing (observed, never a verdict).
         "reviews_unread": reviews_unread(store, {r["task"] for r in found}, since=since),
+        # Work the session did itself, checked by `locks check` (`locks.self_check`): count and pass rate.
+        "self_checks": self_checks(store, since=since, repo=repo),
         # The notes briefs carried and the ones workers said they relied on (observed, never a verdict).
         "notes_used": notes_relied_on(events, {r["task"] for r in found}),
         # Each route's advice and whether the session sent locks work after it (observed, issue #124).
@@ -1006,6 +1035,7 @@ def text(report: Mapping[str, Any]) -> str:
                                 if row.get("unlogged") else ""))
         lines += behavior_lines(report.get("behavior") or {})
         lines += unread_lines(report.get("reviews_unread") or {})
+        lines += self_check_lines(report.get("self_checks") or {})
         for mode, row in (report.get("routing") or {}).items():
             lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "
                          f"{row['sent']} ({_rate(row['sent_rate'])}) (observed)")

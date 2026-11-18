@@ -26,6 +26,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/survey.py` | what this machine says about how the person works (`locks survey`): every Claude Code session it kept (requests, shapes, friction, errors and the call that passed after them) and each repository's commit history; read only, no model |
 | `src/locks/investigate.py` | `locks investigate`: one read-only worker per project (and per plugin to take on), each in its own lane, wearing the internal `surveyor` role, briefed with the deep survey; their `locks-report` blocks kept on the tasks, nothing filed |
 | `src/locks/insights.py` | what the person's projects say about the teams they need (`locks team insights`): kinds asked and how each went, languages, checks, the team each uses; read only, no model |
+| `src/locks/self_check.py` | `locks check`: work the session did itself, checked with no worker: its diff snapshot as an unreferenced commit, locks' check and the blind read-only verifier in a temporary worktree (always removed), the task kept with `options.self_check` (a contract), `done` or a `review` stop; never writes the person's checkout |
 | `src/locks/criteria.py` | a request's listed items as criteria `S1..Sn`, verbatim; a pass answers each |
 | `src/locks/findings.py` | findings as records: where, what, `evidence_class`, `cause`; which block a change |
 | `src/locks/ledger.py` | a review's findings as one frozen ledger `F1..Fn`: who decides each row (refuter, fix, re-check), two rounds, then the person |

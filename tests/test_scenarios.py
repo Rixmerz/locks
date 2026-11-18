@@ -516,3 +516,18 @@ def test_thirty_tasks_in_one_repository_keep_their_reports_short_and_their_memor
     finally:
         store.close()
     world.healthy()
+
+
+def test_a_session_s_own_change_is_checked_with_no_worker_and_the_checkout_is_left_alone(world):
+    world.setenv("LOCKS_VERIFIER", "on")
+    world.script([])
+    (world.repo / "app.py").write_text("print('hello')\n")
+    before = git(world.repo, "status", "--porcelain")
+    out = world.locks("check", "--request", "change the greeting to hello", "--kind", "implement",
+                      "--verify", "true", "--json")
+    card = json.loads(out)
+    assert card["self_check"] is True and card["check"]["passed"]
+    assert card["verifier"]["ran"] and world.calls(checks=True) and not world.calls()
+    assert git(world.repo, "status", "--porcelain") == before
+    assert git(world.repo, "worktree", "list").count("\n") == 0
+    world.healthy()

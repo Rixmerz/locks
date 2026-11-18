@@ -420,3 +420,19 @@ def test_the_review_a_run_held_back_as_unread_is_what_stats_reads_back(store):
     report = analysis.compute(store, days=0)
     assert report["reviews_unread"] == {"worker": 1, "worker_again": 1, "verifier": 1, "verifier_again": 0}
     assert "workers held 1 (1 unread again), independent checks run again 1 (0 unread twice)" in analysis.text(report)
+
+
+def test_a_self_check_s_option_is_what_stats_and_coverage_read_back(git_repo, store, no_verifier):
+    """`self_check.run` writes `options.self_check` (a contract other code reads: work the session did
+    itself); `analysis.self_checks` and the coverage feature count tasks by it alone."""
+    from locks import analysis, coverage, self_check
+    from locks.classify import Classification
+
+    (git_repo / "app.py").write_text("print('changed')\n")
+    out = self_check.run(store, git_repo, "change the greeting", verify="true",
+                         classifier=lambda _t: Classification("implement"))
+    options = json.loads(store.get_task(out.task_id)["options"])
+    assert options["self_check"] is True
+    assert analysis.self_checks(store)["n"] == 1
+    feature = next(f for f in coverage.FEATURES if f.name == "self-check")
+    assert feature.how == "option" and feature.source == ("self_check",)

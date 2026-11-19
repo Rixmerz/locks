@@ -152,3 +152,16 @@ def test_stats_says_the_trial_drew_no_arm_yet(git_repo, store):
     out = analysis.text({**analysis.compute(store, days=30, repo=None),
                          "read_handoff": {"write": {"with": {"tasks": 0}, "without": {"tasks": 0}}}})
     assert "no brief drew an arm yet" in out
+
+
+def test_stats_shows_what_failing_attempts_cost_by_kind_and_cell(git_repo, store):
+    from locks import analysis
+    from locks.launch import Failure
+
+    bug = WorkerResult(False, Failure.CODE_BUG, "wrong", "pytest: 1 failed", cost_usd=0.5)
+    run("Add a line to notes.txt", git_repo, store, registry={}, classifier=kind("implement"),
+        launcher=Script(bug, WorkerResult(True, None, "ok", "pytest: 1 passed")))
+    report = analysis.compute(store, days=30, repo=None)
+    failing = [r for r in report["kind_cells"] if r["attempts"] > r["passed"]]
+    assert failing and failing[0]["kind"] == "implement" and failing[0]["failed_cost_usd"] == 0.5
+    assert "costliest failing first" in analysis.text(report)

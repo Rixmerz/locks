@@ -2326,7 +2326,8 @@ def run(
                           role=role_name)
             reading = not writes or (declared_read_only and not any(a.changed for a in attempts))
             decision = decide(the_plan.ladder, attempts, allow_approval=options.allow_approval, reading=reading,
-                              several=_several(the_plan, options, task), skips=_skips(store, key, the_plan.kind))
+                              several=_several(the_plan, options, task, attempts),
+                              skips=_skips(store, key, the_plan.kind))
             resume, fresh = _continues(decision, session)
             store.set_move(task["id"], seq, decision.move.value, decision.reason)
             to = decision.cell.label if decision.cell and decision.continues else None
@@ -2980,14 +2981,27 @@ def _refused_here(store: Store, key: str | None, granted: Sequence[str], mode: s
 SPLIT_POINTS = 8
 
 
-def _several(the_plan: Plan, options: Options, task: Mapping[str, Any]) -> str:
-    """Why the plan sized this task as several workers' work, or "": a build of
-    `SPLIT_POINTS` or more that the session did not send `--whole`, outside a workflow run
-    (a step's parts are its plan's) and never a reading kind."""
+#: An attempt that ran out of turns having changed this many files or more showed itself
+#: several pieces, whatever the plan sized it (#200: features of 100+ turns climbed to
+#: opus/xhigh, where a third of them passed, instead of being split).
+SPLIT_FILES = 8
+
+
+def _several(the_plan: Plan, options: Options, task: Mapping[str, Any],
+             attempts: Sequence[Attempt] = ()) -> str:
+    """Why this task is several workers' work, or "": a build the plan sized at `SPLIT_POINTS`
+    or more, or whose last attempt ran out of turns having changed `SPLIT_FILES` files or more,
+    that the session did not send `--whole`, outside a workflow run (a step's parts are its
+    plan's) and never a reading kind."""
     if (options.whole or task.get("workflow_run") or the_plan.kind in READ_ONLY_KINDS or options.parts
-            or options.integrate or options.ledger or the_plan.points.points < SPLIT_POINTS):
+            or options.integrate or options.ledger):
         return ""
-    return f"{the_plan.points.points} points: " + ", ".join(the_plan.points.reasons[:3])
+    if the_plan.points.points >= SPLIT_POINTS:
+        return f"{the_plan.points.points} points: " + ", ".join(the_plan.points.reasons[:3])
+    last = attempts[-1] if attempts else None
+    if last and last.failure is Failure.TURNS_EXHAUSTED and len(last.changed) >= SPLIT_FILES:
+        return f"its attempt changed {len(last.changed)} files before it ran out of turns"
+    return ""
 
 
 def _limit_extra(store: Store, attempt: Attempt) -> dict[str, Any]:

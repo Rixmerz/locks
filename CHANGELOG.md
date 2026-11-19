@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.113.0] - 2026-11-19
+
+### Changed
+
+- A request that points to a section of a document ("implement phase 3 of docs/PLAN.md", "fase 2", a quoted
+  heading) is sized by that section's list items, not by its own one line (`locks.pointed`): the plan counts them
+  as criteria, and with `SPLIT_ITEMS` or more it is split before any worker starts, its pieces the section's items.
+  Such requests had sized small and run as one worker for 100+ turns (#200).
+- A build whose attempt ran out of turns having changed `orchestrate.SPLIT_FILES` (8) files or more stops as
+  `split`, whatever the plan sized it, instead of climbing to more turns, more effort or a bigger model: the safety
+  net for what no estimate saw. On one machine such features climbed to opus/xhigh, where 17 of 57 attempts passed
+  and the rest cost $90 (#200).
+
+### Added
+
+- `locks stats` shows the attempts of each kind and cell, costliest failing first: how many passed and what the
+  ones that did not cost (`analysis.kind_cells`). Before, only `/locks:insight` showed it (#200).
+
 ## [0.112.1] - 2026-11-19
 
 ### Fixed

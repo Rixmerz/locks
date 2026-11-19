@@ -217,7 +217,7 @@ def _split_first(args: argparse.Namespace, text: str) -> int | None:
         return None
     from locks import route
 
-    why = route.split_first(text, args.kind)
+    why = route.split_first(text, args.kind, where=getattr(args, "repo", None) or os.getcwd())
     if why is None:
         if kept := route.kept_whole(text, args.kind):
             print(f"locks: not split: {kept}; it is one task", file=sys.stderr)

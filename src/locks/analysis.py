@@ -556,6 +556,34 @@ def cells(events: Sequence[Mapping[str, Any]], task_ids: set[int]) -> list[dict[
     return sorted(out, key=lambda row: -row["attempts"])
 
 
+#: How many (kind, cell) rows `locks stats` shows; the rest said by count.
+KIND_CELLS_SHOWN = 8
+
+
+def kind_cells(events: Sequence[Mapping[str, Any]], kinds: Mapping[int, str]) -> list[dict[str, Any]]:
+    """Every attempt by its task's kind and the cell it ran at: how many passed, and what the
+    ones that did not pass cost (their own cost, the independent check's apart), costliest
+    first (#200: the spend on failing attempts per cell, which only an audit showed)."""
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for e in events:
+        task = int(e["task_id"])
+        if e["kind"] != "attempt_finished" or task not in kinds:
+            continue
+        data = e["data"] or {}
+        key = (kinds[task] or "—", str(data.get("cell") or "—"))
+        row = rows.setdefault(key, {"kind": key[0], "cell": key[1], "attempts": 0, "passed": 0,
+                                    "failed_cost_usd": 0.0})
+        row["attempts"] += 1
+        if data.get("passed"):
+            row["passed"] += 1
+        else:
+            row["failed_cost_usd"] += _split(data, 0.0)[0]
+    for row in rows.values():
+        row["failed_cost_usd"] = round(row["failed_cost_usd"], 2)
+        row["pass_rate"] = _share(row["passed"], row["attempts"])
+    return sorted(rows.values(), key=lambda r: (-r["failed_cost_usd"], -r["attempts"]))
+
+
 #: The moves whose next attempt may go on in the last one's session.
 CONTINUING_MOVES = ("more_effort", "more_turns")
 
@@ -761,6 +789,7 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "by_source": _grouped(found, "source"),
         "by_workflow": _grouped([r for r in found if r["workflow"]], "workflow"),
         "cells": cells(events, {r["task"] for r in found}), "context": context(found),
+        "kind_cells": kind_cells(events, {r["task"]: r["kind"] for r in found}),
         "continuations": continuations(events, {r["task"] for r in found}),
         "stops": dict(stops.most_common()), "moves": dict(moves.most_common()),
         "turns": {k: v for k, v in turn_rows.items() if k != "by_day"},
@@ -1073,6 +1102,13 @@ def text(report: Mapping[str, Any]) -> str:
             lines.append(f"  {row['kind']:<16} runs {row['runs']:>4}  pass {_rate(row['pass_rate']):>4}  first "
                          f"{_rate(row['first_try_rate']):>4}  p50 {_seconds(row['wall_p50_s']):>6}  per pass "
                          f"{_usd(row['cost_per_pass_usd'])}")
+        if rows := [r for r in report.get("kind_cells") or [] if r["attempts"] > r["passed"]][:KIND_CELLS_SHOWN]:
+            lines += ["", "attempts by kind and cell, costliest failing first (spent on attempts that did not pass):"]
+            for row in rows:
+                lines.append(f"  {row['kind']:<16} {row['cell']:<14} attempts {row['attempts']:>4}  passed "
+                             f"{row['passed']:>4} ({_rate(row['pass_rate'])})  failing {_usd(row['failed_cost_usd'])}")
+            if (more := sum(1 for r in report["kind_cells"] if r["attempts"] > r["passed"]) - len(rows)) > 0:
+                lines.append(f"  … {more} more")
         if report["context"]:
             lines += ["", "the session's thread in the brief (runs a session sent):"]
             for row in report["context"]:

@@ -34,7 +34,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/tracer.py` | the TRACER method of a repository that keeps one (`docs/tracer/`): the method's files in a writing brief, and the CORRECT lines of the flows a request names, the anti-pattern catalogue and, with a measuring neighbour, each floor and anti-pattern beside the tool that measures it in the independent check's; read only |
 | `src/locks/method.py` | TRACER as the way a project is built (`locks method tracer on`, the store's meta): the phase it is in, read from what `docs/tracer/` holds, and the bundled workflow of each phase (`tracer-contract`, `-spec`, `-empathy`, `-design`, `-slices`, `-slice`); a slice's Definition of Ready read from its files (`unready`, a step's `ready: tracer`); the expectations slices' verifiers found no spec covered (`record`); read only, no model |
 | `src/locks/risk.py` | a change's tier (passive, medium, high) from its request, kind and files; only raised; no model |
-| `src/locks/points.py` | a task's size on the Fibonacci scale, no model: the estimate when it is planned (criteria, kind, risk and its areas, files named, livespec's reach, length) and the realized size when it ends (files, lines, turns, wall time, attempts) |
+| `src/locks/points.py` | a task's size on the Fibonacci scale, no model: the estimate when it is planned (criteria, kind, risk and its areas, files named, livespec's reach, length; a document section the request points to, `locks.pointed`, counts its list items as criteria) and the realized size when it ends (files, lines, turns, wall time, attempts) |
 | `src/locks/standards.py` | where a repository's tasks of each kind and size start, as measured: a standard per points band, the calibration's two rules, each change's verdict and its revert; recorded, never edited |
 | `src/locks/evolution.py` | the evolution history: a snapshot a day per repository and kind, the report (`locks evolution`, the UI's Evolution), and `settle`, which the hooks and the dispatcher run after work ends |
 | `src/locks/surfaces.py` | where a task may write (`--surface`, a step's `surfaces`): checked after each attempt, and whether two tasks can never touch the same file |
@@ -1299,7 +1299,7 @@ yields the default kind, not a guess.
   the review reads the request and the diff as the verifier would, and the plan says so.
 - A build (`feature`, `implement`) that lists `route.SPLIT_ITEMS` items or more (in `SPLIT_WORDS`
   words or more), is the
-  largest size, or names `PARALLEL_PIECES` pieces in folders of their own is several
+  largest size, points to a document section listing `SPLIT_ITEMS` items (`pointed.section`: "phase 3 of docs/PLAN.md"; its items are the pieces), or names `PARALLEL_PIECES` pieces in folders of their own is several
   tasks (`route.split_first`, pure): with `autosplit` (on by default) `locks run` and `locks queue
   add` split it and queue its pieces as `locks split --queue` does (`cli._split_and_queue`); off,
   or when no piece is proposed, they start nothing and exit `EXIT_SPLIT` with how to split it.

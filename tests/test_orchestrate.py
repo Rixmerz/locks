@@ -2319,6 +2319,23 @@ def test_a_task_of_several_pieces_that_outgrows_its_turns_stops_for_a_split_with
     assert again.status == "done"
 
 
+def test_an_attempt_that_changed_many_files_and_ran_out_of_turns_is_split_whatever_its_size(
+        git_repo, store, monkeypatch):
+    # #200: a build the plan sized small, whose attempt ran out of turns across many files, climbed
+    # to opus/xhigh instead of being split.
+    monkeypatch.setattr(orchestrate, "SPLIT_FILES", 2)
+    many = WorkerResult(False, Failure.TURNS_EXHAUSTED, "ran out", changed_paths=("a.py", "b.py"), cost_usd=0.1)
+    report = run("add the control", git_repo, store, registry={},
+                 launcher=Script(many, write="a.py"), classifier=kind("implement"))
+    assert report.status == "replan" and report.stop.cause == "split"
+    assert "changed 2 files" in report.stop.reason
+    # One file is room, not pieces: more turns, as before.
+    one = WorkerResult(False, Failure.TURNS_EXHAUSTED, "ran out", changed_paths=("a.py",), cost_usd=0.1)
+    again = run("add the other control", git_repo, store, registry={},
+                launcher=Script(one, ok()), classifier=kind("implement"))
+    assert again.status == "done"
+
+
 def test_a_writing_brief_names_the_tests_near_the_change_to_run_as_it_goes(tmp_path):
     (tmp_path / "package.json").write_text('{"scripts": {"test": "jest --coverage"}}')
     said = orchestrate.brief("add x", "implement", tmp_path, [], [], "npm test", True)

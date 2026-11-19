@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from locks import criteria, launch, points, route, surfaces
+from locks import criteria, launch, pointed, points, route, surfaces
 from locks.text import clip
 
 #: The most pieces a split proposes: past this, a feature workflow plans it.
@@ -119,15 +119,22 @@ def by_items(text: str, done: Sequence[str] = (), where: Path | None = None) -> 
     the work directory: a surface derived from an item is kept only when it exists there."""
     listed = criteria.items(text)
     items = route.pieces_of(text)
+    if len(items) < 2 and (found := pointed.section(text, where)) and len(found.items) >= 2:
+        # It points to a section that lists its work (#200): those items are the pieces, and the
+        # request is the head every piece carries.
+        listed, items = list(found.items), list(found.items)
+        head = " ".join(f"{text} (its items, from {found.doc} › {found.heading})".split())
+    else:
+        head = ""
     if len(items) < 2:
         return Proposal(problem="it lists fewer than two items")
-    if route.one_file(text, items):
+    if not head and route.one_file(text, items):
         return Proposal(problem=f"its {len(items)} listed items are all changes to one file or document: it "
                                 "is one task", source="whole")
     if len(items) > MAX_PIECES:
         return Proposal(problem=f"it lists {len(items)} items, more than {MAX_PIECES} pieces: plan it as a "
                                 "feature (`locks workflow run feature`), whose plan groups them")
-    head = _head(text, listed)
+    head = head or _head(text, listed)
     # rules the request lists (limits, tests, what not to do) are context for every piece
     if rules := [item for item in listed if route.is_rule(item)]:
         head = (head + "\n\n" if head else "") + "Rules of the whole request, for this piece too:\n" + "\n".join(

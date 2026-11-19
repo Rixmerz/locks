@@ -19,10 +19,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from locks import criteria as criteria_mod
+from locks import pointed
 from locks import points as points_mod
 from locks import risk as risk_mod
 from locks import text as text_mod
@@ -279,7 +280,7 @@ def kept_whole(text: str, kind: str | None = None) -> str | None:
     return None
 
 
-def split_first(text: str, kind: str | None = None) -> str | None:
+def split_first(text: str, kind: str | None = None, where: str | Path | None = None) -> str | None:
     """Why a request should be sent as several tasks before one worker starts it, or None:
     a build (`kind`, else read by rules, with no model) that lists `SPLIT_ITEMS` pieces or
     more in `SPLIT_WORDS` words or more, is the largest size, or lists `PARALLEL_PIECES`
@@ -294,11 +295,17 @@ def split_first(text: str, kind: str | None = None) -> str | None:
     if kind not in SPLIT_KINDS:
         return None
     items = pieces_of(text)
-    if one_module(items) or one_file(text, items):
+    # A request that lists nothing may point to a section that does (`pointed`, #200): its items count.
+    found = pointed.section(text, where) if len(items) < 2 and where is not None else None
+    if found:
+        items = list(found.items)
+    # The document a section came from is where the work is listed, never the one file it changes.
+    if one_module(items) or (not found and one_file(text, items)):
         return None
-    size = points_mod.of_request(text, kind, risk_mod.of_request(text, kind)).points
+    size = points_mod.of_request(text, kind, risk_mod.of_request(text, kind), where=where).points
     pieces = listed_pieces(text)
-    why = [f"{len(items)} listed items"] if len(items) >= SPLIT_ITEMS and len(text.split()) >= SPLIT_WORDS else []
+    why = [found.line()] if found and len(items) >= SPLIT_ITEMS else (
+        [f"{len(items)} listed items"] if len(items) >= SPLIT_ITEMS and len(text.split()) >= SPLIT_WORDS else [])
     if size >= max(points_mod.SCALE):
         why.append(f"{size} points")
     if pieces >= PARALLEL_PIECES:

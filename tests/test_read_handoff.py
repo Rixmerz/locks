@@ -121,3 +121,34 @@ def test_stats_shows_the_trial(git_repo, store):
               "read_handoff_now": {"write": "the read handoff's trial: here"}}
     out = analysis.text({**analysis.compute(store, days=30, repo=None), **report})
     assert "files the session already read" in out and "now: the read handoff's trial" in out
+
+
+def test_bash_reads_name_the_files_a_reading_program_opens():
+    assert scribe.bash_reads("cat a.py") == ["a.py"]
+    assert scribe.bash_reads("sed -n 1,20p src/x.py") == ["src/x.py"]
+    assert scribe.bash_reads("cd /r && head -n 5 b.py | grep x") == ["/r/b.py"]
+    assert scribe.bash_reads("sed -e s/a/b/ f.txt") == ["f.txt"]
+    # Not a reader, a glob, a substitution, or sed writing in place: nothing.
+    for command in ("grep x y", "cat *.py", "cat $(ls)", "sed -i s/a/b/ f.txt", "cat a > b"):
+        assert scribe.bash_reads(command) == []
+
+
+def test_the_scribe_keeps_the_files_a_session_read_through_its_shell(git_repo, tmp_path):
+    (git_repo / "a.py").write_text("a = 1\n")
+    entries = [user("look", git_repo),
+               assistant([tool("b1", "Bash", command=f"cd {git_repo} && sed -n 1,5p a.py missing.py")]),
+               result("b1", "a = 1")]
+    path = write(tmp_path / "claude-config", f"-{git_repo.name}", "s1", entries)
+    state = scribe.update(home(), "s1", path)
+    # A file that is not there was no read.
+    assert list(state["files_read"]) == [str(git_repo / "a.py")]
+
+
+def test_stats_says_the_trial_drew_no_arm_yet(git_repo, store):
+    from locks import analysis
+
+    run("Add a line to notes.txt", git_repo, store, registry={}, classifier=kind("implement"),
+        launcher=Script(WorkerResult(True, None, "ok", "pytest: 1 passed")))
+    out = analysis.text({**analysis.compute(store, days=30, repo=None),
+                         "read_handoff": {"write": {"with": {"tasks": 0}, "without": {"tasks": 0}}}})
+    assert "no brief drew an arm yet" in out

@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.112.1] - 2026-11-19
+
+### Fixed
+
+- The read handoff named no file in practice: the scribe counted only the `Read` tool, while sessions read
+  mostly through their shell. A `cat`, `sed -n`, `head`, `tail`, `nl` or `wc` of a file that exists is now
+  a read (`scribe.bash_reads`; never a glob, a substitution, a redirection or `sed -i`) (#198).
+- `locks stats` says the read-handoff trial drew no arm yet, and the count of impossible tool times left
+  out even at 0, so "did not happen" reads apart from "not recorded" (#198).
+- A dated evolution test read its example through a 30-day window that today left behind.
+
 ## [0.112.0] - 2026-11-18
 
 ### Added

@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
@@ -218,6 +219,10 @@ def _absorb(state: dict[str, Any], entry: Mapping[str, Any]) -> None:
             result = compact._result_text(block)
             if name in FILE_READERS and not block.get("is_error") and what and len(what) < 400:
                 _mark_read(state, what, stamp)
+            elif name == "Bash" and not block.get("is_error"):
+                for target in bash_reads(what):
+                    if file_hash(_absolute(state, target)):
+                        _mark_read(state, target, stamp)
             if name in READ_TOOLS:
                 read = state.setdefault("read", {"chars": 0, "calls": 0, "last_chars": 0, "last_calls": 0})
                 read["chars"] = read.get("chars", 0) + len(result)
@@ -239,6 +244,56 @@ def _absorb(state: dict[str, Any], entry: Mapping[str, Any]) -> None:
                 state["recovered"].append({"command": key, "error": open_["error"], "tries": open_["tries"],
                                            "passed_with": compact._clip(what, compact.COMMAND_CHARS),
                                            "ts": stamp})
+
+
+#: Programs whose file operands a session reads whole or in part when it reads through its shell.
+SHELL_READERS = frozenset({"cat", "head", "tail", "sed", "nl", "less", "more", "bat", "wc"})
+#: Their options that take a value as the next word (`head -n 20 f`, `sed -e s/a/b/ f`).
+_VALUED = {"head": {"-n", "-c"}, "tail": {"-n", "-c"}, "sed": {"-e", "-f"}, "nl": {"-b", "-w", "-s"}}
+
+
+def bash_reads(command: str) -> list[str]:
+    """The files a shell command reads with a reading program (`cat`, `sed -n`, `head`, `tail` …):
+    each `&&` or `;` clause read up to its first pipe, a leading `cd DIR` followed, every operand that
+    is no option, no glob, no redirection and no substitution. Nothing for what cannot be told."""
+    if len(command) > 400 or any(c in command for c in "`$<>(){}\n"):
+        return []
+    found: list[str] = []
+    where = ""
+    for clause in re.split(r"&&|;", command):
+        clause = clause.split("|", 1)[0].strip()
+        try:
+            words = shlex.split(clause)
+        except ValueError:
+            return found
+        if not words:
+            continue
+        if words[0] == "cd" and len(words) == 2:
+            where = words[1] if os.path.isabs(words[1]) else os.path.join(where, words[1])
+            continue
+        program, args = os.path.basename(words[0]), words[1:]
+        if program not in SHELL_READERS:
+            continue
+        if program == "sed" and any(w.startswith("-i") or w == "--in-place" for w in args):
+            continue  # sed -i writes the file
+        valued = _VALUED.get(program, set())
+        # sed's first operand is its script, unless -e or -f gave it one.
+        script = program == "sed" and not {"-e", "-f"} & set(args)
+        skip = False
+        for word in args:
+            if skip:
+                skip = False
+                continue
+            if word in valued:
+                skip = True
+                continue
+            if word.startswith("-") or any(c in word for c in "*?[]~"):
+                continue
+            if script:
+                script = False
+                continue
+            found.append(os.path.join(where, word) if where else word)
+    return found
 
 
 def _absolute(state: Mapping[str, Any], target: str) -> str:

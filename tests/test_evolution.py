@@ -199,7 +199,7 @@ def test_the_evolution_screen_reads_and_never_writes(store: Store):
     counts = lambda: [store._conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]  # noqa: E731
                       for t in ("calibrations", "calibration_verdicts", "evolution", "meta")]
     seen = counts()
-    view = api.evolution_view(store, days=30, repo_key=MECHA)
+    view = api.evolution_view(store, days=3650, repo_key=MECHA)  # the example is dated, not today
     assert view["changes"][0]["repo"] == MECHA and counts() == seen
 
 

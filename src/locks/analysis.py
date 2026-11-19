@@ -1048,6 +1048,10 @@ def text(report: Mapping[str, Any]) -> str:
             if (report.get("dossier_now") or {}).get(nature):
                 lines.append(f"  now: {report['dossier_now'][nature]}")
             lines.append("")
+        if report.get("read_handoff") is not None and not any(
+                row["tasks"] for arms in report["read_handoff"].values() for row in arms.values()):
+            # Said even at zero: a trial that never drew an arm is told apart from one not recorded.
+            lines += ["files the session already read, in the brief (its trial): no brief drew an arm yet", ""]
         for nature, arms in (report.get("read_handoff") or {}).items():
             if not any(row["tasks"] for row in arms.values()):
                 continue
@@ -1218,9 +1222,8 @@ def text(report: Mapping[str, Any]) -> str:
             for row in report["tool_time"]:
                 lines.append(f"  {row['sig'][:40]:<40} calls {row['calls']:>5}  {_seconds(row['ms'] / 1000):>7}  "
                              f"longest {_seconds(row['longest_ms'] / 1000)}")
-            if report.get("tool_time_impossible"):
-                lines.append(f"  ({report['tool_time_impossible']} call(s) left out: each timed longer than its "
-                             "whole attempt ran, a machine that slept)")
+            lines.append(f"  ({report.get('tool_time_impossible') or 0} call(s) left out: each timed longer than "
+                         "its whole attempt ran, a machine that slept)")
         if report.get("climbs"):
             lines += ["", "climbs by rung (observed: each climb of a ladder, and whether the attempt it started "
                       "passed):"]

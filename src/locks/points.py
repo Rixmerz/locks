@@ -18,8 +18,10 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from locks import criteria as criteria_mod
+from locks import pointed
 from locks import risk as risk_mod
 
 SCALE = (1, 2, 3, 5, 8, 13)
@@ -147,10 +149,17 @@ def named(text: str, surfaces: Sequence[str] = ()) -> list[str]:
 
 
 def of_request(text: str, kind: str, risk: risk_mod.Risk, *, surfaces: Sequence[str] = (),
-               reached: int | None = None) -> Score:
-    """The estimate a plan makes of its request."""
-    return estimate(criteria=len(criteria_mod.items(text)), kind=kind, tier=risk.tier, areas=risk_mod.areas(risk),
-                    named=len(named(text, surfaces)), reached=reached, chars=len(text), sweep=sweeping(text))
+               reached: int | None = None, where: str | Path | None = None) -> Score:
+    """The estimate a plan makes of its request. With `where`, the work directory, the items of a
+    document section the request points to count as its criteria (`pointed.section`, #200)."""
+    own = len(criteria_mod.items(text))
+    found = pointed.section(text, where) if where is not None and own < 2 else None
+    score = estimate(criteria=len(found.items) if found else own, kind=kind, tier=risk.tier,
+                     areas=risk_mod.areas(risk), named=len(named(text, surfaces)), reached=reached,
+                     chars=len(text), sweep=sweeping(text))
+    if found and score.reasons and score.reasons[0] == f"{len(found.items)} criteria":
+        score = Score(score.points, (found.line(), *score.reasons[1:]))
+    return score
 
 
 def realized(*, files: int, lines: int | None, turns: int, minutes: float | None, attempts: int) -> Score:

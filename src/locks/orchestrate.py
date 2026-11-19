@@ -740,7 +740,7 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
     role, why = roles.pick(kind, members, repo_dir)
     neighbour_notes += team_notes
     risk = risk_mod.of_request(text, kind)
-    size = points_mod.of_request(text, kind, risk, surfaces=options.surfaces, reached=reached)
+    size = points_mod.of_request(text, kind, risk, surfaces=options.surfaces, reached=reached, where=repo_dir)
     size = points_mod.corrected(size, kind, *standards.size_ratio(store, repo.key(repo_dir), kind))
     if role is not None:
         missing = [s for s in (*role.skills, *role.on_demand) if roles.find_skill(s) is None]

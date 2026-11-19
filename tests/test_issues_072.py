@@ -80,7 +80,8 @@ def test_from_ninety_percent_compaction_is_now_whatever_holds_it_back():
 def test_a_request_that_leans_on_the_conversation_stays_with_the_session():
     chosen = route.choose("hotfix the null check in the order handler during the incident",
                           context_tokens=150_000, footprint=(270_000, 20))
-    assert chosen.mode == route.MAIN and "leans on this conversation" in chosen.reasons[0]
+    assert chosen.mode == route.FORK and "leans on this conversation" in chosen.reasons[0]
+    assert "--fork-session" in chosen.advice()
 
 
 def test_a_resume_hears_its_instruction_and_the_notes_filed_since(store: Store):
@@ -117,7 +118,8 @@ def test_routing_counts_how_often_the_session_sent_work_after_each_advice(store:
     store.create_task("do it", status="queued", source="locks", repo="r", cwd="/tmp", session_id="s1")
     rows = store.routed_followed(repo="r")
     assert rows and rows[0]["mode"] == "worker" and rows[0]["sent"]
-    assert analysis.routing(rows)["worker"] == {"advised": 1, "sent": 1, "sent_rate": 1.0}
+    assert analysis.routing(rows)["worker"] == {
+        "advised": 1, "sent": 1, "evidence_shown": 0, "sent_with_evidence": 0, "sent_rate": 1.0}
 
 
 def test_a_note_workers_relied_on_takes_a_recalled_place_from_one_never_named(store: Store):

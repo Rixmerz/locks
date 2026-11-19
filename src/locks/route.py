@@ -25,10 +25,14 @@ from typing import Any
 from locks import criteria as criteria_mod
 from locks import points as points_mod
 from locks import risk as risk_mod
+from locks import text as text_mod
 from locks.classify import asks_for_change, by_rules, opens_with_change
 from locks.matrix import READ_ONLY_KINDS
 
 MAIN, WORKER, PARALLEL = "main", "worker", "parallel"
+#: Writing work that points back into the conversation: a fork of the session holds what it points to, and
+#: locks' check and verifier still read it (`locks run --fork-session`, `locks.host_fork`).
+FORK = "fork"
 #: At this size or under, the session does it: a worker's plan and cold start cost more than the work.
 MAIN_POINTS = 2
 #: At this size or over, or touching `PARALLEL_AREAS` areas or more, the work runs in parts.
@@ -117,6 +121,10 @@ _CONVERSATION = re.compile(
     re.IGNORECASE)
 
 
+#: An opening that orders a change the rules of `classify` do not read as one ("apply this…", "hotfix…").
+_ORDER = re.compile(r"^\W*(?:apply|aplica\w*|hot ?fix\w*|fix|arregla\w*|corrige|make|haz|do the same|use|usa)\b", re.I)
+
+
 def _sentence(text: str, at: int) -> str:
     start = max(text.rfind(mark, 0, at) for mark in ".!?\n")
     ends = [i for i in (text.find(mark, at) for mark in ".!?\n") if i >= 0]
@@ -181,6 +189,10 @@ class Route:
             return (f"locks route: a worker ({why}). Queue it (locks' `queue` tool, or `locks queue add`) with "
                     "the request written in full and its check, and go on here; do it yourself instead if it turns "
                     "out to need this conversation." + chain)
+        if self.mode == FORK:
+            return (f"locks route: a fork of this session ({why}). Send it with `locks queue add --fork-session "
+                    "\"<the request>\"` (or `locks run --fork-session`): its worker starts from this conversation, "
+                    "in its own worktree, and locks checks it as any task; do it yourself instead if it is a line.")
         if self.mode == PARALLEL:
             return (f"locks route: in parts, side by side ({why}). Run `locks workflow run feature \"<the request>\"` "
                     "(it splits by itself), or queue one task per independent piece, each with its own `--surface`, "
@@ -329,6 +341,48 @@ def read_advice(chars: int, calls: int, explore: Mapping[str, Any] | None = None
                    "and this session reads its report.")
 
 
+#: Below this many tasks a record is said with its count and called too few to read a rate from.
+EVIDENCE_MIN = 5
+#: The most an explanation adds to the prompt hook's advice.
+EVIDENCE_CHARS = 600
+
+
+def evidence_lines(record: Mapping[str, Any] | None) -> list[str]:
+    """The measured record of a kind here (`Store.route_evidence`), said as observed figures with their
+    counts: never a rule, and below `EVIDENCE_MIN` tasks said to be too few."""
+    if not record:
+        return []
+    kind = record.get("kind") or "?"
+    w, s = record.get("workers") or {}, record.get("session") or {}
+    out = []
+    tries = int(w.get("first_tries") or 0)
+    if not w.get("tasks"):
+        out.append(f"workers here: no ended {kind} task on record.")
+    else:
+        rate = (f"passed {w.get('passed_first', 0)} of {tries} first tries "
+                f"({w.get('passed_first', 0) / tries:.0%})" if tries else "no first try on record")
+        took = f", median {w['p50_s']:.0f}s to pass over {w.get('passes', 0)} pass(es)" \
+            if w.get("p50_s") is not None else ""
+        cost = f", median ${w['cost_p50']:.2f} a task" if w.get("cost_p50") is not None else ""
+        few = f" (only {w['tasks']} task(s): too few to read a rate from)" if w["tasks"] < EVIDENCE_MIN else ""
+        out.append(f"workers here, {kind} ({w['tasks']} ended task(s)): {rate}{took}{cost}{few} (observed).")
+    if not s.get("tasks"):
+        out.append("no record of the session's own work here.")
+    else:
+        n = int(s["tasks"])
+        took = f", median check {s['check_p50_s']:.0f}s" if s.get("check_p50_s") is not None else ""
+        few = f" (only {n}: too few to read a rate from)" if n < EVIDENCE_MIN else ""
+        out.append(f"the session's own {kind} work here, checked with `locks check`: {s.get('passed_first', 0)} of "
+                   f"{n} passed their first check ({s.get('passed_first', 0) / n:.0%}){took}{few} (observed).")
+    return out
+
+
+def explain_text(record: Mapping[str, Any] | None) -> str:
+    """The explanation the prompt hook appends to a worker's advice, bounded by `EVIDENCE_CHARS`."""
+    lines = evidence_lines(record)
+    return text_mod.clip("locks route evidence: " + " ".join(lines), EVIDENCE_CHARS, one_line=True) if lines else ""
+
+
 def choose(text: str, *, context_tokens: int | None = None, context_share: float | None = None,
            footprint: tuple[int, int] | None = None) -> Route:
     """The way to do a request, with its reasons. Pure: everything it weighs is the request's
@@ -366,11 +420,15 @@ def choose(text: str, *, context_tokens: int | None = None, context_share: float
         if pieces >= PARALLEL_PIECES:
             why.append(f"{pieces} listed pieces in separate folders")
         return Route(PARALLEL, tuple(why), **base)
+    # Writing work the conversation holds the meaning of: a fork of this session when it is an order to
+    # change, else the session's own (a remark that points back is a turn, not work).
+    way = FORK if opens_with_change(text) or _ORDER.match(text) else MAIN
     if (leans := _CONVERSATION.search(text)) and size.points <= MAIN_POINTS + 1:
-        return Route(MAIN, (f"it leans on this conversation (\"{leans.group(0)}\"), which a worker does not see",),
-                     **base)
+        return Route(way, (f"it leans on this conversation (\"{leans.group(0)}\"), which a fresh worker does not "
+                            "see and a fork of this session does", f"{size.points} points of {kind}"), **base)
     if _DEICTIC.search(text):
-        return Route(MAIN, ("it points back into this conversation, which a worker does not see",), **base)
+        return Route(way, ("it points back into this conversation, which a fresh worker does not see and a fork "
+                            "of this session does", f"{size.points} points of {kind}"), **base)
     if footprint and context_tokens:
         measured_tokens, measured_turns = footprint
         # Each turn re-reads its context: a worker's measured reading per turn against this session's.

@@ -287,6 +287,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         add_dirs=tuple(str(Path(d).expanduser().resolve()) for d in args.add_dir or ()),
         services=tuple(args.service or ()),
         whole=bool(getattr(args, "whole", False)),
+        host_fork=_host_fork(args),
         # What follows the ending (notes, the late independent check) goes on in a child: the command
         # returns at its ending.
         detach_after=True,
@@ -1230,8 +1231,35 @@ def cmd_events(args: argparse.Namespace) -> int:
 
 
 def cmd_route(args: argparse.Namespace) -> int:
+    if args.text == "explain":
+        return cmd_route_explain(args)
     args.dry_run, args.after = True, None
     return cmd_run(args)
+
+
+def cmd_route_explain(args: argparse.Namespace) -> int:
+    """`locks route explain "<request>"`: the measured record of the request's kind here, workers'
+    and the session's own checked work, as observed figures with their counts; never a rule."""
+    request = " ".join(getattr(args, "rest", None) or []).strip()
+    if request == "-":
+        request = sys.stdin.read().strip()
+    if not request:
+        print('usage: locks route explain "<request>"', file=sys.stderr)
+        return 2
+    from locks import route as route_mod
+
+    chosen = route_mod.choose(request)
+    kind = args.kind or chosen.kind or "implement"
+    store = Store.open()
+    try:
+        record = store.route_evidence(kind, _repo_key(args))
+    finally:
+        store.close()
+    print(f"kind: {kind}" + (f" (the route reads: {chosen.mode})" if chosen.kind else ""))
+    for line in route_mod.evidence_lines(record):
+        print(line)
+    print("Observed figures, never a rule: the session weighs them.")
+    return 0
 
 
 def cmd_classify(args: argparse.Namespace) -> int:
@@ -1852,6 +1880,20 @@ def _check_lines(check: dict) -> list[str]:
     return lines
 
 
+FORK_SESSION_HELP = ("start the task's first try as a fork of this session (work that points back into the "
+                     "conversation), in its own worktree, then locks' check, verifier and escalation as any; "
+                     "fresh, and said, when it cannot fork")
+
+
+def _host_fork(args: argparse.Namespace) -> dict | None:
+    """What `--fork-session` forks: the sending session's id, or why there is none (`host_fork.source`)."""
+    if not getattr(args, "fork_session", False):
+        return None
+    from locks import host_fork
+
+    return host_fork.source()
+
+
 def cmd_queue(args: argparse.Namespace) -> int:
     store = Store.open()
     try:
@@ -1869,7 +1911,8 @@ def cmd_queue(args: argparse.Namespace) -> int:
                                          "add_dirs": [str(Path(d).expanduser().resolve()) for d in args.add_dir]
                                          if args.add_dir else None,
                                          "services": args.service or None,
-                                         "whole": True if args.whole else None}.items() if v is not None}
+                                         "whole": True if args.whole else None,
+                                         "host_fork": _host_fork(args)}.items() if v is not None}
             if args.after is not None:
                 try:
                     options[after.KEY] = after.target_of(store, args.after)
@@ -2022,6 +2065,27 @@ def cmd_survey(args: argparse.Namespace) -> int:
         store.close()
     print(survey.as_json(found) if args.json else survey.text(found))
     return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """`locks check`: the session's own change, checked by locks with no worker (`locks.self_check`)."""
+    from locks import self_check
+
+    if os.environ.get("LOCKS_WORKER_TASK"):
+        print("locks: a worker does not run `locks check`: its work is checked by locks", file=sys.stderr)
+        return 2
+    store = Store.open()
+    try:
+        out = self_check.run(store, Path.cwd(), args.request, verify=args.verify, base=args.base,
+                             kind=args.kind, model=args.model, session_id=os.environ.get("LOCKS_SESSION_ID"),
+                             say=lambda line: print(line, file=sys.stderr))
+    except self_check.NothingToCheck as exc:
+        print(f"locks: nothing to check: {exc}", file=sys.stderr)
+        return self_check.EXIT_NOTHING
+    finally:
+        store.close()
+    print(json.dumps(out.card(), indent=2) if args.json else self_check.text(out))
+    return self_check.EXIT_PASS if out.passed else self_check.EXIT_BLOCKED
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
@@ -3166,6 +3230,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="queue it and start its lane's dispatcher instead of running it here; prints its "
                         "number, and its ending reaches the session that sent it")
     p.add_argument("--whole", action="store_true", help=WHOLE_HELP)
+    p.add_argument("--fork-session", action="store_true", help=FORK_SESSION_HELP)
     p.add_argument("--notify", action="append", metavar="SESSION", help=NOTIFY_HELP)
     p.set_defaults(func=cmd_run)
 
@@ -3195,8 +3260,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-report", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_resume)
 
-    p = sub.add_parser("route", help="show where a task would start and how it would climb")
+    p = sub.add_parser("route", help="show where a task would start and how it would climb; "
+                                     "`route explain \"<request>\"` says the measured record of its kind here")
     run_args(p)
+    p.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_route)
 
     p = sub.add_parser("classify", help="the kind of work a request is")
@@ -3237,6 +3304,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a server the task needs up, started before the work and stopped after (repeatable)")
     p.add_argument("--after", type=_after_ref, metavar="N", help=AFTER_HELP)
     p.add_argument("--whole", action="store_true", help=WHOLE_HELP)
+    p.add_argument("--fork-session", action="store_true", help=FORK_SESSION_HELP)
     p.add_argument("--notify", action="append", metavar="SESSION", help=NOTIFY_HELP)
     p.add_argument("--json", action="store_true", help="print the queued task as JSON")
     p.set_defaults(func=cmd_queue)
@@ -3376,6 +3444,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", type=int)
     p.add_argument("--stat", action="store_true", help="only the files and their lines")
     p.set_defaults(func=cmd_peek)
+
+    p = sub.add_parser("check", help="validate work the session did itself: locks' check and the independent "
+                       "verifier on the checkout's own diff, no worker")
+    p.add_argument("--request", required=True, help="what the change was asked to do, verbatim")
+    p.add_argument("--verify", help="the check command locks runs on the change")
+    p.add_argument("--base", help="the commit the change is read against (default: HEAD with uncommitted "
+                   "changes, else where HEAD left the trunk)")
+    p.add_argument("--kind", help="the kind of work (default: classified from --request)")
+    p.add_argument("--model", help="the model the independent check runs on (at high effort)")
+    p.add_argument("--json", action="store_true", help="the verdict card as JSON")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("show", help="one task: its attempts and its messages")
     p.add_argument("id", type=int)

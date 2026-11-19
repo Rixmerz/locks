@@ -26,6 +26,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/survey.py` | what this machine says about how the person works (`locks survey`): every Claude Code session it kept (requests, shapes, friction, errors and the call that passed after them) and each repository's commit history; read only, no model |
 | `src/locks/investigate.py` | `locks investigate`: one read-only worker per project (and per plugin to take on), each in its own lane, wearing the internal `surveyor` role, briefed with the deep survey; their `locks-report` blocks kept on the tasks, nothing filed |
 | `src/locks/insights.py` | what the person's projects say about the teams they need (`locks team insights`): kinds asked and how each went, languages, checks, the team each uses; read only, no model |
+| `src/locks/self_check.py` | `locks check`: work the session did itself, checked with no worker: its diff snapshot as an unreferenced commit, locks' check and the blind read-only verifier in a temporary worktree (always removed), the task kept with `options.self_check` (a contract), `done` or a `review` stop; never writes the person's checkout |
 | `src/locks/criteria.py` | a request's listed items as criteria `S1..Sn`, verbatim; a pass answers each |
 | `src/locks/findings.py` | findings as records: where, what, `evidence_class`, `cause`; which block a change |
 | `src/locks/ledger.py` | a review's findings as one frozen ledger `F1..Fn`: who decides each row (refuter, fix, re-check), two rounds, then the person |
@@ -45,7 +46,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/`, `scripts/demo.py` | the README's screenshots of `locks ui`, taken on demo data with generic project names: `scripts/demo.py DIR --shots` writes it with locks' own commands and the scenarios' fake `claude` (no money), spreads times and costs to a real worker's size, and takes them with Playwright |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `overlap`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `host_fork`, `overlap`, `resident`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `read_handoff`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -95,12 +96,15 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/naming.py` | Haiku names a session, started detached by the Stop hook; a name a person wrote is never replaced |
 | `src/locks/ui/` | `locks ui`: `api.py` turns the store into JSON (testable without a socket), `server.py` is the envelope and the routes, `static/` one ES module per screen, no build step; `svg.js` draws the workflow graphs and the project map node by node; `workers.js` the board's pixel-art workshop, one scene per running task from its phase and stage |
 | `src/locks/compact.py` | the facts of a session (requests verbatim, failed calls, changed files), written before a compaction and put back after it; no model call |
+| `src/locks/read_handoff.py` | the trial of naming, in a brief, the files the sending session already read and that are unchanged (`scribe.read_handoff`): `with`/`without` per repository and nature of work, judged on first tries and calls before the first change, pooled while short; no model |
 | `src/locks/scribe.py` | the scribe: at every turn's end, what a session's transcript gained (requests verbatim, corrections, files written, failed calls and the one that passed after), kept in the locks home; the thread a task the session sent gets in its brief, when the notes are due, and the relay to a fresh session; no model call |
 | `src/locks/analysis.py` | where locks' time and money go (`locks stats`, the UI's Analysis): runs from `planned` to `finished`, their timed phases (and the gaps before them: advance, pickup, spawn), attempts by cell, the session's thread in briefs, a session's own turns; read only, no model |
 | `src/locks/hooks.py` | Claude Code hooks: prompt ↔ task coupling, dead ends into context |
 | `src/locks/scripted.py` | whether a hook's session is a program's `claude -p` (print mode with `--json-schema`, a program's output format, or no terminal on its input), read from the nearest `claude` process above the hook (/proc on Linux, `ps` elsewhere, its terminal standing for its input's); stdlib, imports nothing of locks |
 | `src/locks/loops.py` | goals that run in rounds (`locks loop`): a definition, a diary and a state per loop in the person's locks home, each round a workflow run, the metric measured by locks, stops on evidence, strategies tried in arms; `loop_cli.py` is `locks loop …` and the detached `loop-runner` |
+| `src/locks/host_fork.py` | a task sent with `--fork-session` (work that points back into the conversation): its first try forks the session that sent it in its own worktree (the host's transcript copied into the worktree's Claude Code project folder for the attempt and removed after, `place`), its role as its first message (`note`), then locks' check, verifier and escalation as any; fresh, and said, with no session, no worktree, no transcript, a context over `MAX_TOKENS` or another model; the trial `host_fork_arm`; no model |
 | `src/locks/trunks.py` | a workflow step whose first try forks the session of a reading step before it (`trunk`): what it forks, the note that marks the role it takes from there, and the trial (`fork` against `fresh`) that keeps forking only where it paid; no model |
+| `src/locks/resident.py` | resident workers: a task outside a workflow whose role's last worker here passed within `WITHIN_S` on the same model forks that session on its first try (`source`, `note`), tried fork against fresh per repository (`resident_arm`, judged as the trunk's); no model |
 | `src/locks/workflows.py` | saved chains of tasks: definitions in three scopes (project, user, bundled `workflow_templates/`), runs the engine advances when a step passes, each step on the commit the one before kept; a step that fans out over a plan's parts, one that joins their branches, a large change's review by area; the bundled templates (`feature`, `feature-parallel`, `bugfix`, `review-fix`, `dual-review`, `panel`, `tracer-slice`, `design-review`: four blind readings of a design document, one lens each, then a refuter, no fix; `drift`: one read-only step comparing a folder's documents with the code); steps that choose (`when`), ask the person (`ask`) or run another workflow (`workflow`); the graph as Mermaid (`render`); a change refused on a stale revision (`expect`); `workflow_cli.py` is `locks workflow …` |
 | `hooks/locks.tsx` | the mod (function hooks), a thin layer over `bin/locks`: model tools, waking the session on endings, a status line, `/locks` opens the web board; `hooks/locks-cli.ts` its engine-free helpers, `types/index.d.ts` its state contract, `hooks/locks.test.tsx` its tests |
 | `src/locks/services.py` | the servers a task needs up (`--service 'cmd@port'`): started in the task's directory, waited for, stopped with their process group when the run ends |
@@ -1174,7 +1178,12 @@ yields the default kind, not a guess.
   locks home, secrets masked. Its failure never costs a turn its endings. A
   task a session sent gets the part of the thread it needs in its brief,
   verbatim and marked as context, never instructions (the task's text is what
-  to do); an investigation gets none, and reading it never fails a run.
+  to do); an investigation gets none, and reading it never fails a run. The files the session read
+  with its own tools (`scribe.FILE_READERS`, kept with a hash of their first `HASH_BYTES` and size,
+  dropped when the session writes them) are named in the brief when still unchanged and inside the
+  task's repository (`scribe.read_handoff`, bounded by `READ_HANDOFF_CHARS`, the rest by count), as
+  context; whether that helps is a trial (`locks.read_handoff`, the `read_handoff` setting,
+  `briefed.read_handoff_arm` and its count `read_handoff`). Tests run with `LOCKS_READ_HANDOFF=off`.
 - A relay is the person's (`locks relay`, `/locks:relay`): taken once, by the
   next session that starts (or is cleared) in the same place, never by a
   resume, and dropped after `scribe.RELAY_HOURS`. The work the old session
@@ -1350,12 +1359,22 @@ yields the default kind, not a guess.
   every decision as a `routed` event to be measured (`locks stats` says how often the session sent
   locks work after each advice, `Store.routed_followed`), and never costs the turn. A bug sent to a
   worker is also told of the `bugfix` workflow (`route.WORKFLOW_FOR`, the event's `workflow`). It is
-  advice: the session decides. A turn that read `route.READ_HEAVY_CHARS` or more of tool output
+  advice: the session decides. Writing work that points back into the conversation (`_DEICTIC`,
+  `_CONVERSATION`) and is an order to change is advised as a fork of the session (`route.FORK`:
+  `locks queue add --fork-session`), never left to the session unchecked; a remark that points back stays
+  the session's. A `--fork-session` task's first try forks the sending session (`locks.host_fork`) only
+  in a worktree, on the model that session ran on (`same_model`), with its transcript readable and its
+  context under `host_fork.MAX_TOKENS`; else it starts fresh and says why. The independent check is never
+  a fork, and a new model starts fresh. Whether forking pays is a trial (`host_fork` setting,
+  `briefed.host_fork_arm`, `locks.arms`); tests run with `LOCKS_HOST_FORK=off`. A turn that read `route.READ_HEAVY_CHARS` or more of tool output
   with the session's own tools (the scribe's count per turn, `scribe.READ_TOOLS`, `state["read"]`)
   is said at the next prompt beside the route's advice (`route.read_advice`): what it read stays in
   the context every later turn re-reads, and what an explore worker here passes at, in time and
   cost (`Store.kind_record`, observed); kept on the `routed` event (`read_chars`, `read_said`) and
-  measured the same way (`locks stats`, `heavy reads said`). The session's own reading is where
+  measured the same way (`locks stats`, `heavy reads said`). A worker's advice carries the kind's measured record here
+  (`route.explain_text`, `Store.route_evidence`: workers' first tries, time and cost, and the session's own
+  `self_check` work; counts said, too few below `EVIDENCE_MIN`), kept as `routed.evidence_shown`;
+  `locks route explain` says it on demand. The session's own reading is where
   its money goes (this session: locks' injections 0.2% of its text, its own tool output 57%). A question about the work (an opening of doubt,
   `route.asks`: could, should, what if, vale la pena… with a question mark,
   wherever it falls; an opening that asks for a preference needs none, `_ASKS_UNMARKED`)
@@ -1422,7 +1441,11 @@ yields the default kind, not a guess.
   branch since the base its `finished` event keeps, or other work here that passed after it
   started): it may be fixed already.
 - A worker never inherits the host's session id (`CLAUDE_CODE_SESSION_ID`),
-  and an attempt never keeps the host's session as its own.
+  and an attempt never keeps the host's session as its own. The one exception is explicit: a task
+  sent with `--fork-session` (`locks.host_fork`) has its first attempt run `claude -p --resume <the
+  sending session> --fork-session`, read from `LOCKS_SESSION_ID` or `CLAUDE_CODE_SESSION_ID` by the
+  command that sent it, never by the worker's environment; the fork's new session id is what the attempt
+  keeps, and the host's session is left as it was.
 - A problem is solved when the work it is about passes: a task whose attempts left a failed
   fix, in this run or an earlier one, closes its own problem when it passes, and its pass
   closes the open problems of its repository its own text matches strictly
@@ -1661,7 +1684,16 @@ yields the default kind, not a guess.
   each arm has `trunks.TRIAL`, then forking stays only where its first tries passed no worse
   than `MARGIN` below and reached their first change in fewer calls or finished sooner
   (`trunks.arm`, the `briefed` event's `trunk_arm`, `locks stats`); the `trunk` setting
-  turns it off, and tests run with `LOCKS_TRUNK=off`. `LOCKS_TRUNK_ARM=fork|fresh` forces the arm for one
+  turns it off, and tests run with `LOCKS_TRUNK=off`.
+- A task outside a workflow run may start as a fork of the last passing worker of its role in its repository
+  (`locks.resident`, the `resident` setting): passed within `resident.WITHIN_S`, its session kept, on the planned
+  start's model (`trunks.same_model`), its context under `trunks.MAX_TOKENS`, and only its first try, in a
+  worktree, never a resume, a race, a trunk step, an internal role or the verifier. The fork is told by its first
+  message that it is a new worker on a new task, where its directory is and its tools (`resident.note`), its
+  brief after; a session the CLI cannot find from the new worktree starts fresh and says why (`launch.run`'s
+  fallback). Tried fork against fresh per repository (`briefed.resident_arm`, `resident_why`, judged and pooled
+  as the trunk's trial), its first attempt's `attempt_started` keeps `forked_from`, and `locks stats` shows the
+  arms. Tests run with `LOCKS_RESIDENT=off`. `LOCKS_TRUNK_ARM=fork|fresh` forces the arm for one
   process (a benchmark's), and a forced step is left out of the trial.
 - A worker's answer is refused for its form only by what its result contract
   told it (`launch.RESULT_INSTRUCTIONS`, `PARTS_INSTRUCTIONS`): a check the
@@ -1847,6 +1879,10 @@ yields the default kind, not a guess.
   which split `queued_s` where they were measured; a phase
   a run never measured is left out of the breakdown, never guessed. The session
   thread comparison is observed, never presented as a trial.
+  What delegating costs the sending session (`analysis.delegation`) is read from records kept: the
+  wait from a task's creation to its first `reported` after its final `finished`, the share of it no
+  coupled turn of that session ran, and the usage of that session's messages from the delivery to the
+  end of the turn that took it; endings handed over together share it; what is unrecorded is left out.
 - Insights and the survey are read, never written, and never by a model: one
   project's tasks, habits, files, sessions and commits at a time; what crosses
   projects is counted (a session shape and the projects that show it), never

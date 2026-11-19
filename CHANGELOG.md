@@ -4,6 +4,47 @@
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-11-18
+
+### Added
+
+- `locks check --request "<text>" [--verify CMD] [--base REV]`: work the session did itself, validated with no
+  worker. locks snapshots the checkout's diff as a commit no ref holds, and in a temporary worktree runs its own check
+  (base comparison and flake rerun as for a worker) and the independent verifier, blind and read-only. The task is
+  recorded with `options.self_check` (planned, `self_checked`, `verified`, `finished`), passes as `done` or stops
+  as `review`; `locks stats` counts it and `locks coverage` names it.
+- `locks route explain "<request>"` says the measured record of the request's kind in this repository:
+  workers' first tries passed, median time to pass and median cost per task, and the session's own work
+  checked with `locks check` (options `self_check`), with sample counts and "too few" below
+  `route.EVIDENCE_MIN`; observed, never a rule. The prompt hook appends the same lines (bounded by
+  `route.EVIDENCE_CHARS`) when it advises a worker, the `routed` event keeps `evidence_shown`, and
+  `locks stats`' route lines say how often evidence was shown and work sent after it.
+  `commands/orchestration.md` tells the session to run it instead of judging from its own sense.
+- A task a session sent is told which files that session already read with its own tools and that are
+  unchanged since (`scribe.read_handoff`: path, when and a bounded hash kept per session as
+  `files_read`), within its repository and `scribe.READ_HANDOFF_CHARS`, the rest said by count; as
+  context, never instructions. A trial per repository and nature of work (`locks.read_handoff`,
+  `briefed.read_handoff_arm`, `with`/`without`, the count as `read_handoff`), judged on first tries and
+  calls before the first change, shown by `locks stats`; the `read_handoff` setting, on by default.
+- **Resident workers** (`locks.resident`, the `resident` setting, on by default): a task outside a workflow
+  run whose role's last worker in the repository passed within `resident.WITHIN_S`, on the same model, with
+  room left in its context (`trunks.MAX_TOKENS`), starts its first try as a fork of that worker's session,
+  told it is a new worker on a new task, its brief after. Tried fork against fresh per repository
+  (`briefed.resident_arm`, judged as the trunk's trial), `attempt_started.forked_from`, and `locks stats`
+  shows both arms. Never a resume, a race, a run in the checkout, an internal role or the verifier.
+- `locks run --fork-session` and `locks queue add --fork-session`: work that points back into the
+  conversation starts as a fork of the session that sent it (`locks.host_fork`), in its own worktree, its
+  role given as its first message, then goes through locks' check, the blind independent verifier and
+  escalation as any task; it starts fresh, and says why, with no session, no worktree, an unreadable
+  transcript, a context over 120k tokens or another model. Tried per repository against a fresh start
+  (`host_fork` setting, `briefed.host_fork_arm`). The router now advises such writing requests as a fork
+  (`route.FORK`) instead of leaving them to the session unchecked.
+- **What delegating costs the session that sent the work**: `locks stats` and the Analysis API's
+  `delegation` section say, per kind, the median wait from sending a task to hearing its ending (the
+  first `reported` event after its final `finished`), the share of it no turn of the session ran, and
+  the tokens and cost of the session's messages from the ending's delivery to the end of the turn that
+  took it (`analysis.delegation`, `Store.delegations_since`). Observed; what was not recorded is left out.
+
 ## [0.111.2] - 2026-11-15
 
 ### Fixed

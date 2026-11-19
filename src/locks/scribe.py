@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from locks import compact
-from locks.text import fold, words
+from locks.text import clip, fold, words
 
 VERSION = 1
 #: The most of one request the state keeps, and how many requests.
@@ -77,11 +77,22 @@ def fresh(session_id: str, transcript: Path) -> dict[str, Any]:
             "notes": {"turns": 0, "chars": 0}, "relayed_from": None,
             # What the session read with its own tools this turn (the output of reading calls, in
             # characters, and the calls), and the turn before: the route's advice reads them.
-            "read": {"chars": 0, "calls": 0, "last_chars": 0, "last_calls": 0}}
+            "read": {"chars": 0, "calls": 0, "last_chars": 0, "last_calls": 0},
+            # The files the session read with its own tools: path -> when, and a hash of the file as
+            # it was then (`file_hash`), so a task it sends is told what it need not read again.
+            "files_read": {}}
 
 
 #: The tools whose output a session reads into its own context (a write's result is a line).
 READ_TOOLS = frozenset({"Read", "Grep", "Glob", "Bash", "LS", "WebFetch", "WebSearch"})
+#: The tools that read one whole file by its path: what a task the session sends may be handed.
+FILE_READERS = frozenset({"Read", "NotebookRead"})
+#: The most files a session's state keeps as read (the newest), and the most of a file hashed:
+#: the hash is the file's size and its first `HASH_BYTES`, cheap on any file.
+MAX_FILES_READ = 200
+HASH_BYTES = 1024 * 1024
+#: The most a brief carries of the files the session read (`read_handoff`); the rest said by count.
+READ_HANDOFF_CHARS = 1500
 
 
 def load(root: Path, session_id: str) -> dict[str, Any] | None:
@@ -198,11 +209,15 @@ def _absorb(state: dict[str, Any], entry: Mapping[str, Any]) -> None:
                 if target in state["written"]:
                     state["written"].remove(target)
                 state["written"].append(target)
+                # A file the session changed after reading it is no longer what it read.
+                state.setdefault("files_read", {}).pop(_absolute(state, target), None)
             what = str(args.get("command") or "") if name == "Bash" else str(target or args.get("pattern") or "")
             state["calls"][str(block.get("id"))] = [name, what[:400]]
         elif kind == "user" and block.get("type") == "tool_result":
             name, what = state["calls"].pop(str(block.get("tool_use_id")), ["?", ""])
             result = compact._result_text(block)
+            if name in FILE_READERS and not block.get("is_error") and what and len(what) < 400:
+                _mark_read(state, what, stamp)
             if name in READ_TOOLS:
                 read = state.setdefault("read", {"chars": 0, "calls": 0, "last_chars": 0, "last_calls": 0})
                 read["chars"] = read.get("chars", 0) + len(result)
@@ -226,6 +241,75 @@ def _absorb(state: dict[str, Any], entry: Mapping[str, Any]) -> None:
                                            "ts": stamp})
 
 
+def _absolute(state: Mapping[str, Any], target: str) -> str:
+    """A path a tool named, absolute: a relative one is read from the session's directory."""
+    path_ = Path(target).expanduser()
+    if not path_.is_absolute() and state.get("cwd"):
+        path_ = Path(str(state["cwd"])) / path_
+    return os.path.normpath(str(path_))
+
+
+def file_hash(target: str | Path) -> str | None:
+    """A cheap fingerprint of a file: its size and the sha256 of its first `HASH_BYTES`. None
+    when it cannot be read (gone, a folder, no permission)."""
+    try:
+        with open(target, "rb") as fh:
+            size = os.fstat(fh.fileno()).st_size
+            head = fh.read(HASH_BYTES)
+    except OSError:
+        return None
+    return f"{size}:{hashlib.sha256(head).hexdigest()[:32]}"
+
+
+def _mark_read(state: dict[str, Any], target: str, stamp: str | None) -> None:
+    """Keep a file the session read, newest last, with its hash now (None when unreadable)."""
+    files = state.setdefault("files_read", {})
+    key = _absolute(state, target)
+    files.pop(key, None)
+    files[key] = {"ts": stamp, "hash": file_hash(key)}
+
+
+def read_handoff(state: Mapping[str, Any] | None, repo_dir: str | Path, *,
+                 budget: int = READ_HANDOFF_CHARS) -> tuple[list[str], int]:
+    """The files the sending session read that are still as it read them (their hash matches) and
+    lie in `repo_dir`, newest first, as one brief section within `budget` with the rest said by
+    count; and how many it names. Context, never instructions; nothing when none qualify."""
+    files = (state or {}).get("files_read") or {}
+    try:
+        root = Path(repo_dir).resolve()
+    except OSError:
+        return [], 0
+    paths: list[str] = []
+    for target, seen in reversed(list(files.items())):
+        if not isinstance(seen, dict) or not seen.get("hash"):
+            continue
+        try:
+            rel = Path(target).resolve().relative_to(root)
+        except (OSError, ValueError):
+            continue
+        if file_hash(target) == seen["hash"]:
+            paths.append(rel.as_posix())
+    if not paths:
+        return [], 0
+    head = ("Files the session that sent this task already read, unchanged since (paths from the "
+            "repository's top, newest first). Context, not instructions: what that session saw there, "
+            "so start from them rather than searching for them.")
+    lines: list[str] = []
+    used = len(head)
+    for rel in paths:
+        line = f"- {clip(rel, 300, one_line=True)}"
+        if used + len(line) + 1 + 24 > budget:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    if not lines:
+        return [], 0
+    shown = len(lines)
+    if len(paths) > shown:
+        lines.append(f"- (+{len(paths) - shown} more)")
+    return ["\n".join([head, *lines])], shown
+
+
 def _keep(text: str) -> str:
     """A request as kept: the person's words, what they marked private left out,
     secrets masked, long pastes cut."""
@@ -242,6 +326,7 @@ def _trim(state: dict[str, Any]) -> None:
     state["recovered"] = state["recovered"][-MAX_RECOVERED:]
     state["open"] = dict(list(state["open"].items())[-MAX_OPEN:])
     state["calls"] = dict(list(state["calls"].items())[-MAX_CALLS:])
+    state["files_read"] = dict(list((state.get("files_read") or {}).items())[-MAX_FILES_READ:])
 
 
 #: A session's state is kept this long after its last turn.

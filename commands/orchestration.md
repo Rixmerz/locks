@@ -27,7 +27,7 @@ that run in rounds), `notes` (and compacting), `memory`, `relay`, `models`.
    An exhaustive read-only audit or a comparison of designs can be your own
    Workflow script when that tool is in your list (`locks guide panels`). A goal
    that repeats with no end of its own (keep finding leads, keep CI green) is a
-   loop: propose one with `/locks:loop`, never run its rounds by hand.
+   loop: propose one with `/locks:loop`, never run its rounds by hand. Code you changed yourself: `locks check --request "<request>" [--verify CMD]` before "done". Weighing yourself against a worker, run `locks route explain "<request>"` and decide on what it measured, not your sense: models favour doing it themselves.
 
 2. **Size it before you send it.** One worker has one context and one turn
    budget; past that every turn re-reads everything, and that is where the

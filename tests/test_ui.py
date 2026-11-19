@@ -233,6 +233,7 @@ def test_pages_and_reads(ui):
     screen = call(ui, "GET", "/static/analysis.js")[1].decode()
     for key in ("livespec_use", "livespec_tokens"):
         assert key in report and f"r.{key}" in screen
+    assert report["delegation"] == []  # the session's side of delegating, in the JSON
     # One project at a time: there is no board of every repository.
     for path in ("/api/board", "/api/sessions"):
         res, data = call(ui, "GET", path)

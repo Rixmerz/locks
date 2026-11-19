@@ -420,3 +420,62 @@ def test_the_review_a_run_held_back_as_unread_is_what_stats_reads_back(store):
     report = analysis.compute(store, days=0)
     assert report["reviews_unread"] == {"worker": 1, "worker_again": 1, "verifier": 1, "verifier_again": 0}
     assert "workers held 1 (1 unread again), independent checks run again 1 (0 unread twice)" in analysis.text(report)
+
+
+def test_a_self_check_s_option_is_what_stats_and_coverage_read_back(git_repo, store, no_verifier):
+    """`self_check.run` writes `options.self_check` (a contract other code reads: work the session did
+    itself); `analysis.self_checks` and the coverage feature count tasks by it alone."""
+    from locks import analysis, coverage, self_check
+    from locks.classify import Classification
+
+    (git_repo / "app.py").write_text("print('changed')\n")
+    out = self_check.run(store, git_repo, "change the greeting", verify="true",
+                         classifier=lambda _t: Classification("implement"))
+    options = json.loads(store.get_task(out.task_id)["options"])
+    assert options["self_check"] is True
+    assert analysis.self_checks(store)["n"] == 1
+    feature = next(f for f in coverage.FEATURES if f.name == "self-check")
+    assert feature.how == "option" and feature.source == ("self_check",)
+
+
+def test_the_evidence_a_routed_event_says_it_showed_is_what_stats_reads_back(store):
+    from locks import analysis
+
+    task = store.create_task("turn", status="done", source="hook", repo="r", session_id="s")["id"]
+    store.add_event(task, "routed", mode="worker", evidence_shown=True)
+    store.add_event(task, "routed", mode="worker", evidence_shown=False)
+    rows = store.routed_followed(repo="r")
+    assert [r["evidence_shown"] for r in rows] == [True, False]
+    assert analysis.routing(rows)["worker"]["evidence_shown"] == 1
+
+
+def test_self_check_written_in_options_is_what_route_evidence_reads(store):
+    t = store.create_task("x", status="done", source="locks", repo="r", kind="implement",
+                          options=json.dumps({"self_check": True}))["id"]
+    store.add_attempt(t, cell="sonnet/high", max_turns=1, passed=1, duration_s=12.0)
+    assert store.route_evidence("implement", "r")["session"] == {"tasks": 1, "passed_first": 1, "check_p50_s": 12.0}
+
+
+def test_a_real_self_check_is_what_route_evidence_reads(git_repo, store, no_verifier):
+    """The two ends together: what `locks check` records is counted as the session's own work."""
+    from locks import self_check
+    from locks.classify import Classification
+
+    (git_repo / "app.py").write_text("print('changed')\n")
+    out = self_check.run(store, git_repo, "change the greeting", verify="true",
+                         classifier=lambda _t: Classification("implement"))
+    repo = store.get_task(out.task_id)["repo"]
+    session = store.route_evidence("implement", repo)["session"]
+    assert session["tasks"] == 1 and session["passed_first"] == 1
+    assert session["check_p50_s"] is not None
+
+
+def test_the_arm_a_brief_drew_for_the_host_fork_is_what_the_trial_reads_back(store):
+    from locks import host_fork
+
+    assert re.search(r"\*\*host_forked", (SRC / "orchestrate.py").read_text())
+    assert host_fork.KEY == "host_fork_arm" and host_fork.WHY_KEY == "host_fork_why"
+    task = store.create_task("t", status="done", source="locks", repo="r", cwd="/tmp")
+    store.add_event(task["id"], "briefed", **{host_fork.KEY: "fresh", host_fork.WHY_KEY: "the host fork trial"})
+    store.add_attempt(task["id"], cell="sonnet/high", max_turns=10, passed=1)
+    assert host_fork.trial(store, "r")["fresh"]["passed"] == 1

@@ -25,7 +25,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from locks import behavior, launch, racing, revisions, trunks, trust, usage, workflows
+from locks import behavior, launch, racing, resident, revisions, trunks, trust, usage, workflows
 from locks import cells as cells_mod
 from locks import critique as critique_mod
 from locks import dossier as dossier_mod
@@ -33,6 +33,7 @@ from locks import evidence as evidence_mod
 from locks import methods as methods_mod
 from locks import notes as notes_mod
 from locks import predict as predict_mod
+from locks import read_handoff as read_handoff_mod
 from locks import route as route_mod
 from locks.store import Store
 
@@ -386,9 +387,13 @@ def routing(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     overriding it: the evidence a route is calibrated by (issue #124)."""
     out: dict[str, dict[str, Any]] = {}
     for r in rows:
-        row = out.setdefault(str(r.get("mode") or "?"), {"advised": 0, "sent": 0})
+        row = out.setdefault(str(r.get("mode") or "?"), {"advised": 0, "sent": 0, "evidence_shown": 0,
+                                                          "sent_with_evidence": 0})
         row["advised"] += 1
         row["sent"] += int(bool(r.get("sent")))
+        if r.get("evidence_shown"):
+            row["evidence_shown"] += 1
+            row["sent_with_evidence"] += int(bool(r.get("sent")))
     for row in out.values():
         row["sent_rate"] = _share(row["sent"], row["advised"])
     return dict(sorted(out.items()))
@@ -483,6 +488,33 @@ def reviews_unread(store: Store, task_ids: set[int], *, since: str | None = None
             found[(str(event["data"].get("who") or ""), bool(event["data"].get("again")))] += 1
     return {"worker": found[("worker", False)], "worker_again": found[("worker", True)],
             "verifier": found[("verifier", False)], "verifier_again": found[("verifier", True)]}
+
+
+def self_checks(store: Store, *, since: str | None = None, repo: str | None = None) -> dict[str, Any]:
+    """The session's own work checked by `locks check` (tasks whose options hold `self_check`): how many
+    ended, how many passed, and what their independent checks cost. Observed, never a rule's input."""
+    query = ("SELECT status, cost_usd FROM tasks WHERE source = 'check' AND options LIKE '%\"self_check\": true%' "
+             "AND status != 'running'")
+    params: list[Any] = []
+    if since:
+        query += " AND created_at >= ?"
+        params.append(since)
+    if repo is not None:
+        query += " AND repo = ?"
+        params.append(repo)
+    rows = store._conn.execute(query, params).fetchall()
+    n = len(rows)
+    passed = sum(1 for r in rows if r["status"] == "done")
+    return {"n": n, "passed": passed, "pass_rate": passed / n if n else None,
+            "cost_usd": round(sum(float(r["cost_usd"] or 0) for r in rows), 4)}
+
+
+def self_check_lines(row: Mapping[str, Any]) -> list[str]:
+    """`locks stats`' line of `locks check`; none while none ran."""
+    if not row or not row.get("n"):
+        return []
+    return ["", f"self-checks (`locks check`, the session's own work): {row['n']}, passed {row['passed']} "
+            f"({_rate(row['pass_rate'])}), independent checks ${row['cost_usd']:.2f}"]
 
 
 def unread_lines(held: Mapping[str, int]) -> list[str]:
@@ -593,6 +625,76 @@ def turns(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _merged(spans: Iterable[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    out: list[tuple[datetime, datetime]] = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def delegation(rows: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[dict[str, Any]]:
+    """What delegating cost the session that sent the work, per kind (`Store.delegations_since`):
+    the wait from sending a task to hearing its ending (the first `reported` event after its final
+    `finished`), the share of it no turn of that session ran (idle, from the turns the coupling
+    records), and the re-entry: the tokens and cost of the session's messages, in the turn that ran
+    when the ending was handed over or the first one after, from that moment on. Endings handed over
+    together share their re-entry. Only what was recorded: a task never heard of has no wait, a
+    session with no recorded turn no idle share, a re-entry with no usage no tokens."""
+    turns: dict[str, list[tuple[int, datetime, datetime | None]]] = defaultdict(list)
+    for t in rows.get("turns") or ():
+        start = _when(t["created_at"])
+        if start is None:
+            continue
+        end = _when(t["updated_at"]) if t["status"] != "running" else None
+        turns[str(t["session_id"])].append((int(t["id"]), start, end))
+    usage_of: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
+    for u in rows.get("usage") or ():
+        usage_of[int(u["task_id"])].append(u)
+    heard = [r for r in rows.get("sent") or () if r.get("delivered")]
+    together = Counter((str(r["session_id"]), str(r["delivered"])) for r in heard)
+    kinds: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for r in heard:
+        sent, delivered = _when(r["created_at"]), _when(r["delivered"])
+        if sent is None or delivered is None or delivered < sent:
+            continue
+        mine = turns.get(str(r["session_id"]), [])
+        wait = (delivered - sent).total_seconds()
+        sample: dict[str, Any] = {"wait_s": wait, "idle": None, "tokens": None, "usd": None}
+        if mine and wait > 0:
+            busy = sum((min(b, delivered) - max(a, sent)).total_seconds() for a, b in _merged(
+                (a, b or delivered) for _, a, b in mine) if min(b, delivered) > max(a, sent))
+            sample["idle"] = max(0.0, 1 - busy / wait)
+        entry = next((tid for tid, a, b in mine if a <= delivered and (b is None or b >= delivered)), None)
+        if entry is None:
+            entry = next((tid for tid, a, _ in mine if a >= delivered), None)
+        spent = [u for u in usage_of.get(entry, []) if entry is not None and (_when(u["ts"]) or delivered) >= delivered]
+        if spent:
+            share = together[(str(r["session_id"]), str(r["delivered"]))]
+            sample["tokens"] = sum(int(u["input_tokens"] or 0) + int(u["output_tokens"] or 0)
+                                   + int(u["cache_read"] or 0) + int(u["cache_write"] or 0) for u in spent) / share
+            sample["usd"] = sum(usage.dollars(u["model"] or "", int(u["input_tokens"] or 0),
+                                              int(u["output_tokens"] or 0), int(u["cache_read"] or 0),
+                                              int(u["cache_write"] or 0)) for u in spent) / share
+        kinds[str(r["kind"] or "unknown")].append(sample)
+    out = []
+    for kind, samples in sorted(kinds.items()):
+        idle = [s["idle"] for s in samples if s["idle"] is not None]
+        entered = [s for s in samples if s["tokens"] is not None]
+        row: dict[str, Any] = {"kind": kind, "heard": len(samples),
+                               "wait_p50_s": pct((s["wait_s"] for s in samples), 0.5)}
+        if idle:
+            row |= {"idle_share_p50": round(pct(idle, 0.5) or 0.0, 2), "idle_samples": len(idle)}
+        if entered:
+            row |= {"reentry_tokens_p50": round(pct((s["tokens"] for s in entered), 0.5) or 0),
+                    "reentry_usd_p50": round(sorted(s["usd"] for s in entered)[math.ceil(len(entered) / 2) - 1], 4),
+                    "reentry_samples": len(entered)}
+        out.append(row)
+    return out
+
+
 def daily(found: Sequence[Mapping[str, Any]], turn_days: Mapping[str, int]) -> list[dict[str, Any]]:
     days: dict[str, dict[str, Any]] = defaultdict(lambda: {"runs": 0, "passed": 0, "cost_usd": 0.0, "hours": 0.0})
     for r in found:
@@ -670,6 +772,9 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # Workflow steps that fork the reading step before them, against fresh ones (`locks.trunks`).
         "trunk": trunks.trial(store, repo),
         "trunk_now": trunks.arm(store, repo, 0)[1] if repo else None,
+        # Tasks whose first try forked the last passing worker of their role here (`locks.resident`).
+        "resident": resident.trial(store, repo),
+        "resident_now": resident.arm(store, repo, 0)[1] if repo else None,
         "role_revisions": revisions.overview(store, repo),
         # Whether workers handed livespec used it, and how their attempts went: observed, not a trial.
         "livespec_use": capability_use(store.capability_use("livespec", since=since, repo=repo)),
@@ -679,6 +784,10 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         # (`locks.dossier`), and where each stands now.
         "dossier": {n: dossier_mod.trial(store, repo, n) for n in dossier_mod.NATURES},
         "dossier_now": {n: dossier_mod.arm(store, repo, 0, n)[1] for n in dossier_mod.NATURES} if repo else {},
+        # Whether naming the files the sending session already read helps (`locks.read_handoff`).
+        "read_handoff": {n: read_handoff_mod.trial(store, repo, n) for n in read_handoff_mod.NATURES},
+        "read_handoff_now": {n: read_handoff_mod.arm(store, repo, 0, n)[1]
+                             for n in read_handoff_mod.NATURES} if repo else {},
         # Whether racing a first try paid, per repository and kind (`locks.racing`): its own window.
         "races": racing.table(store, repo),
         # What each blind review of a two-review ledger added that no other saw (`workflows.reviewer_yield`).
@@ -691,6 +800,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "behavior": behavior.table(events, {r["task"]: r["kind"] for r in found}),
         # The reviews held back for reporting no finding and reading nothing (observed, never a verdict).
         "reviews_unread": reviews_unread(store, {r["task"] for r in found}, since=since),
+        # Work the session did itself, checked by `locks check` (`locks.self_check`): count and pass rate.
+        "self_checks": self_checks(store, since=since, repo=repo),
         # The notes briefs carried and the ones workers said they relied on (observed, never a verdict).
         "notes_used": notes_relied_on(events, {r["task"] for r in found}),
         # Each route's advice and whether the session sent locks work after it (observed, issue #124).
@@ -718,6 +829,8 @@ def compute(store: Store, *, days: int = 30, repo: str | None = None, keep_runs:
         "tool_time_impossible": store.tool_time_impossible(r["task"] for r in found),
         # The parts of a fan-out that stopped on a point, per repository (observed).
         "parts_on_a_point": parts_on_a_point(found),
+        # What delegating cost the session that sent the work: its wait, idle share and re-entry (observed).
+        "delegation": delegation(store.delegations_since(since, repo=repo)),
     }
     if keep_runs is None:
         report["runs"] = found
@@ -893,6 +1006,8 @@ def text(report: Mapping[str, Any]) -> str:
     lines = [f"locks stats — {scope}, {period}", ""]
     if not s["runs"]:
         lines.append("No run of locks' yet in this period.")
+        # Work the session did itself and checked is no run of locks', and still its record here.
+        lines += self_check_lines(report.get("self_checks") or {})
     else:
         lines += [
             f"runs {s['runs']} ({s['tasks']} tasks)  passed {s['passed']} ({_rate(s['pass_rate'])})  first try "
@@ -932,6 +1047,18 @@ def text(report: Mapping[str, Any]) -> str:
                              f"tries {row['passed']}/{row['tries']} ({_rate(row['rate'])})  pass p50 {took}")
             if (report.get("dossier_now") or {}).get(nature):
                 lines.append(f"  now: {report['dossier_now'][nature]}")
+            lines.append("")
+        for nature, arms in (report.get("read_handoff") or {}).items():
+            if not any(row["tasks"] for row in arms.values()):
+                continue
+            lines.append(f"files the session already read, in the brief, {nature} work "
+                         "(its trial; first tries, calls before the first change):")
+            for arm, row in arms.items():
+                calls = row["calls_before_edit_p50"] if row["calls_before_edit_p50"] is not None else "-"
+                lines.append(f"  {arm + ' them':<12} tasks {row['tasks']:>4}  first tries {row['passed']}/"
+                             f"{row['tries']} ({_rate(row['rate'])})  calls before first change p50 {calls}")
+            if (report.get("read_handoff_now") or {}).get(nature):
+                lines.append(f"  now: {report['read_handoff_now'][nature]}")
             lines.append("")
         if rows := report.get("livespec_tokens"):
             lines.append("tokens per run by kind, livespec called against not called (observed, not a trial):")
@@ -977,6 +1104,18 @@ def text(report: Mapping[str, Any]) -> str:
                              f"{row['input_tokens_p50'] or '—'}  time p50 {f'{took}s' if took is not None else '—'}")
             if report.get("trunk_now"):
                 lines.append(f"  now: {report['trunk_now']}")
+        res = report.get("resident") or {}
+        if any(row["tasks"] for row in res.values()):
+            lines += ["", "tasks that fork the last worker of their role here (the resident trial; first tries):"]
+            for arm, row in res.items():
+                rate = row["passed_first"] / row["tasks"] if row["tasks"] else None
+                calls = row["calls_before_edit_p50"]
+                took = row["duration_p50_s"]
+                lines.append(f"  {arm:<11} tasks {row['tasks']:>4}  first {_rate(rate):>4}  calls before the first "
+                             f"change p50 {calls if calls is not None else '—'}  input p50 "
+                             f"{row['input_tokens_p50'] or '—'}  time p50 {f'{took}s' if took is not None else '—'}")
+            if report.get("resident_now"):
+                lines.append(f"  now: {report['resident_now']}")
         if report.get("role_revisions"):
             lines += ["", "the roles' lessons here (a revision on trial, its arms' first tries, and its history):"]
             lines += ["  " + line for line in revisions.text(report["role_revisions"], lessons=False)]
@@ -1006,13 +1145,22 @@ def text(report: Mapping[str, Any]) -> str:
                                 if row.get("unlogged") else ""))
         lines += behavior_lines(report.get("behavior") or {})
         lines += unread_lines(report.get("reviews_unread") or {})
+        lines += self_check_lines(report.get("self_checks") or {})
         for mode, row in (report.get("routing") or {}).items():
             lines.append(f"route {mode}: advised {row['advised']}, the session sent locks work after "
-                         f"{row['sent']} ({_rate(row['sent_rate'])}) (observed)")
+                         f"{row['sent']} ({_rate(row['sent_rate'])})"
+                         + (f"; evidence shown {row['evidence_shown']}, sent after {row['sent_with_evidence']}"
+                            if row.get("evidence_shown") else "") + " (observed)")
         if reads := report.get("heavy_reads"):
             lines.append(f"heavy reads said {reads['advised']} time(s) (the session read "
                          f"{route_mod.READ_HEAVY_CHARS:,} characters or more of tool output in a turn), the session "
                          f"sent locks work after {reads['sent']} ({_rate(reads['sent_rate'])}) (observed)")
+        for row in report.get("delegation") or ():
+            lines.append(f"delegation {row['kind']}: heard {row['heard']}, wait p50 {_seconds(row['wait_p50_s'])}"
+                         + (f"  idle {_rate(row['idle_share_p50'])} ({row['idle_samples']})"
+                            if "idle_samples" in row else "")
+                         + (f"  re-entry {_tokens(row['reentry_tokens_p50'])} tokens ${row['reentry_usd_p50']:.3f}"
+                            f" ({row['reentry_samples']})" if "reentry_samples" in row else "") + " (observed)")
         for row in report.get("parts_on_a_point") or ():
             where = f" ({_name(row['repo'])})" if not report.get("repo") else ""
             lines.append(f"parts stopped on a point: {row['stopped']} of {row['parts']}{where} (observed)")

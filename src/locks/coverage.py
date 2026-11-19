@@ -21,8 +21,8 @@ from locks import matrix
 AREAS = ("routing", "checks", "trials", "workflows", "memory", "habits", "evolution", "session", "neighbours")
 
 #: The arms of a brief, each a field of the `briefed` event: a trial ran when the field is there.
-BRIEFED_ARMS = ("primer_arm", "trunk_arm", "critique_arm", "dossier_arm", "evidence_arm", "method_arm",
-                "recall_arm", "revision_arm")
+BRIEFED_ARMS = ("primer_arm", "trunk_arm", "resident_arm", "critique_arm", "dossier_arm", "evidence_arm", "method_arm",
+                "recall_arm", "revision_arm", "read_handoff_arm", "host_fork_arm")
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +95,8 @@ _CORE: tuple[Feature, ...] = (
     # workflows
     _e("ledger", "workflows", "a review's findings decided row by row", "ledger_decided"),
     _e("integrate", "workflows", "branches of parts joined by an integrate step", "integrated"),
+    Feature("self-check", "checks", "work the session did itself, checked by `locks check` with no worker",
+            "option", ("self_check",)),
     Feature("parts", "workflows", "a plan fanned out into parts", "option", ("part",)),
     Feature("loop-round", "workflows", "a round of a loop", "option", ("loop",)),
     _e("behind-base", "workflows", "how far a step is behind the branch its run started from", "behind_base"),

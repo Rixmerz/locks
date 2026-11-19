@@ -1112,6 +1112,36 @@ class Store:
             "GROUP BY t.id, u.model ORDER BY t.id", [since, *params]).fetchall()
         return [dict(r) for r in rows]
 
+    def delegations_since(self, since: str, *, repo: str | None = None) -> dict[str, list[dict]]:
+        """What delegating cost the sessions that sent work since `since`: each task a session sent
+        (`sent`: its kind, when it was sent, and when its ending was first handed over, the first
+        `reported` event after its final `finished`), the sessions' own turns (`turns`, from the
+        coupling), and the usage of those turns' messages with their times (`usage`). Read only."""
+        scope, params = ("AND repo = ?", [repo]) if repo is not None else ("", [])
+        sent = [dict(r) for r in self._conn.execute(
+            "SELECT t.id, t.session_id, t.kind, t.created_at, "  # noqa: S608
+            "(SELECT MIN(r.ts) FROM events r WHERE r.task_id = t.id AND r.kind = 'reported' AND r.id > "
+            "(SELECT MAX(f.id) FROM events f WHERE f.task_id = t.id AND f.kind = 'finished')) AS delivered "
+            "FROM tasks t WHERE t.source IN ('locks', 'queue') AND t.session_id IS NOT NULL "
+            f"AND t.created_at >= ? {scope.replace('repo', 't.repo')} ORDER BY t.id", [since, *params])]
+        sessions = sorted({str(r["session_id"]) for r in sent if r["delivered"]})
+        turns: list[dict] = []
+        used: list[dict] = []
+        for start in range(0, len(sessions), 500):
+            chunk = sessions[start:start + 500]
+            marks = ", ".join("?" * len(chunk))
+            turns += [dict(r) for r in self._conn.execute(
+                "SELECT id, session_id, status, created_at, updated_at FROM tasks "  # noqa: S608
+                f"WHERE source = 'hook' AND session_id IN ({marks}) AND updated_at >= ? ORDER BY created_at",
+                [*chunk, since])]
+        ids = [t["id"] for t in turns]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            used += [dict(r) for r in self._conn.execute(
+                "SELECT task_id, model, ts, input_tokens, output_tokens, cache_read, cache_write FROM usage "  # noqa: S608
+                f"WHERE task_id IN ({', '.join('?' * len(chunk))})", chunk)]
+        return {"sent": sent, "turns": turns, "usage": used}
+
     def events_of(self, task_id: int, kind: str) -> list[dict]:
         rows = self._conn.execute("SELECT * FROM events WHERE task_id = ? AND kind = ? ORDER BY id", (task_id, kind))
         return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
@@ -1155,6 +1185,59 @@ class Store:
         return {"passes": len(rows), "p50_s": walls[(len(walls) - 1) // 2] if walls else None,
                 "cost_per_pass": round(sum(float(c or 0) for _, c in rows) / len(rows), 4) if rows else None}
 
+    def route_evidence(self, kind: str, repo: str | None, *, limit: int = 30) -> dict[str, Any]:
+        """What `locks route explain` says of a kind here, observed: the workers' ended tasks (their
+        first tries, the median cost per task, and `kind_record`'s passes and median wall time, read the
+        same way over the workers' tasks alone), and
+        the session's own validated work, the tasks whose options carry `"self_check": true` (written
+        by `locks check`, source `check`; absent on most stores): how many, how often the first check
+        passed, and the median check time (`finished.check_s`, else `self_check_ended`'s, else a
+        `wall_s`, else the first attempt's duration)."""
+        scope, params = ("AND repo = ?", [repo]) if repo is not None else ("", [])
+        rows = self._conn.execute(
+            "SELECT id, status, cost_usd, options FROM tasks WHERE kind = ? AND source IN ('locks', 'queue', 'check') "  # noqa: S608
+            "AND status NOT IN ('queued', 'running') "
+            f"{scope} ORDER BY id DESC LIMIT ?", [kind, *params, limit * 4]).fetchall()
+
+        def own(raw: Any) -> bool:
+            try:
+                return json.loads(raw or "{}").get("self_check") is True
+            except (ValueError, AttributeError):
+                return False
+
+        def first(tid: int) -> Any:
+            return self._conn.execute("SELECT passed, duration_s FROM attempts WHERE task_id = ? "
+                                      "ORDER BY seq LIMIT 1", (tid,)).fetchone()
+
+        def median(xs: list[float]) -> float | None:
+            xs = sorted(xs)
+            return xs[(len(xs) - 1) // 2] if xs else None
+
+        workers = [r for r in rows if not own(r["options"])][:limit]
+        selfs = [r for r in rows if own(r["options"])][:limit]
+        tried = [(r, a) for r in workers if (a := first(int(r["id"])))]
+        # `kind_record`'s figures, over the workers' passes alone: the session's own work is said apart.
+        passes = [r for r in workers if r["status"] == "done"]
+        walls = [float(w) for r in passes
+                 if (w := (((self.final_event(int(r["id"])) or {}).get("data")) or {}).get("wall_s"))]
+        checks, passed = [], 0
+        for r in selfs:
+            a = first(int(r["id"]))
+            passed += int(bool(a["passed"]) if a else r["status"] == "done")
+            data = ((self.final_event(int(r["id"])) or {}).get("data")) or {}
+            ended = self._conn.execute("SELECT data FROM events WHERE task_id = ? AND kind = 'self_check_ended' "
+                                       "ORDER BY id DESC LIMIT 1", (int(r["id"]),)).fetchone()
+            data = {**json.loads(ended["data"] or "{}"), **data} if ended else data
+            took = data.get("check_s") or data.get("wall_s") or (a["duration_s"] if a else None)
+            if took:
+                checks.append(float(took))
+        return {"kind": kind,
+                "workers": {"tasks": len(workers), "first_tries": len(tried),
+                            "passed_first": sum(int(bool(a["passed"])) for _, a in tried),
+                            "passes": len(passes), "p50_s": median(walls),
+                            "cost_p50": median([float(r["cost_usd"] or 0) for r in workers])},
+                "session": {"tasks": len(selfs), "passed_first": passed, "check_p50_s": median(checks)}}
+
     def routed_followed(self, *, since: str = "", repo: str | None = None,
                         within_s: int = 1800) -> list[dict]:
         """Each `routed` advice with whether the session sent locks work after it, within
@@ -1170,7 +1253,8 @@ class Store:
         for r in rows:
             data = json.loads(r[1])
             out.append({"ts": r[0], "mode": data.get("mode"), "sent": bool(r[3]),
-                        "read_said": bool(data.get("read_said"))})
+                        "read_said": bool(data.get("read_said")),
+                        "evidence_shown": bool(data.get("evidence_shown"))})
         return out
 
     def notes_relied(self, project: str) -> dict[int, int]:

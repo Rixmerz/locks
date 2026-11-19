@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-11-18
+
 ### Added
 
 - `locks check --request "<text>" [--verify CMD] [--base REV]`: work the session did itself, validated with no

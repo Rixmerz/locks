@@ -1006,6 +1006,8 @@ def text(report: Mapping[str, Any]) -> str:
     lines = [f"locks stats — {scope}, {period}", ""]
     if not s["runs"]:
         lines.append("No run of locks' yet in this period.")
+        # Work the session did itself and checked is no run of locks', and still its record here.
+        lines += self_check_lines(report.get("self_checks") or {})
     else:
         lines += [
             f"runs {s['runs']} ({s['tasks']} tasks)  passed {s['passed']} ({_rate(s['pass_rate'])})  first try "

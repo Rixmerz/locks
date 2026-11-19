@@ -107,6 +107,8 @@ def test_stats_and_coverage_count_it(git_repo, store, no_verifier):
     row = analysis.self_checks(store)
     assert row["n"] == 1 and row["passed"] == 1
     assert "self-checks" in "\n".join(analysis.self_check_lines(row))
+    # With no run of locks' in the period, the session's own checked work is still said.
+    assert "self-checks" in analysis.text(analysis.compute(store))
     assert any(f.name == "self-check" and f.source == ("self_check",) for f in coverage.FEATURES)
 
 

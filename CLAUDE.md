@@ -1179,7 +1179,7 @@ yields the default kind, not a guess.
   task a session sent gets the part of the thread it needs in its brief,
   verbatim and marked as context, never instructions (the task's text is what
   to do); an investigation gets none, and reading it never fails a run. The files the session read
-  with its own tools (`scribe.FILE_READERS`, kept with a hash of their first `HASH_BYTES` and size,
+  with its own tools (`scribe.FILE_READERS`, or a reading program through its shell, `scribe.bash_reads`, kept with a hash of their first `HASH_BYTES` and size,
   dropped when the session writes them) are named in the brief when still unchanged and inside the
   task's repository (`scribe.read_handoff`, bounded by `READ_HANDOFF_CHARS`, the rest by count), as
   context; whether that helps is a trial (`locks.read_handoff`, the `read_handoff` setting,

@@ -2,7 +2,7 @@
 
 A loop (`locks loop`) is a goal with no end of its own: find and follow up
 leads through the night, keep CI green, work a backlog. When a request is one,
-propose one with `/locks:loop`: never run its rounds by hand from this session.
+ask the person to type `/locks:loop` (only they can start it): never run its rounds by hand from this session.
 
 **How it runs.** Each round is a workflow run, its workers fresh, checked and
 costed. A detached runner (`locks loop start`) starts a round, waits for its

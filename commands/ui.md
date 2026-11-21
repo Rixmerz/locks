@@ -1,5 +1,6 @@
 ---
 description: Open locks' board — what needs you, what is running and what it costs, the queue per repository — in a local web page
+disable-model-invocation: true
 ---
 
 Start the board in the background and tell the user where it is:

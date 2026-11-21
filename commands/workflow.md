@@ -1,6 +1,7 @@
 ---
 description: Make, change, copy, run and watch locks workflows — saved chains of tasks that go on by themselves, step after step
 argument-hint: [what the person wants: run X on Y, make a workflow for Z, change step S, where is run N]
+disable-model-invocation: true
 ---
 
 A locks workflow is a saved list of steps. Each step is a task text with the

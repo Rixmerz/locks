@@ -1,5 +1,6 @@
 ---
 description: Hand this session's thread to a fresh one — the next session here (after /clear) starts from your requests verbatim, what landed and what is open, instead of a compaction's summary
+disable-model-invocation: true
 ---
 
 Run this with Bash, from this session:

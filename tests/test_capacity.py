@@ -372,3 +372,14 @@ def test_a_worktree_is_counted_at_what_the_ones_on_this_disk_hold(tmp_path):
     assert capacity.per_worktree_mb(big) == 3200 and capacity.holds(big) == 2
     assert capacity.holds(Machine(8, None, 7000)) == 6
     assert "3200 MB a worktree" in capacity._described(big)
+
+
+def test_a_low_machine_at_one_records_no_halving_that_changes_nothing(store):
+    capacity.settle(store, home(), machine=Machine(1, None, None), ceiling=None, wanting=False, now=NOW)
+    low = Machine(8, capacity.LOW_MEMORY_MB - 10, 500_000)
+    for hours in range(1, 4):
+        level = capacity.settle(store, home(), machine=low, ceiling=None, wanting=True,
+                                now=NOW + timedelta(hours=hours))
+        assert level.value == 1
+    changes = store.events_of(0, "level_changed")
+    assert all(e["data"]["level"] != e["data"]["before"] for e in changes)

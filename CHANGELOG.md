@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A low machine at level 1 no longer records a `level_changed` that halves 1 to 1: on one machine 140 of 180 such events changed nothing.
+
 ## [0.114.0] - 2026-11-21
 
 ### Changed

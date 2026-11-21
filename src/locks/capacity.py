@@ -389,8 +389,9 @@ def settle(store: Store, root: Path, *, machine: Machine, ceiling: int | None, w
     elif low is not None and ((_when(level.halved_at) or datetime.min.replace(tzinfo=UTC))
                               + timedelta(seconds=HALVE_EVERY_S) <= now):
         level.value, level.halved_at = max(1, level.value // 2), _iso(now)
-        _dropped(level, before)
-        _changed(store, level, 0, before, f"halved, {low}", now, ceiling)
+        if level.value != before:  # halving 1 keeps 1: no change to record
+            _dropped(level, before)
+            _changed(store, level, 0, before, f"halved, {low}", now, ceiling)
     elif recovered and wanting:
         back = min(level.dropped_from, holds(machine), *(() if ceiling is None else (ceiling,)))
         level.dropped_from, level.clear_since = None, None

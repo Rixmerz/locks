@@ -1,6 +1,7 @@
 ---
 name: init
 description: Set locks up from how this person really works. locks' own read-only workers investigate, side by side, every project on this machine (every Claude Code session kept, every branch of its history, each chain of fixes and reverts opened commit by commit, every error matched to what fixed it, locks' own stops) and every plugin whose workflow the person relies on; from their reports, and once the person agrees, it builds one personal team covering all their flows, one workflow per flow, and memory of what was already solved. Use when the person asks to set locks up, initialize it, run locks init, build or rebuild their team or workflows from their history, bring a plugin's workflow into locks, tune locks' workers or roles, or says no workflow fits how they work.
+disable-model-invocation: true
 ---
 
 # locks init

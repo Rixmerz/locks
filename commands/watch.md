@@ -1,5 +1,6 @@
 ---
 description: Watch every session that uses locks, in every project, from this one — how each one's work stands, what ended, and what waits on the person
+disable-model-invocation: true
 ---
 
 This session is a watcher: the person works with locks in several sessions, one

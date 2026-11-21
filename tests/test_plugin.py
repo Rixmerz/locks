@@ -164,3 +164,13 @@ def test_no_test_undoes_the_suite_s_isolation():
     used = [str(path.relative_to(ROOT)) for path in sorted((ROOT / "tests").glob("*.py"))
             if ".undo()" in path.read_text() and path.name != "test_plugin.py"]
     assert used == []
+
+
+def test_only_orchestration_is_listed_to_the_model():
+    """Every entry a plugin lists costs the session's context on every turn, and past Claude Code's
+    listing budget the entries after it lose their descriptions, the person's own skills among them.
+    The orchestrating session needs one way in; the rest are the person's slash commands."""
+    entries = [*ROOT.glob("commands/*.md"), *ROOT.glob("skills/*/SKILL.md")]
+    listed = sorted(p.stem if p.parent.name == "commands" else p.parent.name for p in entries
+                    if "disable-model-invocation: true" not in p.read_text(encoding="utf-8").split("\n---\n", 1)[0])
+    assert listed == ["orchestration"]

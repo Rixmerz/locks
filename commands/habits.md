@@ -1,5 +1,6 @@
 ---
 description: Review the habits locks found — edits followed by the same check, again and again — and install the ones worth it in this repository as hooks, after you pick them
+disable-model-invocation: true
 ---
 
 A habit is a sequence the sessions repeat: an edit of a file type, then the

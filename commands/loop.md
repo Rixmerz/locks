@@ -1,6 +1,7 @@
 ---
 description: Propose, build and run a locks loop — a goal that runs in rounds through the night (finding and following up leads, keeping CI green, triage) until evidence stops it — after the person agrees to every part of it
 argument-hint: [the goal: what should keep happening, and where]
+disable-model-invocation: true
 ---
 
 A locks loop is for a goal that does not end with one answer: work that repeats,

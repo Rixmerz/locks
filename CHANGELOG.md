@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Only `/locks:orchestration` is listed to the model; every other command and skill (`habits`, `loop`, `relay`,
+  `ui`, `watch`, `workflow`, `init`, `insight`) is the person's slash command (`disable-model-invocation`). A
+  session with locks loaded measured 820 tokens more than one without it, now 81; a plugin's long listing past
+  Claude Code's budget strips the descriptions of the entries after it, the person's own skills among them. A loop
+  is proposed by asking the person to type `/locks:loop`.
+
 ## [0.113.0] - 2026-11-19
 
 ### Changed

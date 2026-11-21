@@ -11,6 +11,7 @@ description: >-
   from its own records.
 context: fork
 background: false
+disable-model-invocation: true
 ---
 
 # locks insight

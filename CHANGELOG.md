@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.114.0] - 2026-11-21
+
 ### Changed
 
 - Only `/locks:orchestration` is listed to the model; every other command and skill (`habits`, `loop`, `relay`,

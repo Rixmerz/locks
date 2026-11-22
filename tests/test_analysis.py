@@ -600,3 +600,20 @@ def test_delegation_without_turns_or_usage_leaves_those_out(store):
     report = analysis.compute(store, days=0, repo="r")
     assert report["delegation"][0]["kind"] == "explore"
     assert "delegation explore: heard 1" in analysis.text(report)
+
+
+def test_a_run_cancelled_with_its_attempt_open_is_stopped_never_unnoticed(store):
+    from datetime import UTC, datetime, timedelta
+
+    # A machine asleep for two days with the attempt open, then cancelled on waking: no death.
+    task = store.create_task("x", status="cancelled", source="locks", kind="implement")
+    start = datetime(2026, 11, 7, 21, 15, tzinfo=UTC)
+    for event_kind, at, data in (("planned", start, {"kind": "implement", "plan_s": 1.0}),
+                                 ("attempt_started", start, {"seq": 1, "max_turns": 30}),
+                                 ("finished", start + timedelta(days=2), {"status": "cancelled"})):
+        event = store.add_event(task["id"], event_kind, **data)
+        store._conn.execute("UPDATE events SET ts = ? WHERE id = ?", (at.isoformat(timespec="seconds"), event))
+    run = analysis.runs(*store.runs_since(""))[0]
+    assert run["lost_s"] is None and run["unnoticed_s"] is None
+    assert run["stopped_open_s"] == 2 * 86400
+    assert "stopped_open_s" in analysis.RUN_COLUMNS

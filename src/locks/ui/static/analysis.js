@@ -18,6 +18,7 @@ const PHASES = [
   ["notes_s", "notes", "filing what a passing worker learned"],
   ["lost_s", "lost", "attempts whose worker died: from its start to its time limit at most"],
   ["unnoticed_s", "unnoticed", "after a dead worker's time limit, until locks noticed it had died"],
+  ["stopped_open_s", "stopped open", "a cancelled run's last attempt, from its start to the cancel (a machine asleep counts here)"],
   ["other_s", "other", "the rest of the run: recording, committing"],
 ];
 const PERIOD_KEY = "locks.analysis.days";

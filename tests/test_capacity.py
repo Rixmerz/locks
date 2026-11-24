@@ -397,6 +397,11 @@ def test_a_load_halving_names_what_made_the_load(store, tmp_path):
     assert found == [{"program": "cc1plus", "threads": 1},
                      {"program": "pytest", "threads": 1, "locks_tasks": ["7"]}]
     assert capacity.busiest(tmp_path / "none") is None
+    # A process gone mid-read, and one whose environment is not ours to read, cost only themselves.
+    (proc / "13").mkdir()
+    (proc / "14" / "task" / "14").mkdir(parents=True)
+    (proc / "14" / "task" / "14" / "stat").write_text("14 (make) R 1")
+    assert {"program": "make", "threads": 1} in capacity.busiest(proc)
     capacity.settle(store, home(), machine=Machine(4, None, None), ceiling=None, wanting=False, now=NOW)
     loaded = Machine(4, 500_000, 500_000, load=40.0)
     capacity.settle(store, home(), machine=loaded, ceiling=None, wanting=True, now=NOW + timedelta(hours=1),

@@ -643,3 +643,18 @@ def test_the_suspend_clock_reads_a_sleep_only_within_one_boot():
     assert suspend.slept(500.0, 10.0) is None and suspend.slept(None, 10.0) is None
     reading = suspend.suspended()
     assert reading is None or reading >= 0
+
+
+def test_the_suspend_clock_says_nothing_where_no_pair_of_clocks_reads(monkeypatch):
+    import time
+
+    from locks import suspend
+
+    def broken(_clock):
+        raise OSError("no such clock")
+
+    monkeypatch.setattr(time, "clock_gettime", broken)
+    assert suspend.suspended() is None
+    for name in ("CLOCK_BOOTTIME", "CLOCK_UPTIME_RAW"):
+        monkeypatch.delattr(time, name, raising=False)
+    assert suspend.suspended() is None

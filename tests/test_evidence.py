@@ -145,13 +145,14 @@ def _ui_repo(git_repo):
 def test_a_ui_pass_with_no_measurement_goes_back_once_then_to_the_orchestrator(git_repo, store: Store, monkeypatch):
     _ui_repo(git_repo)
     _held(monkeypatch)
+    monkeypatch.setenv("LOCKS_UI_CHECK", "off")  # its UI change would raise the tier and run the verifier
     worked = WorkerResult(True, None, "done", "1 passed", cost_usd=0.1, session_id="s1")
     script = Script(worked, worked, write="components/Card.tsx")
     report = run("Restyle the card", git_repo, store, registry=LAYOUT, launcher=script, classifier=kind("implement"))
     assert report.status == "blocked" and report.stop.cause == "decision"
     first, again = script.specs
     assert "This work is held to evidence" in first.prompt and "detect_issues" in first.prompt
-    assert evidence.UI_DONE not in first.prompt  # ui_check is off in this suite
+    assert evidence.UI_DONE not in first.prompt
     assert again.cell == first.cell and again.resume_session == "s1" and again.resume_prompt == evidence.PROMPT
     assert "evidence: no call of layout-inspector went through" in again.resume_note
     owed = store.events_of(report.task_id, "evidence_owed")

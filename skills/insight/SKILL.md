@@ -135,6 +135,18 @@ Known mechanisms — check them before reading a count as a fault:
 - A note no worker names goes back on trial by itself (`notes.retry_idle`, with `note_trials` on).
 - A resume a session's shell starts runs in its own process group (`cli._shielded`); a death at a
   container restart is the machine's, and `dispatch.recover` resumes it once.
+- A machine that suspends stops its workers with it: an attempt open for hours and then cancelled
+  minutes after the machine woke is most likely a sleep, not a hang. From 0.115.0 `attempt_started` and
+  `finished` keep `suspended_s` (`locks.suspend`, the machine's total sleep since boot) and `locks stats`
+  shows the difference as `asleep`, apart from `lost` and `unnoticed`; before it, read the system's own
+  log of suspends (`journalctl -b | grep -i suspend`, `pmset -g log` on macOS) before calling it a fault.
+- A load halving (`level_changed` with `halved, the load average…`) keeps, from 0.115.0, what made the
+  load (`busiest`: the programs running then and the locks tasks whose workers started them): read it
+  before saying the machine was busy with someone else's work.
+- A change that renders UI is checked rendered from 0.115.0 (`ui_check`): its tier goes to high, the
+  independent check is told what to render and measure (`evidence.UI_DONE`, `ui_check_lines`), and a
+  UI worker is told the same. Read its `verified` findings for measurements; a UI pass whose check says
+  it could not render it is unchecked, not fine.
 - From 0.91.1 the hooks leave a program's `claude -p` alone (`locks.scripted`): a session with no
   injection and a `locks:scripted` record is one locks skipped on purpose, never one it failed. Its own
   workers run with `LOCKS_HOOKS_OFF=1`, which turns every hook off, and a person may set it on a command of

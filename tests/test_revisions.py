@@ -412,3 +412,16 @@ def test_a_difference_one_task_would_turn_adopts_nothing():
     assert revisions.verdict({**arm, "pass_first": 1.0}, arm)[0] == "adopted"
     assert revisions.verdict({**arm, "blockers": 0.15}, arm)[0] == "dropped"
     assert revisions.verdict({**arm, "blockers": 0.0}, arm)[0] == "adopted"
+
+
+def test_a_blocker_the_check_found_again_makes_a_role_due_at_once(store: Store):
+    # One blocker per task, fewer than MIN_EVIDENCE: due only because the second repeats the first.
+    _task(store, blockers=1)
+    assert not revisions.due(store, "r", "implementer")
+    _task(store, blockers=1)
+    found = revisions.evidence(store, "r", "implementer")
+    assert revisions.weight(found) < revisions.MIN_EVIDENCE and found["repeated"]
+    assert revisions.due(store, "r", "implementer")
+    # Another role's identical blocker is no repeat of this one's.
+    _task(store, role="debugger", blockers=1)
+    assert not revisions.due(store, "r", "debugger")

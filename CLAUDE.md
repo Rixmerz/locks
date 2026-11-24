@@ -46,7 +46,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `docs/images/`, `scripts/demo.py` | the README's screenshots of `locks ui`, taken on demo data with generic project names: `scripts/demo.py DIR --shots` writes it with locks' own commands and the scenarios' fake `claude` (no money), spreads times and costs to a real worker's size, and takes them with Playwright |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `host_fork`, `overlap`, `resident`, `late_verifier`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `read_handoff`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `host_fork`, `overlap`, `resident`, `late_verifier`, `ui_check`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `read_handoff`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -55,6 +55,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/skill_use.py` | `locks skills`: per skill, the briefs that carried it, their pass-first and when last carried; `active`, `stale`, `dormant` or `pinned` (`--pin`, in the locks home); a dormant one is said, never moved or deleted |
 | `src/locks/notes_fork.py` | `notes_fork` (off by default): a session's notes filed by a fork of the session instead of Haiku, tried in turns per project and kept where it kept no fewer facts a filing; its cost recorded, never the criterion |
 | `bench/ab/` | the A/B of two locks checkouts on trap tasks (one waste class each), judged by the store's records and a hidden check (real money: run on purpose) |
+| `src/locks/suspend.py` | how long the machine has been suspended since boot, from two clocks (one counts a suspend, one does not); kept as `suspended_s` on `attempt_started` and `finished`, read by the analysis as `asleep`; stdlib, imports nothing of locks |
 | `src/locks/signature.py` | the tool-call signature and the append-only log the PostToolUse fast path writes; imports nothing heavy |
 | `src/locks/habits.py` | mining sequences per repository (and the ones several repositories share), recipes for the brief, and approval-gated habit hooks |
 | `src/locks/usage.py` | tokens per model from session transcripts and their subagents' (counted to the delegation that started each), spend by model and cell, and what a task's or a session's own turns cost |
@@ -527,6 +528,14 @@ yields the default kind, not a guess.
   judges cannot choose, by a committed `.claude/settings*.json`, the hooks and rules it runs under. Workers and
   blind review steps keep the repository's settings.
   Tests run with `LOCKS_VERIFIER=off`, `LOCKS_OVERLAP=off` and `LOCKS_LATE_VERIFIER=off`.
+- A change that renders UI (`capabilities.renders`) is checked rendered (`ui_check`, on by default): its
+  tier is raised to high (`orchestrate._risk_of_change`), so the independent check runs on every such
+  pass and is told to render and measure it (`evidence.ui_check_lines`: overflow and overlap at a phone
+  and a desktop width, the project's spacing and tokens, contrast, the states it reaches, keyboard and
+  focus, composition), with layout-inspector's tools where handed; with none, what it could not render
+  is unchecked, never assumed fine. A problem shown rendered is a finding with that proof; taste with no
+  rule of the project behind it is a note, never a blocker. A UI worker held to layout-inspector is told
+  the same (`evidence.UI_DONE`) in both arms of the evidence trial. Tests run with `LOCKS_UI_CHECK=off`.
 - A pass the sampling let through unchecked (`verifier_sampled`) is a first try like any, but
   moves no start cell cheaper (`Ended.unread`, `standards.rates(read=True)`, `start_cell`'s `read`):
   a cheap cell checked less would otherwise look better for it, and the calibration would choose
@@ -1408,7 +1417,8 @@ yields the default kind, not a guess.
   read from an installed upstream plugin). Once a role's workers in a repository
   met `revisions.MIN_EVIDENCE` dead ends or verifier blockers since its last
   revision, Haiku, as an editor, proposes a short list of lessons for that role
-  there, read strictly (`read_lessons`): no answer or a malformed one proposes
+  there (at once when one of those blockers repeats one an earlier task of the role here got,
+  `trust._repeats`: the check found the same thing twice), read strictly (`read_lessons`): no answer or a malformed one proposes
   nothing, and a line that looks like a secret or is `<private>` is never kept.
   It runs in `evolution.settle`, never in a GET, outside the write lock and
   under a claim, with at most one candidate per role and repository on trial.

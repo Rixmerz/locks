@@ -35,7 +35,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from locks import __version__, config
+from locks import __version__, config, trust
 from locks import arms as arms_mod
 from locks.store import Store, home
 from locks.text import clip
@@ -334,6 +334,8 @@ def evidence(store: Store, repo: str, role: str, *, since: str = "") -> dict[str
             for d in store.role_dead_ends(repo, role, since=since)]
     blockers: list[str] = []
     corrections: list[str] = []
+    seen: list[tuple[int, Mapping[str, str]]] = []
+    repeated: list[str] = []
     for b in store.briefs(repo):
         if b["data"].get("role") != role:
             continue
@@ -343,6 +345,9 @@ def evidence(store: Store, repo: str, role: str, *, since: str = "") -> dict[str
             for f in (e["data"] or {}).get("blockers") or ():
                 where = f" ({f.get('where')})" if f.get("where") else ""
                 blockers.append(f"{f.get('what') or ''}{where}")
+                if trust._repeats(f, [g for tid, g in seen if tid != b["task_id"]]):
+                    repeated.append(f"{f.get('what') or ''}{where}")
+                seen.append((b["task_id"], f))
         if len(rounds) >= 2:
             corrections.append(f"task #{b['task_id']} took {len(rounds)} rounds of the independent check in a row")
 
@@ -350,7 +355,8 @@ def evidence(store: Store, repo: str, role: str, *, since: str = "") -> dict[str
         cleaned = [c for c in (_clean(clip(line, EVIDENCE_CHARS, one_line=True)) for line in lines) if c]
         return list(dict.fromkeys(cleaned))[-EVIDENCE_LIMIT:]
 
-    return {"dead_ends": kept(dead), "blockers": kept(blockers), "corrections": kept(corrections)}
+    return {"dead_ends": kept(dead), "blockers": kept(blockers), "corrections": kept(corrections),
+            "repeated": kept(repeated)}
 
 
 def weight(found: Mapping[str, Sequence[str]]) -> int:
@@ -363,11 +369,15 @@ def _since(found: Mapping[str, Any]) -> str:
 
 
 def due(store: Store, repo: str, role: str) -> bool:
-    """Whether a role here is due a proposal: none on trial, and `MIN_EVIDENCE` met since its last."""
+    """Whether a role here is due a proposal: none on trial, and `MIN_EVIDENCE` met since its last,
+    or a verifier blocker that repeats one an earlier task of the role here got (`trust._repeats`):
+    the check found the same thing twice, and waiting for more is the check done again. The
+    candidate is still tried in arms like any."""
     if not takes(role):
         return False
     found = state(store, repo, role)
-    return found["candidate"] is None and weight(evidence(store, repo, role, since=_since(found))) >= MIN_EVIDENCE
+    met = evidence(store, repo, role, since=_since(found))
+    return found["candidate"] is None and (weight(met) >= MIN_EVIDENCE or bool(met["repeated"]))
 
 
 def question(role_name: str, description: str, current: Sequence[str], found: Mapping[str, Sequence[str]]) -> str:

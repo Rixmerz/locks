@@ -383,3 +383,21 @@ def test_a_low_machine_at_one_records_no_halving_that_changes_nothing(store):
         assert level.value == 1
     changes = store.events_of(0, "level_changed")
     assert all(e["data"]["level"] != e["data"]["before"] for e in changes)
+
+
+def test_a_load_halving_names_what_made_the_load(store, tmp_path):
+    proc = tmp_path / "proc"
+    for pid, name, state, env in ((10, "pytest", "R", b"LOCKS_WORKER_TASK=7\0HOME=/h\0"),
+                                  (11, "node", "S", b""), (12, "cc1plus", "D", b"")):
+        (proc / str(pid) / "task" / str(pid)).mkdir(parents=True)
+        (proc / str(pid) / "task" / str(pid) / "stat").write_text(f"{pid} ({name}) {state} 1 1 1")
+        (proc / str(pid) / "environ").write_bytes(env)
+    found = capacity.busiest(proc)
+    assert found == [{"program": "pytest", "threads": 1, "locks_tasks": ["7"]},
+                     {"program": "cc1plus", "threads": 1}]
+    assert capacity.busiest(tmp_path / "none") is None
+    capacity.settle(store, home(), machine=Machine(4, None, None), ceiling=None, wanting=False, now=NOW)
+    loaded = Machine(4, 500_000, 500_000, load=40.0)
+    capacity.settle(store, home(), machine=loaded, ceiling=None, wanting=True, now=NOW + timedelta(hours=1),
+                    busy=lambda: found)
+    assert store.events_of(0, "level_changed")[-1]["data"]["busiest"] == found

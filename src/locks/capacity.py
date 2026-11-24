@@ -232,7 +232,7 @@ def busiest(proc: Path = Path("/proc")) -> list[dict[str, Any]] | None:
                         row["tasks"].add(item.split(b"=", 1)[1].decode(errors="replace"))
         except (OSError, ValueError):
             continue
-    top = sorted(counts.values(), key=lambda r: -r["threads"])[:BUSIEST_SHOWN]
+    top = sorted(counts.values(), key=lambda r: (-r["threads"], r["program"]))[:BUSIEST_SHOWN]
     return [{"program": r["program"], "threads": r["threads"],
              **({"locks_tasks": sorted(r["tasks"])} if r["tasks"] else {})} for r in top]
 

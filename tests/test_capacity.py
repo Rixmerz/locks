@@ -393,8 +393,9 @@ def test_a_load_halving_names_what_made_the_load(store, tmp_path):
         (proc / str(pid) / "task" / str(pid) / "stat").write_text(f"{pid} ({name}) {state} 1 1 1")
         (proc / str(pid) / "environ").write_bytes(env)
     found = capacity.busiest(proc)
-    assert found == [{"program": "pytest", "threads": 1, "locks_tasks": ["7"]},
-                     {"program": "cc1plus", "threads": 1}]
+    # Ties go by name: the order /proc lists its pids in is no order.
+    assert found == [{"program": "cc1plus", "threads": 1},
+                     {"program": "pytest", "threads": 1, "locks_tasks": ["7"]}]
     assert capacity.busiest(tmp_path / "none") is None
     capacity.settle(store, home(), machine=Machine(4, None, None), ceiling=None, wanting=False, now=NOW)
     loaded = Machine(4, 500_000, 500_000, load=40.0)

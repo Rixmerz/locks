@@ -195,7 +195,11 @@ def ladder_for(kind: str) -> tuple[Cell, ...]:
 PROBATION: dict[str, Cell] = {"implement": Cell("haiku", "high"),
                                # haiku/medium was as right as haiku/high on both, and two to one and a
                                # half times as fast (`kinds.py`, 0.64): still slower than the first rung.
-                               "refactor": Cell("haiku", "medium"), "test": Cell("haiku", "medium")}
+                               "refactor": Cell("haiku", "medium"), "test": Cell("haiku", "medium"),
+                               # sonnet/medium with the diagnosis fixed the planted unclear bug 3 of 3 in
+                               # 20 s and $0.05 a run, where sonnet/high took 34 s and $0.09
+                               # (`bench/speed/methods.py`, 0.115.0): tried on trial, never assumed.
+                               "debug-unclear": Cell("sonnet", "medium")}
 
 
 def reach(kind: str) -> tuple[Cell, ...]:

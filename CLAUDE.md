@@ -553,9 +553,10 @@ yields the default kind, not a guess.
   show each cell's record: clean checks, its sampling, the blockers that repeat an earlier task's
   here, the re-checks that found something new, and pass-first and cost per point by the cell work
   started on. Tests run with `LOCKS_TRUST=off`.
-- A writing kind may have a cheaper cell below its ladder (`matrix.PROBATION`: Haiku for
+- A writing kind may have a cheaper cell below its ladder (`matrix.PROBATION`: sonnet/medium for
+  `debug-unclear`, from `bench/speed/methods.py` (AG); Haiku for
   `implement`, from `bench/memory`, and haiku/medium for `refactor` and `test`, from
-  `bench/speed/kinds.py`; no other kind was measured). It is tried only on trial
+  `bench/speed/kinds.py`; no other kind was measured for one). It is tried only on trial
   (`trust.probation_arm`, the `probation` setting): where the ladder's first rung passes
   `standards.PASS_FIRST` of `MIN_SAMPLES` or more first tries of the kind here, on a start nothing
   raised or pinned, never a high risk, a resume, a ledger, parts or a run in the checkout, and only
@@ -1563,7 +1564,9 @@ yields the default kind, not a guess.
   fix), a pre-mortem for `plan` (a `Risks:` section). It is data in the brief, tried in arms per
   repository (`briefed.method_arm`) until each has `methods.TRIAL` first tries, and kept only where
   its arm passed no less often; a pre-mortem is judged by the first tries of the steps after its
-  plan. A plan's risks reach the independent check of the steps after it as where to probe
+  plan. A method's trial is kept per model of the start cell (`methods.label`, `diagnosis.opus:with`):
+  on the bench (AG) opus/low fixed the unclear bug as often without it, faster and cheaper, where
+  sonnet/high missed once without it. A plan's risks reach the independent check of the steps after it as where to probe
   (`Plan.seen_risks`), data, never findings. Tests run with `LOCKS_METHODS=off` and
   `LOCKS_NOTE_TRIALS=off`.
 - A note whose anchors were all written at commits outside the history a task starts from

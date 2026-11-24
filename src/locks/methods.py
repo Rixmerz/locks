@@ -77,12 +77,21 @@ def _first_tries_after(store: Store, task_id: int) -> list[bool]:
     return out
 
 
-def trial(store: Store, repo: str | None, method: Method) -> dict[str, dict[str, Any]]:
-    """Per arm: the tasks in it and how many first tries passed (a pre-mortem's: of the steps after it)."""
+def label(method: Method, model: str = "") -> str:
+    """The name a brief keeps its arm under: the method, and the model of the cell it starts on. A
+    model that needs the guidance less is tried apart (`bench/speed/methods.py`, 0.115.0: opus/low
+    fixed the unclear bug 3 of 3 without the diagnosis, faster and cheaper, where sonnet/high missed
+    one without it): a verdict pooled over models would hand one model the other's."""
+    return f"{method.name}.{model}" if model else method.name
+
+
+def trial(store: Store, repo: str | None, method: Method, model: str = "") -> dict[str, dict[str, Any]]:
+    """Per arm: the tasks in it and how many first tries passed (a pre-mortem's: of the steps after it),
+    of the briefs on `model` (every model's, the ones before models were told apart too, when empty)."""
     rows = []
     for row in store.arm_trial(repo, KEY):
         name, _, side = str(row["arm"]).partition(":")
-        if name != method.name:
+        if (name != label(method, model)) if model else name.partition(".")[0] != method.name:
             continue
         tries = _first_tries_after(store, int(row["task_id"])) if method.kind == "plan" else [row["passed_first"]]
         # A diagnosis is timed by its own first try; a pre-mortem's steps come after it, untimed here.
@@ -91,13 +100,14 @@ def trial(store: Store, repo: str | None, method: Method) -> dict[str, dict[str,
     return arms_mod.tally(rows, ARMS)
 
 
-def arm(store: Store, repo: str | None, method: Method, task_id: int) -> tuple[str, str]:
+def arm(store: Store, repo: str | None, method: Method, task_id: int, model: str = "") -> tuple[str, str]:
     """Whether this task's brief gets the method, and why: in turns during its trial, the arm
-    with fewer tasks next; after it, where its arm did no worse than the arm without it."""
+    with fewer tasks next; after it, where its arm did no worse than the arm without it. Tried per
+    model of the start cell (`label`)."""
     if repo is None:
         return "with", "no repository to run a trial in"
-    return arms_mod.pick(trial(store, repo, method), ARMS, task_id, TRIAL, method.name, repo,
-                         pooled=trial(store, None, method))
+    return arms_mod.pick(trial(store, repo, method, model), ARMS, task_id, TRIAL, label(method, model), repo,
+                         pooled=trial(store, None, method, model))
 
 
 _RISKS = re.compile(r"^[ \t]*\**risks\**[ \t]*:[ \t]*(.*)$", re.IGNORECASE | re.MULTILINE)

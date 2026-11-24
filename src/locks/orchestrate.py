@@ -1651,8 +1651,9 @@ def run(
         # kept either way so the arms can be compared.
         methodical: dict[str, Any] = {}
         if methods_mod.enabled() and (method := methods_mod.for_kind(the_plan.kind)) is not None:
-            side, side_why = methods_mod.arm(store, key, method, task["id"])
-            methodical = {methods_mod.KEY: f"{method.name}:{side}", "method_why": side_why}
+            side, side_why = methods_mod.arm(store, key, method, task["id"], the_plan.start.model)
+            methodical = {methods_mod.KEY: f"{methods_mod.label(method, the_plan.start.model)}:{side}",
+                          "method_why": side_why}
             if side == "with":
                 context.append(method.lines)
         the_plan.seen_risks = tuple(methods_mod.lines_for(methods_mod.run_risks(store, task)))

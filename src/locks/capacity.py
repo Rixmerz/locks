@@ -198,6 +198,45 @@ def starved(m: Machine) -> str | None:
     return None
 
 
+#: How many of the busiest programs a load halving names.
+BUSIEST_SHOWN = 8
+
+
+def busiest(proc: Path = Path("/proc")) -> list[dict[str, Any]] | None:
+    """What makes the load, read when the level halves for it: the programs with a thread running
+    or waiting on the disk now (what a load average counts), how many threads each, and how many of
+    them a locks worker started (`LOCKS_WORKER_TASK` in its environment, by task). Whether locks'
+    own workers' checks load the machine it then halves for was a guess; this is the record. Linux
+    only (None elsewhere, or when /proc cannot be read); never raises."""
+    try:
+        pids = [p for p in proc.iterdir() if p.name.isdigit()]
+    except OSError:
+        return None
+    counts: dict[str, dict[str, Any]] = {}
+    for pid in pids:
+        try:
+            for task in (pid / "task").iterdir():
+                stat = (task / "stat").read_text()
+                state = stat[stat.rindex(")") + 2:][:1]
+                if state not in ("R", "D"):
+                    continue
+                name = stat[stat.index("(") + 1:stat.rindex(")")]
+                row = counts.setdefault(name, {"program": name, "threads": 0, "tasks": set()})
+                row["threads"] += 1
+                try:
+                    env = (pid / "environ").read_bytes().split(b"\0")
+                except OSError:
+                    env = []
+                for item in env:
+                    if item.startswith(b"LOCKS_WORKER_TASK="):
+                        row["tasks"].add(item.split(b"=", 1)[1].decode(errors="replace"))
+        except (OSError, ValueError):
+            continue
+    top = sorted(counts.values(), key=lambda r: (-r["threads"], r["program"]))[:BUSIEST_SHOWN]
+    return [{"program": r["program"], "threads": r["threads"],
+             **({"locks_tasks": sorted(r["tasks"])} if r["tasks"] else {})} for r in top]
+
+
 def loaded(m: Machine) -> bool:
     """Whether the machine is busier than its CPUs carry: a check that timed out on it
     may have timed out for the load, not the code."""
@@ -307,9 +346,10 @@ def _when(stamp: str | None) -> datetime | None:
 
 
 def _changed(store: Store, level: Level, task_id: int, before: int, reason: str, at: datetime,
-             ceiling: int | None) -> None:
+             ceiling: int | None, **extra: Any) -> None:
     level.reason, level.at, level.clean = reason, _iso(at), 0
-    store.add_event(task_id, "level_changed", level=level.value, before=before, reason=reason, ceiling=ceiling)
+    store.add_event(task_id, "level_changed", level=level.value, before=before, reason=reason, ceiling=ceiling,
+                    **extra)
 
 
 def _dropped(level: Level, before: int) -> None:
@@ -334,7 +374,7 @@ def disk_filled(store: Store, root: Path, *, waited_s: float, ceiling: int | Non
 
 
 def settle(store: Store, root: Path, *, machine: Machine, ceiling: int | None, wanting: bool,
-           now: datetime | None = None) -> Level:
+           now: datetime | None = None, busy: Callable[[], list[dict[str, Any]] | None] = busiest) -> Level:
     """The level after what ended since the last pass, and what the machine has now.
     `wanting`: work waited for a worker on the last pass (a reason to rise). Read from
     the attempts' and endings' own records; cost is never read."""
@@ -391,7 +431,9 @@ def settle(store: Store, root: Path, *, machine: Machine, ceiling: int | None, w
         level.value, level.halved_at = max(1, level.value // 2), _iso(now)
         if level.value != before:  # halving 1 keeps 1: no change to record
             _dropped(level, before)
-            _changed(store, level, 0, before, f"halved, {low}", now, ceiling)
+            by_load = (machine.load is not None and machine.load > machine.cpus * LOAD_PER_CPU_HIGH
+                    and (found := busy()) is not None)
+            _changed(store, level, 0, before, f"halved, {low}", now, ceiling, **({"busiest": found} if by_load else {}))
     elif recovered and wanting:
         back = min(level.dropped_from, holds(machine), *(() if ceiling is None else (ceiling,)))
         level.dropped_from, level.clear_since = None, None

@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.115.0] - 2026-11-24
+
+### Changed
+
+- The diagnosis method's trial is kept per model of the start cell: on `bench/speed/methods.py` opus/low fixed the unclear bug 3 of 3 without it, faster and cheaper, while sonnet/high missed once without it.
+- `debug-unclear` gets sonnet/medium as its probation cell, tried below sonnet/high: with the diagnosis it fixed the planted bug 3 of 3 in 20 s and $0.05, against 34 s and $0.09.
+- `bench/speed/roles.py` measures a worker's role and skills against none, per cell; on the harder build every arm passed, and the full role cost nothing visible.
+- A change that renders UI is checked rendered (`ui_check`, on by default): the independent verifier runs on every such change and is told to render and measure it (overflow at phone and desktop widths, the design system's spacing and tokens, contrast, its states, keyboard focus, composition), with layout-inspector where installed; a UI worker is told the same. Slower by one verifier run per UI change.
+- A role's lessons are proposed at once when the independent check finds a blocker that repeats one an earlier task of that role here got, instead of waiting for three; the lessons are still tried in arms.
+- A load halving names what made the load (`busiest` on `level_changed`): the programs running and the locks tasks whose workers started them.
+- An attempt open while the machine slept is `asleep` in `locks stats` (`suspended_s` on `attempt_started` and `finished`, `locks.suspend`), never `lost` or `unnoticed`.
+- `/locks:insight` knows these: a sleep before a hang, the load's makers, a UI pass its check could not render.
+- `/locks:insight` asks whether workers learn from the independent check: its repeated blockers per role, whether they reached a later brief, what the role's lessons did with them, and what checking them again costs.
+
 ### Fixed
 
 - A run cancelled with its attempt open (a machine that slept, then a cancel on waking) is `stopped open` in `locks stats`, never `unnoticed`: that time was read as a dead worker nobody swept.

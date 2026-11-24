@@ -97,6 +97,10 @@ DEFAULTS: dict[str, Any] = {
     # after its ending: the run ends on locks' own check, and a blocker the verifier shows
     # reopens it as `review`. Off: the ending waits for the verifier.
     "late_verifier": True,
+    # A change that renders UI is checked rendered: its tier is raised to high so the independent check
+    # runs, and that check renders and measures it (layout, tokens, states, keyboard, composition); a
+    # worker of UI work is told what done means for UI (`evidence.UI_DONE`). Off: only by its risk.
+    "ui_check": True,
     # A repository that keeps OpenSpec specs (`openspec/`): a writing worker is told to keep the
     # ones its change reaches, and an ending whose change touched none, where the specs are behind
     # the code, offers the task that catches them up (`locks.specs`). Off: specs are only read.

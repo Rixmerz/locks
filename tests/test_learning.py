@@ -117,17 +117,32 @@ def test_a_method_alternates_then_stays_where_it_did_no_worse(store: Store):
 
 def test_a_debug_brief_carries_the_diagnosis_on_its_arm(git_repo, store: Store, monkeypatch):
     monkeypatch.setenv("LOCKS_METHODS", "on")
-    monkeypatch.setattr(methods, "arm", lambda store, repo, method, task_id: ("with", "on trial"))
+    monkeypatch.setattr(methods, "arm", lambda store, repo, method, task_id, model="": ("with", "on trial"))
     script = Script(ok(), write="x.txt")
     report = run("The export sometimes drops rows", git_repo, store, registry={}, launcher=script,
                  classifier=kind("debug-unclear"))
     assert "Diagnose before you change anything" in script.specs[0].prompt
-    assert store.events_of(report.task_id, "briefed")[0]["data"]["method_arm"] == "diagnosis:with"
-    monkeypatch.setattr(methods, "arm", lambda store, repo, method, task_id: ("without", "on trial"))
+    assert store.events_of(report.task_id, "briefed")[0]["data"]["method_arm"] == "diagnosis.sonnet:with"
+    monkeypatch.setattr(methods, "arm", lambda store, repo, method, task_id, model="": ("without", "on trial"))
     script = Script(ok(), write="y.txt")
     run("The import sometimes drops rows", git_repo, store, registry={}, launcher=script,
         classifier=kind("debug-unclear"))
     assert "Diagnose before you change anything" not in script.specs[0].prompt
+
+
+def test_a_method_is_tried_apart_for_each_model(store: Store):
+    method = methods.METHODS["debug-unclear"]
+    for n, (arm, passed) in enumerate([("diagnosis.opus:without", 1), ("diagnosis.sonnet:with", 1),
+                                       ("diagnosis:with", 0)]):
+        t = store.create_task(f"bug {n}", status="done", source="locks", repo="r")
+        store.add_event(t["id"], "briefed", method_arm=arm)
+        store.add_attempt(t["id"], cell="x/high", max_turns=10, passed=passed, input_tokens=100)
+    assert methods.trial(store, "r", method, "opus")["without"]["tasks"] == 1
+    assert methods.trial(store, "r", method, "opus")["with"]["tasks"] == 0
+    assert methods.trial(store, "r", method, "sonnet")["with"]["tasks"] == 1
+    # Read across models, the briefs from before models were told apart count too.
+    assert methods.trial(store, "r", method)["with"]["tasks"] == 2
+    assert methods.label(method, "opus") == "diagnosis.opus" and methods.label(method) == "diagnosis"
 
 
 def test_a_plan_s_risks_reach_the_check_of_the_work_after_it(git_repo, store: Store, kicks, monkeypatch):

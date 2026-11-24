@@ -740,3 +740,46 @@ seven once each on the plain build, each with what it reads planted (a bug in th
 `locks doctor` said nothing broken and nothing suspect after each. The one defect was `tracer-slice` spending a
 worker to learn its method was absent: its definition now requires `docs/tracer` and the run is refused first.
 
+
+## AF: a worker's role and skills against none, per cell (`roles.py`, 0.115.0)
+
+The harder build, judged by its 10 hidden tests; one worker through `launch.run` per run, with the
+`feature-builder` role and skills appended (`full`, 15,980 characters), its one-line description
+(`minimal`, 155) or nothing (`none`). Three runs per arm, 27 in all, $7.45.
+
+| Cell | Role | Right | Wall p50 | Turns p50 | Cost p50 |
+|---|---|---|---|---|---|
+| sonnet/medium | full | 3/3 | 54 s | 6 | $0.17 |
+| sonnet/medium | minimal | 3/3 | 49 s | 7 | $0.14 |
+| sonnet/medium | none | 3/3 | 54 s | 7 | $0.15 |
+| sonnet/high | full | 3/3 | 75 s | 9 | $0.22 |
+| sonnet/high | minimal | 3/3 | 94 s | 12 | $0.28 |
+| sonnet/high | none | 3/3 | 103 s | 14 | $0.29 |
+| opus/low | full | 3/3 | 69 s | 7 | $0.33 |
+| opus/low | minimal | 3/3 | 66 s | 6 | $0.31 |
+| opus/low | none | 3/3 | 60 s | 7 | $0.33 |
+
+Every arm was right every time: this build does not tell the cells apart by correctness, only by
+time and cost. The role's text costs nothing visible (cached in the system prompt); on sonnet/high
+the full role was the fastest and cheapest arm. opus/low was as right as sonnet/medium at about
+twice the cost: no reason here to start a build on it. Nothing changed from this bench.
+
+## AG: the diagnosis method per cell (`methods.py`, 0.115.0)
+
+The planted unclear bug of W, with and without the diagnosis lines, three runs per arm, $1.52.
+
+| Cell | Arm | Right | Wall p50 | Turns p50 | Cost p50 |
+|---|---|---|---|---|---|
+| sonnet/medium | with | 3/3 | 20 s | 5 | $0.053 |
+| sonnet/medium | without | 3/3 | 26 s | 12 | $0.068 |
+| sonnet/high | with | 3/3 | 34 s | 9 | $0.085 |
+| sonnet/high | without | 2/3 | 22 s | 10 | $0.069 |
+| opus/low | with | 3/3 | 27 s | 6 | $0.132 |
+| opus/low | without | 3/3 | 22 s | 4 | $0.093 |
+
+The guidance helped sonnet (sonnet/high missed once without it, as in W; sonnet/medium was faster
+with it) and cost opus/low time and money for nothing: the stronger model needed it less. Two
+changes, each still decided per repository by its trial, never assumed: the method's trial is kept
+per model of the start cell (`methods.label`), so one model's verdict is not another's; and
+sonnet/medium is `debug-unclear`'s probation cell (`matrix.PROBATION`), tried below sonnet/high.
+Three runs an arm is small: the trials are what decide.

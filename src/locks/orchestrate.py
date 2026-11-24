@@ -66,6 +66,7 @@ from locks import (
     runtime,
     standards,
     stops,
+    suspend,
     teams,
     trunks,
     trust,
@@ -1643,12 +1644,16 @@ def run(
             if arm == "gate":
                 held_to = owing
                 context.append(evidence_mod.brief_line(owing))
+            if any(r.ui_only for r in owing) and config.enabled("ui_check", os.environ):
+                # What done means for UI, told in both arms: the trial compares the gate, not this line.
+                context.append(evidence_mod.UI_DONE)
         # A method its kind's workers are briefed to follow (`locks.methods`): given or not by its trial,
         # kept either way so the arms can be compared.
         methodical: dict[str, Any] = {}
         if methods_mod.enabled() and (method := methods_mod.for_kind(the_plan.kind)) is not None:
-            side, side_why = methods_mod.arm(store, key, method, task["id"])
-            methodical = {methods_mod.KEY: f"{method.name}:{side}", "method_why": side_why}
+            side, side_why = methods_mod.arm(store, key, method, task["id"], the_plan.start.model)
+            methodical = {methods_mod.KEY: f"{methods_mod.label(method, the_plan.start.model)}:{side}",
+                          "method_why": side_why}
             if side == "with":
                 context.append(method.lines)
         the_plan.seen_risks = tuple(methods_mod.lines_for(methods_mod.run_risks(store, task)))
@@ -1925,6 +1930,7 @@ def run(
                 started_at = isolate.stand(repo_dir, in_place_checkouts(repo_dir))
             places = started_at or []
             store.add_event(task["id"], "attempt_started", seq=nth, cell=cell.label,
+                            **({"suspended_s": asleep} if (asleep := suspend.suspended()) is not None else {}),
                             **({"base": workspace.base, "links": list(workspace.links)} if workspace else {}),
                             **({"places": places} if places else {}),
                             model=spec.model_id or cell.model,
@@ -2485,6 +2491,7 @@ def run(
                         findings=list(attempts[-1].findings)[:30] if status == "done" and attempts else [],
                         wall_s=round(time.monotonic() - clock, 2), attempts=len(attempts),
                         at=round(time.time(), 3), **gaps,
+                        **({"suspended_s": asleep} if (asleep := suspend.suspended()) is not None else {}),
                         **{k: round(v, 2) for k, v in timing.items()},
                         **({"ledger": settled.data()} if settled else {}),
                         **({"verdict": verdict_card(store, task["id"], report, options, verifying)}
@@ -3410,7 +3417,7 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                    rules: Sequence[Mapping[str, Any]] = (), rows: Sequence[str] = (), running: str = "",
                    impact: Sequence[str] = (), method: Sequence[str] = (),
                    since: tuple[str, Sequence[str]] | None = None, generated: Sequence[str] = (),
-                   instruction: str = "") -> str:
+                   instruction: str = "", ui: Sequence[str] = ()) -> str:
     """What the verifier is given: the request in its words, the change, why it is checked
     (the risk's reasons, in the router's words) and the constraints the project keeps —
     never the worker's account. A resume's instruction (`resume_instruction`) is the one thing of
@@ -3460,6 +3467,7 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                      "the case that breaks it.")
     if method and kind not in READ_ONLY_KINDS:
         parts += method
+    parts += ui
     if rows:
         # A fix of ledger rows: its answers per row decide the re-check after it (`workflows._ledger`).
         parts.append(f"The request is a fix of the ledger rows {', '.join(rows)}. Answer every one in `verdicts`, "
@@ -3684,6 +3692,9 @@ def _risk_of_change(plan: Plan, changed: Sequence[str] | None, workdir: Path | N
     """The tier raised by what an attempt changed (`risk_mod.of_change`), and to high when it wrote a spec
     that no code links: the report calls that a blocker, and only the independent check can block."""
     risk_mod.of_change(plan.risk, changed)
+    if changed and config.enabled("ui_check", os.environ) and any(caps.renders(p) for p in changed):
+        # Compiling and passing its tests says nothing of how it looks: only the independent check renders it.
+        plan.risk.raise_to("high", "it changes rendered UI: the independent check renders and measures it")
     if changed and any(r.new for r in _unlinked(plan, changed, workdir, base)):
         plan.risk.raise_to("high", "it wrote a spec that no code names in an `@spec:` comment")
 
@@ -4038,7 +4049,9 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
                                     rules=rules, rows=fixing, running=running, impact=impact,
                                     method=tracer_mod.verifier_lines(workdir, text, tuple(measuring))
                                     if config.enabled("tracer", os.environ) else (), since=since,
-                                    generated=generated, instruction=instruction),
+                                    generated=generated, instruction=instruction,
+                                    ui=evidence_mod.ui_check_lines(changed, tuple(measuring))
+                                    if config.enabled("ui_check", os.environ) else ()),
         verdicts=fixing, verdict_words=ledger_mod.WORDS["recheck"] if fixing else (),
         cell=vcell, max_turns=min(spec.max_turns, VERIFIER_TURNS),
         # Its calls are never the worker's: the log keeps them under no attempt, so what a worker used

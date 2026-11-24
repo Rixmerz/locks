@@ -617,3 +617,44 @@ def test_a_run_cancelled_with_its_attempt_open_is_stopped_never_unnoticed(store)
     assert run["lost_s"] is None and run["unnoticed_s"] is None
     assert run["stopped_open_s"] == 2 * 86400
     assert "stopped_open_s" in analysis.RUN_COLUMNS
+
+
+def test_a_machine_asleep_with_an_attempt_open_is_asleep_never_lost_or_unnoticed(store):
+    from datetime import UTC, datetime, timedelta
+
+    task = store.create_task("x", status="cancelled", source="locks", kind="implement")
+    start = datetime(2026, 11, 7, 21, 15, tzinfo=UTC)
+    slept = 41 * 3600
+    for event_kind, at, data in (("planned", start, {"kind": "implement", "plan_s": 1.0}),
+                                 ("attempt_started", start, {"seq": 1, "max_turns": 30, "suspended_s": 100.0}),
+                                 ("finished", start + timedelta(seconds=slept + 600),
+                                  {"status": "cancelled", "suspended_s": 100.0 + slept})):
+        event = store.add_event(task["id"], event_kind, **data)
+        store._conn.execute("UPDATE events SET ts = ? WHERE id = ?", (at.isoformat(timespec="seconds"), event))
+    run = analysis.runs(*store.runs_since(""))[0]
+    assert run["asleep_s"] == slept and run["stopped_open_s"] == 600
+    assert run["unnoticed_s"] is None and "asleep_s" in analysis.RUN_COLUMNS
+
+
+def test_the_suspend_clock_reads_a_sleep_only_within_one_boot():
+    from locks import suspend
+
+    assert suspend.slept(10.0, 3610.0) == 3600.0 and suspend.slept(10.0, 10.4) == 0.0
+    assert suspend.slept(500.0, 10.0) is None and suspend.slept(None, 10.0) is None
+    reading = suspend.suspended()
+    assert reading is None or reading >= 0
+
+
+def test_the_suspend_clock_says_nothing_where_no_pair_of_clocks_reads(monkeypatch):
+    import time
+
+    from locks import suspend
+
+    def broken(_clock):
+        raise OSError("no such clock")
+
+    monkeypatch.setattr(time, "clock_gettime", broken)
+    assert suspend.suspended() is None
+    for name in ("CLOCK_BOOTTIME", "CLOCK_UPTIME_RAW"):
+        monkeypatch.delattr(time, name, raising=False)
+    assert suspend.suspended() is None

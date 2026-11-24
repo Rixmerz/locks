@@ -81,6 +81,36 @@ def brief_line(found: Sequence[Requirement]) -> str:
               "write; a pass without them goes back to you.")
 
 
+#: What "done" means for a change a person sees, beyond a build and tests that pass: a worker of UI work
+#: is told it and the independent check of a change that renders UI checks it rendered (`ui_check`).
+UI_DONE = (
+    "Rendered UI is done when it was looked at rendered, not when it compiles and its tests pass. Render "
+    "every screen or component the change touches and check, with a measurement where a tool gives one: "
+    "nothing overflows, clips or overlaps at a phone width (about 375 px) and a desktop width (about 1280 px); "
+    "alignment and spacing follow the project's own scale and design tokens, never a value picked by eye; "
+    "type, colour and components are the design system's, with text contrast at WCAG AA; the states the "
+    "change reaches render (empty, loading, error, long text, many items, disabled, hover and focus); it "
+    "works with the keyboard and its focus is visible; and it reads as one composition with the screens "
+    "around it (hierarchy, grouping, the same patterns for the same things).")
+
+
+def ui_check_lines(changed: Sequence[str], measuring: Sequence[str]) -> list[str]:
+    """The independent check's lines for a change that renders UI (`capabilities.renders`), or none."""
+    rendered = [p for p in changed if capabilities.renders(p)]
+    if not rendered:
+        return []
+    shown = ", ".join(rendered[:10]) + (f" and {len(rendered) - 10} more" if len(rendered) > 10 else "")
+    how = ("Measure it with the layout tools you are handed (detect_issues or compare_viewports, "
+           "check_design_system, accessibility_spatial) and quote what they report."
+           if "layout-inspector" in measuring else
+           "No layout tool is handed to you: render it with what the project has (its dev server, its build, a "
+           "screenshot test) and say exactly what you could and could not render; what you did not render is "
+           "unchecked, never assumed fine.")
+    return [f"This change renders UI ({shown}). {UI_DONE} {how} A problem you show rendered (a measurement, a "
+            "tool's report, a state you rendered) is a finding with that proof; a judgement of taste with no "
+            "rule of the project behind it is a note in your summary, never a blocker."]
+
+
 def owed(store: Store, task_id: int, nth: int, names: Sequence[str], changed: Sequence[str],
          kind: str) -> list[Requirement]:
     """The requirements a passing attempt has not met: a neighbour it was handed whose condition

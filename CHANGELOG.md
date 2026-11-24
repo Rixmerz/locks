@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `/locks:insight` asks whether workers learn from the independent check: its repeated blockers per role, whether they reached a later brief, what the role's lessons did with them, and what checking them again costs.
+
 ### Fixed
 
 - A run cancelled with its attempt open (a machine that slept, then a cancel on waking) is `stopped open` in `locks stats`, never `unnoticed`: that time was read as a dead worker nobody swept.

@@ -94,6 +94,31 @@ tokens are in the summary's `tokens`.
 - **Health**: `locks doctor` (states the store should never hold), `locks stats --expensive`.
 - **Learning**: `locks evolution`, `locks trust`, `locks roles revisions`: did standards,
   trust and trials move, and on what evidence?
+- **Do workers learn from the independent check, or does it find the same thing again?** The
+  verifier exists to catch what a worker missed; a blocker it finds twice for the same role in the
+  same repository is work done twice. Answer each, per repository and role, with counts:
+  1. *What it found.* The `verified` events' blockers (`locks trust` lists the ones that repeat an
+     earlier task's here, `trust._repeats`): how many, how many repeat one, and the repeated ones
+     quoted with their tasks and dates. Group them by what they are about (the finding's `cause`,
+     its file's area), not by wording.
+  2. *Whether it reached the next worker.* For each repeated blocker, read the briefs of the tasks
+     of that role after its first sighting (`locks:briefed`: role lessons and their arm, `notes`,
+     the constraints, the dead ends): did one of them carry it, in words a worker could act on?
+     A blocker that never reached a brief is a gap in what locks files from the check; one that
+     reached it and repeated is a gap in how it is told, or in the worker.
+  3. *What locks did with it.* `locks roles revisions`: was a lesson proposed for that role here
+     (`revisions.MIN_EVIDENCE` blockers or dead ends), is it on trial, adopted, dropped for too few
+     tasks (`TRIAL_DAYS`) or lost? How long from the first sighting to a proposal, and to a verdict?
+     Did a constraint come from it (`notes.CONSTRAINT`, filed only when a check failed before the
+     pass)?
+  4. *Whether the check costs less as workers learn.* Per cell, `locks trust`: its sampling level,
+     clean checks in a row, and the verifier's cost (`verifier_s`, its cost apart in `locks stats`)
+     against the blockers it found. A cell that keeps every pass checked because the same blocker
+     returns is the duplication to name, with its dollars and seconds.
+  Before proposing a fix, read the code that carries a finding into a brief (`revisions.py`,
+  `notes.constraint_lines`, `cells`' dead ends, `orchestrate`'s brief) and say where the chain broke.
+  A repeated blocker is never fixed by checking less: the verifier is the fail-closed check, and
+  trust lowers its sampling only on clean records.
 
 ## 4. From a symptom to its cause
 

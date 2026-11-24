@@ -90,7 +90,8 @@ def report() -> None:
     for (cell, role), rs in sorted(groups.items()):
         ok = [r for r in rs if "error" not in r]
         right = sum(r["hidden"] == r["of"] for r in ok)
-        med = lambda k: median(r[k] for r in ok) if ok else None  # noqa: E731
+        def med(k: str, ok: list[dict] = ok) -> float | None:
+            return median(r[k] for r in ok) if ok else None
         print(f"| {cell} | {role} | {right}/{len(ok)} | {med('hidden')} | {med('wall_s')} s | {med('turns')} | "
               f"${med('cost')} | {len(rs) - len(ok)} |")
 

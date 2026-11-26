@@ -431,6 +431,20 @@ class LaunchSpec:
         return self.workdir or self.launch_dir
 
 
+#: The summary of a claimed pass that says criteria are not met; `unmet_ids` reads it back.
+NOT_MET_SUMMARY = "claimed a pass, but says {ids} is not met: "
+
+
+def unmet_ids(summary: str) -> tuple[str, ...]:
+    """The criteria ids a stored `NOT_MET_SUMMARY` names, `()` for any other summary."""
+    head, tail = NOT_MET_SUMMARY.split("{ids}")
+    end = summary.find(tail, len(head))
+    if not summary.startswith(head) or end < 0:
+        return ()
+    ids = summary[len(head):end].split(", ")
+    return tuple(ids) if all(i and " " not in i for i in ids) else ()
+
+
 @dataclass(frozen=True)
 class WorkerResult:
     passed: bool
@@ -468,6 +482,8 @@ class WorkerResult:
     notes_said: bool = False
     #: Rules a failing check of this task showed the work must meet (`notes.CONSTRAINT`).
     constraints: tuple[str, ...] = ()
+    #: The criteria ids a claimed pass says are not met (`NOT_MET_SUMMARY`), structurally.
+    not_met: tuple[str, ...] = ()
     #: The one line the worker proposes as the commit's subject; "" when it gave none.
     commit: str = ""
     #: The report its task asked for (a `locks-report` block), parsed; None when there is none.
@@ -860,8 +876,8 @@ def parse(
         left_out, not_met = criteria_mod.unmet(spec.criteria, common["criteria"])
         if not_met and not spec.judging:
             return WorkerResult(False, _refused(Failure.CODE_BUG, denied),
-                                f"claimed a pass, but says {', '.join(not_met)} is not met: " + summary, evidence,
-                                raw=text, verdict=verdict, **common)
+                                NOT_MET_SUMMARY.format(ids=", ".join(not_met)) + summary, evidence,
+                                raw=text, verdict=verdict, not_met=tuple(not_met), **common)
         if left_out:
             return WorkerResult(False, _refused(Failure.INCONCLUSIVE, denied),
                                 f"claimed a pass without saying whether {', '.join(left_out)} is met: " + summary,

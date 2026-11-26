@@ -2303,7 +2303,7 @@ def run(
                               load=result.load, failing=result.failing, base_unknown=result.base_unknown,
                               shape=result.shape, limited=result.limited, retry_after_s=result.retry_after_s,
                               blockers=open_blockers, stands=(bool(stands) or widened) and result.failure in REPLAN,
-                              outside=outside_tests)
+                              outside=outside_tests, not_met=result.not_met)
             attempts.append(attempt)
             if raced is not None and not raced_first:
                 # The start's try went on: the rung's, stopped or failed, is recorded after it.
@@ -2357,7 +2357,9 @@ def run(
             reading = not writes or (declared_read_only and not any(a.changed for a in attempts))
             decision = decide(the_plan.ladder, attempts, allow_approval=options.allow_approval, reading=reading,
                               several=_several(the_plan, options, task, attempts),
-                              skips=_skips(store, key, the_plan.kind))
+                              skips=_skips(store, key, the_plan.kind),
+                              earlier=[dataclasses.replace(a, not_met=a.not_met or launch.unmet_ids(a.summary))
+                                       for a in history])
             resume, fresh = _continues(decision, session)
             store.set_move(task["id"], seq, decision.move.value, decision.reason)
             to = decision.cell.label if decision.cell and decision.continues else None

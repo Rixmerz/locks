@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from locks.escalate import Attempt, Failure, Move, Skip, decide, repeated_answer
@@ -431,3 +433,35 @@ def test_a_worker_the_guard_refused_locks_work_is_a_decision_not_a_climb():
     assert d.move is Move.DECIDE and "never starts" in d.reason
     assert decide(IMPLEMENT, [Attempt(Cell("sonnet", "medium"), 30, False, Failure.INCONCLUSIVE,
                                           "no verdict")]).move is not Move.DECIDE
+
+
+def unmet(cell: str, ids: tuple[str, ...] = ("S18", "S22"), changed: tuple[str, ...] = ()) -> Attempt:
+    """A claimed pass that says criteria are not met (`launch.NOT_MET_SUMMARY`)."""
+    said = f"claimed a pass, but says {', '.join(ids)} is not met on {cell}"
+    return Attempt(Cell.parse(cell), 30, False, Failure.CODE_BUG, said, not_met=ids, changed=changed)
+
+
+def test_unchanged_work_that_leaves_the_same_criteria_unmet_again_goes_to_the_orchestrator():
+    # The field case: attempt 5 changed no file and still says S18, S22 is not met.
+    attempts = [unmet("sonnet/medium"), fail("sonnet/high", Failure.SPEC_BUG), unmet("sonnet/high"),
+                fail("sonnet/xhigh", Failure.SPEC_BUG), unmet("sonnet/xhigh")]
+    d = decide(IMPLEMENT, attempts)
+    assert d.move is Move.DECIDE and not d.continues and d.cell is None
+    assert "sonnet/high" in " ".join(d.because) and "sonnet/xhigh" in " ".join(d.because)
+    assert "S18, S22" in d.reason and "no cell meets" in " ".join(d.because)
+    assert "is not met on sonnet/xhigh" in d.reason  # the point, quoted
+    # An earlier run's attempt counts the same, and a subset of its ids is enough.
+    d = decide(IMPLEMENT, [unmet("sonnet/xhigh", ("S22",))], earlier=[unmet("sonnet/medium")])
+    assert d.move is Move.DECIDE
+
+
+def test_a_first_unmet_criterion_or_one_after_real_work_still_climbs():
+    assert decide(IMPLEMENT, [unmet("sonnet/medium")]).move is Move.MORE_EFFORT
+    # New ids (and words that differ, so the repeated-answer rule stays out of it): shallow work.
+    new_ids = [replace(unmet("sonnet/medium", ("S1",)), summary="export lacks a header"), unmet("sonnet/high")]
+    assert decide(IMPLEMENT, new_ids).move is Move.MORE_EFFORT
+    first = replace(unmet("sonnet/medium"), summary="export lacks a header")
+    worked = [first, unmet("sonnet/high", changed=("README.md",))]
+    assert decide(IMPLEMENT, worked).move is Move.MORE_EFFORT
+    last = [first, unmet("sonnet/high"), unmet("sonnet/xhigh", changed=("a.py",))]
+    assert decide(IMPLEMENT, last).move is Move.NEXT_MODEL

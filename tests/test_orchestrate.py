@@ -2626,3 +2626,15 @@ def test_a_dead_worker_s_session_is_left_where_the_cell_differs_or_nothing_kept_
     # An attempt that finished after the loss is no dead worker's.
     store.add_event(first.task_id, "attempt_finished", seq=9, cell="sonnet/low")
     assert orchestrate._dead_session(store, first.task_id, Cell("sonnet", "low")) == ("", "")
+
+
+def test_an_earlier_runs_unmet_criteria_stop_unchanged_work_from_climbing(git_repo, store):
+    from locks.escalate import Attempt
+
+    said = "claimed a pass, but says S18, S22 is not met: nothing to change"
+    # History comes back from the store with only the summary: the ids are read from it.
+    script = Script(WorkerResult(False, Failure.CODE_BUG, said, not_met=("S18", "S22")), ok())
+    report = run("fix the export", git_repo, store, registry={}, launcher=script, classifier=kind("implement"),
+                 history=[Attempt(Cell("sonnet", "medium"), 30, False, Failure.CODE_BUG, said)])
+    assert report.decisions[-1].move.value == "decide" and len(script.specs) == 1
+    assert report.status != "done"

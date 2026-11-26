@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from locks import capabilities as caps
+
+
+@pytest.fixture(autouse=True)
+def stub_commands(tmp_path_factory, monkeypatch):
+    """The bare commands these tests register are on the PATH, as a real install's."""
+    folder = tmp_path_factory.mktemp("stubs")
+    for name in ("x", "m", "d", "b", "layout-inspector", "npx"):
+        (folder / name).write_text("#!/bin/sh\n")
+        (folder / name).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{folder}{os.pathsep}{os.environ.get('PATH', '')}")
 
 
 def write(tmp_path: Path, data) -> Path:
@@ -127,3 +138,45 @@ def test_on_request_joins_only_when_asked_and_a_registry_key_sets_it(tmp_path):
         assert caps.select(registry, kind, failed_before=True, workdir=Path("/w")).names == ()
     got = caps.select(registry, "implement", workdir=Path("/w"), asked=True)
     assert got.names == ("b",) and "given because the request asks to browse" in got.hints[0]
+
+
+def _program(folder, name):
+    folder.mkdir(exist_ok=True)
+    program = folder / name
+    program.write_text("#!/bin/sh\n")
+    program.chmod(0o755)
+    return program
+
+
+def test_a_bare_command_is_runnable_only_when_it_is_on_the_path(tmp_path, monkeypatch):
+    _program(tmp_path / "bin", "layout-inspector-mcp")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    assert caps.runnable({"command": "layout-inspector-mcp"})
+    assert not caps.runnable({"command": "layout-inspector"})
+
+
+def test_a_bare_command_is_looked_up_on_the_servers_own_path(tmp_path, monkeypatch):
+    _program(tmp_path / "own", "tool")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert not caps.runnable({"command": "tool"})
+    assert caps.runnable({"command": "tool", "env": {"PATH": str(tmp_path / "own")}})
+    monkeypatch.setenv("PATH", str(tmp_path / "own"))
+    assert not caps.runnable({"command": "tool", "env": {"PATH": str(tmp_path / "empty")}})
+
+
+def test_relative_and_absolute_commands_are_unchanged(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert caps.runnable({"command": "./not/here"})
+    assert caps.runnable({"command": "node_modules/.bin/x"})
+    assert not caps.runnable({"command": str(tmp_path / "nowhere")})
+    assert caps.runnable({"command": str(_program(tmp_path, "abs"))})
+
+
+def test_a_server_with_a_bare_command_not_on_the_path_is_not_handed(tmp_path, monkeypatch):
+    _program(tmp_path / "bin", "present")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    registry = {
+        "present": caps.Capability("present", {"command": "present"}),
+        "absent": caps.Capability("absent", {"command": "layout-inspector"}),
+    }
+    assert set(caps.select(registry, "implement").servers) == {"present"}

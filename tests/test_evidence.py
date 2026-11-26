@@ -107,7 +107,8 @@ def test_a_change_with_nothing_to_render_owes_no_measurement(store: Store):
 
 
 @pytest.mark.usefixtures("no_verifier")
-def test_a_feature_in_a_repo_with_no_ui_is_judged_on_its_check(git_repo, store: Store, monkeypatch):
+def test_a_feature_in_a_repo_with_no_ui_is_judged_on_its_check(git_repo, store: Store, monkeypatch, on_path):
+    on_path("li")
     # The issue's shape: layout-inspector is handed to a feature, the repository renders nothing, and
     # the pass that wrote code and a test fixture of type `.tsx` stands on its check, at once.
     _held(monkeypatch)
@@ -142,7 +143,9 @@ def _ui_repo(git_repo):
     git(git_repo, "commit", "-q", "-m", "components")
 
 
-def test_a_ui_pass_with_no_measurement_goes_back_once_then_to_the_orchestrator(git_repo, store: Store, monkeypatch):
+def test_a_ui_pass_with_no_measurement_goes_back_once_then_to_the_orchestrator(git_repo, store: Store,
+                                                                                monkeypatch, on_path):
+    on_path("li")
     _ui_repo(git_repo)
     _held(monkeypatch)
     monkeypatch.setenv("LOCKS_UI_CHECK", "off")  # its UI change would raise the tier and run the verifier
@@ -180,7 +183,8 @@ def test_a_ui_pass_that_measured_stands(git_repo, store: Store, monkeypatch):
 
 
 @pytest.mark.usefixtures("no_verifier")
-def test_free_work_is_never_held_back_and_its_calls_are_still_counted(git_repo, store: Store, monkeypatch):
+def test_free_work_is_never_held_back_and_its_calls_are_still_counted(git_repo, store: Store, monkeypatch, on_path):
+    on_path("li")
     _ui_repo(git_repo)
     monkeypatch.setenv("LOCKS_EVIDENCE", "on")
     monkeypatch.setattr(evidence, "arm", lambda store, repo, task_id: ("free", "free for the test"))
@@ -314,7 +318,8 @@ def test_rastro_is_no_requirement_and_layout_inspector_still_is():
     assert [r.capability for r in evidence.REQUIRED] == ["layout-inspector"]
 
 
-def test_a_ui_worker_is_told_what_done_means_for_ui(git_repo, store: Store, monkeypatch):
+def test_a_ui_worker_is_told_what_done_means_for_ui(git_repo, store: Store, monkeypatch, on_path):
+    on_path("li")
     _ui_repo(git_repo)
     _held(monkeypatch)
     monkeypatch.setenv("LOCKS_UI_CHECK", "on")

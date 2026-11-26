@@ -209,7 +209,8 @@ def test_the_outbound_guard_holds_acting_tools_to_the_loop(tmp_path):
     assert "a@b.c" not in sent and sent.count("send_message") == 2
 
 
-def test_a_capability_s_acting_tools_run_behind_the_guard(tmp_path):
+def test_a_capability_s_acting_tools_run_behind_the_guard(tmp_path, on_path):
+    on_path("mail-mcp", "docs-mcp")
     path = tmp_path / "capabilities.json"
     path.write_text(json.dumps({"mail": {"server": {"command": "mail-mcp", "args": ["serve"]},
                                          "outbound": {"acts": ["send_message"]}},

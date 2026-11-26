@@ -182,7 +182,8 @@ def test_read_only_work_gets_no_edit_tools_and_no_worktree(git_repo, store):
     assert report.branch is None and report.final_cell == "haiku/medium"
 
 
-def test_a_capability_joins_the_work_that_touches_its_files(git_repo, store, monkeypatch):
+def test_a_capability_joins_the_work_that_touches_its_files(git_repo, store, monkeypatch, on_path):
+    on_path("m", "d")
     monkeypatch.setenv("LOCKS_UI_CHECK", "off")  # its UI changes would run the independent check too
     registry = {"measure": caps.Capability("measure", {"command": "m"}, when=(), touches=caps.UI_FILES,
                                            measures=True, hint="measure it"),
@@ -204,7 +205,8 @@ def test_a_capability_joins_the_work_that_touches_its_files(git_repo, store, mon
     assert first.mcp_servers == {} and set(second.mcp_servers) == {"measure", "drive"}
 
 
-def test_capabilities_are_handed_over_and_reactive_ones_join_after_a_failure(git_repo, store):
+def test_capabilities_are_handed_over_and_reactive_ones_join_after_a_failure(git_repo, store, on_path):
+    on_path("idx", "li")
     registry = {
         "index": caps.Capability("index", {"command": "idx", "args": ["{workdir}"]}, hint="use it"),
         "inspector": caps.Capability("inspector", {"command": "li"}, when=(), after_failure=("implement",)),

@@ -1001,8 +1001,8 @@ def test_the_check_keeps_only_the_neighbours_that_measure(git_repo, store, verif
 
     # rastro handed to writing work is held to evidence on the gate arm (`evidence.arm`): not this test's.
     monkeypatch.setenv("LOCKS_EVIDENCE", "off")
-    registry = {"layout-inspector": caps.Capability("layout-inspector", {"command": "li"}),
-                "rastro": caps.Capability("rastro", {"command": "rastro"})}
+    registry = {"layout-inspector": caps.Capability("layout-inspector", {"command": sys.executable}),
+                "rastro": caps.Capability("rastro", {"command": sys.executable})}
     script = Script(passing(), check("pass"), write="app.py")
     report = run("fix the cart total", git_repo, store, registry=registry, launcher=script,
                  classifier=kind("implement"))
@@ -1017,7 +1017,7 @@ def test_the_check_keeps_only_the_neighbours_that_measure(git_repo, store, verif
 def test_the_check_of_a_change_to_rendered_ui_measures_it_even_when_the_work_did_not(git_repo, store, verifier_on):
     from locks import capabilities as caps
 
-    registry = {"measure": caps.Capability("measure", {"command": "m"}, when=(), hint="measure the page",
+    registry = {"measure": caps.Capability("measure", {"command": sys.executable}, when=(), hint="measure the page",
                                            touches=("*.tsx",), measures=True)}
     script = Script(passing(), check("pass"), write="app.py")
     run("fix the cart total", git_repo, store, registry=registry, launcher=script, classifier=kind("implement"))

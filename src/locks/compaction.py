@@ -95,6 +95,9 @@ RUNNING_SHARE = 0.65
 #: The store's meta key, per session, of the model its SessionStart named (`[1m]` is there, never
 #: in the transcript's model id).
 MODEL_META = "session-model:"
+#: Per session: the largest context it ever showed (any assistant usage, a compaction's
+#: `preTokens`), raised and never lowered, so the window survives the compactions it advises.
+PEAK_META = "session-peak:"
 #: How long the prompt cache keeps the session's prefix: five minutes on an API
 #: key, an hour on a subscription within its plan. The session's own responses
 #: say which (`cache_creation`); when they do not, the shorter.
@@ -186,6 +189,8 @@ class Context:
     #: compaction of this session says it; None when nothing does.
     auto_share: float | None = None
     auto_off: bool = False
+    #: The largest context known for the session: the tail's and the remembered one.
+    peak: int = 0
 
     def shares(self) -> tuple[float, float, float]:
         """Worth, pressing and urgent, each kept below where the harness compacts by itself."""
@@ -275,11 +280,12 @@ def auto_share(env: Mapping[str, str] | None, window: int, autos: Sequence[int] 
 
 
 def read_context(transcript: Path, *, model_hint: str | None = None,
-                 env: Mapping[str, str] | None = None) -> Context:
+                 env: Mapping[str, str] | None = None, peak_hint: int = 0) -> Context:
     """The latest assistant message's context (input, cache read and cache
     creation tokens), its model, when it ended, when its turn started, and how
     long the cache keeps it as the session's own cache writes say. The window is
-    read from the largest context of the tail, not only the latest."""
+    read from the largest context of the tail and `peak_hint` (the session's remembered
+    peak), not only the latest."""
     if not transcript.is_file():
         return Context()
     tokens: int | None = None
@@ -288,7 +294,7 @@ def read_context(transcript: Path, *, model_hint: str | None = None,
     ttl, known = CACHE_TTL_S, False
     entries = _tail(transcript)
     bounds = [b for b in map(_boundary, entries) if b]
-    peak = max([*(_size(e) for e in entries), *(t for _, t in bounds)], default=0)
+    peak = max([peak_hint, *(_size(e) for e in entries), *(t for _, t in bounds)])
     for entry in reversed(entries):
         message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
         used = message.get("usage")
@@ -310,7 +316,21 @@ def read_context(transcript: Path, *, model_hint: str | None = None,
     window = window_of(model_hint or model, peak, env)
     share, off = auto_share(env, window, [t for trigger, t in bounds if trigger == "auto"])
     return Context(tokens=tokens, model=model, window=window, ttl_s=ttl, ttl_known=known,
-                   last_turn_at=last, turn_started=started, auto_share=share, auto_off=off)
+                   last_turn_at=last, turn_started=started, auto_share=share, auto_off=off, peak=peak)
+
+
+def read_session_context(store: Store, session_id: str | None, transcript: Path, *,
+                         env: Mapping[str, str] | None = None) -> Context:
+    """`read_context` with what the store remembers of the session (its model, its largest
+    context), raising the remembered peak when this read shows a larger one."""
+    if not session_id:
+        return read_context(transcript, env=env)
+    remembered = int(_positive(store.meta(PEAK_META + session_id)) or 0)
+    context = read_context(transcript, model_hint=store.meta(MODEL_META + session_id), env=env,
+                           peak_hint=remembered)
+    if context.peak > remembered:
+        store.set_meta(PEAK_META + session_id, str(context.peak))
+    return context
 
 
 def worth(context: Context) -> bool:
@@ -501,7 +521,7 @@ def gather(store: Store, root: Path, *, session_id: str, transcript: Path, cwd: 
     """Everything `decide` weighs. The context first: when it is not worth
     compacting, nothing else is read. The model the session started on (its
     SessionStart's) says a million-token window the transcript's id never names."""
-    context = read_context(transcript, model_hint=store.meta(MODEL_META + session_id), env=env)
+    context = read_session_context(store, session_id, transcript, env=env)
     if worker or not worth(context):
         return Signals(context=context, worker=worker)
     since = (context.turn_started or at) - timedelta(seconds=BREAK_SLACK_S)
@@ -652,7 +672,7 @@ def request(store: Store, root: Path, *, session_id: str, cwd: str | None, why: 
     if turn is None:
         return {"error": "locks has seen no turn of this session yet"}
     transcript = transcript or scribe.find_transcript(session_id) or Path("/nonexistent")
-    context = read_context(transcript, model_hint=store.meta(MODEL_META + session_id), env=os.environ)
+    context = read_session_context(store, session_id, transcript, env=os.environ)
     work, branches = what_is_open(store, session_id, cwd)
     keep_part = kept_by_session(keep) if keep.strip() else ""
     text = instructions(requests=_requests(root, session_id, transcript), open_work=work, branches=branches,

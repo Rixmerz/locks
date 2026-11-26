@@ -21,10 +21,27 @@ from pathlib import Path
 
 from locks.text import clip, fold, outline, words
 
+
+def layout() -> dict:
+    """How TRACER lays out its files in a repository: the person's `tracer` extension's `method`, else the
+    one locks ships (`extensions_bundled/tracer.json`). An updated TRACER is read by its own layout."""
+    from locks import extensions
+    from locks.store import home
+
+    return dict(extensions.method("tracer", home()) or {})
+
+
+def folder() -> Path:
+    return Path(layout()["folder"])
+
+
+def files() -> tuple[tuple[str, str], ...]:
+    """The method's files a worker reads before any code, in this order, and what each holds."""
+    return tuple((name, title) for name, title in layout()["files"])
+
+
+#: The layout locks ships, for readers that name it before a repository is read.
 FOLDER = Path("docs") / "tracer"
-#: The method's files a worker reads before any code, in this order, and what each holds.
-FILES = (("audiences.md", "Audience profiles"), ("identity.md", "Identity guideline"),
-         ("floors.md", "Component floors"), ("anti-patterns.md", "Anti-pattern catalogue"))
 #: The most of the method one brief carries; what is left out is said by count, with where it is.
 BRIEF_CHARS = 8000
 #: The most of a brief the index of what did not fit takes (`text.outline`); further sections are counted.
@@ -32,7 +49,7 @@ OUTLINE_CHARS = 2000
 
 
 def present(repo_dir: Path) -> bool:
-    return (repo_dir / FOLDER).is_dir()
+    return (repo_dir / folder()).is_dir()
 
 
 def _read(path: Path) -> str:
@@ -73,7 +90,7 @@ def capability_names(repo_dir: Path) -> list[str]:
     """The names in the capability map (`docs/tracer/capabilities.md`): its headings, its unindented list
     entries and the first column of a table, each without the id or the requirement links after it."""
     names = []
-    for raw in _read(repo_dir / FOLDER / "capabilities.md").splitlines():
+    for raw in _read(repo_dir / folder() / layout()["capabilities"]).splitlines():
         line = raw.replace("*", "").replace("`", "")
         entry = _LIST_ENTRY.match(line)
         if entry:
@@ -110,13 +127,13 @@ def flows_for(repo_dir: Path, text: str) -> list[Path]:
     words or more that all appear; or one that belongs to a capability of `capabilities.md` the request
     names. Strict on purpose: a flow briefed by a loose match puts another capability's CORRECT lines
     on the work."""
-    folder = repo_dir / FOLDER / "flows"
-    if not folder.is_dir():
+    flows = repo_dir / folder() / layout()["flows"]
+    if not flows.is_dir():
         return []
     asked = set(words(text))
     capabilities = [w for w in (words(n) for n in capability_names(repo_dir)) if _covered(w, asked, 2)]
     out = []
-    for path in sorted(folder.glob("*.md")):
+    for path in sorted(flows.glob("*.md")):
         stem = words(path.stem.replace("-", " ").replace("_", " "))
         if _reached(stem, [words(t) for t in _titles(_read(path))], asked, capabilities):
             out.append(path)
@@ -125,7 +142,7 @@ def flows_for(repo_dir: Path, text: str) -> list[Path]:
 
 def _sections(repo_dir: Path, text: str) -> list[tuple[str, str, str]]:
     """Each method file a brief carries: its title, its path from the repository, its text."""
-    found = [(title, (FOLDER / name).as_posix(), _read(repo_dir / FOLDER / name)) for name, title in FILES]
+    found = [(title, (folder() / name).as_posix(), _read(repo_dir / folder() / name)) for name, title in files()]
     found += [("Critical flow", path.relative_to(repo_dir).as_posix(), _read(path))
               for path in flows_for(repo_dir, text)]
     return [(title, rel, body) for title, rel, body in found if body]
@@ -136,7 +153,7 @@ def brief_lines(repo_dir: Path, text: str) -> list[str]:
     if not present(repo_dir):
         return []
     sections = _sections(repo_dir, text)
-    lines = [f"This repository follows the TRACER method (`{FOLDER.as_posix()}/`): done means correct for the "
+    lines = [f"This repository follows the TRACER method (`{folder().as_posix()}/`): done means correct for the "
              "people who use it, checked through the interface they use, never only that tests pass. Read these "
              "before any code. Never fill a detail they leave open with the most common solution: say it in your "
              "result instead. Each CORRECT line of a flow below is part of what your work must meet."]
@@ -161,15 +178,18 @@ def brief_lines(repo_dir: Path, text: str) -> list[str]:
             room -= len(entry) + 1
         more = len(index) - len(fits)
         lines.append("Not shown above, by section (read the lines you need):\n" + "\n".join(f"- {e}" for e in fits)
-                     + (f"\n{more} more section(s) in `{FOLDER.as_posix()}/`." if more else ""))
-    if not flows_for(repo_dir, text) and (repo_dir / FOLDER / "flows").is_dir():
-        lines.append(f"No critical flow under `{FOLDER.as_posix()}/flows/` is named by this request: read the "
+                     + (f"\n{more} more section(s) in `{folder().as_posix()}/`." if more else ""))
+    if not flows_for(repo_dir, text) and (repo_dir / folder() / layout()["flows"]).is_dir():
+        lines.append(f"No critical flow under `{folder().as_posix()}/flows/` is named by this request: read the "
                      "ones your change reaches.")
     return lines
 
 
 #: A line that opens a CORRECT criterion as the template writes it: `- CORRECT: …` (bold or not).
-_CORRECT_HEAD = re.compile(r"^(\s*)([-*+]\s+)?\**CORRECT\**\s*:")
+def _correct_head() -> re.Pattern[str]:
+    """A line that opens a criterion, by the word the method's layout names (`CORRECT`)."""
+    word = re.escape(layout()["criterion"])
+    return re.compile(rf"^(\s*)([-*+]\s+)?\**{word}\**\s*:", re.IGNORECASE if word.islower() else 0)
 _ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _SEPARATOR = re.compile(r"^[\s|:-]+$")
 
@@ -182,7 +202,7 @@ def _table_correct(block: list[str]) -> list[str]:
     """A table whose header row has a CORRECT column (the template's failure paths): that column's
     cell of each row, led by the row's first cell; the header row itself is no criterion."""
     header = _cells(block[0])
-    column = next((i for i, cell in enumerate(header) if cell.upper().startswith("CORRECT")), None)
+    column = next((i for i, cell in enumerate(header) if cell.upper().startswith(layout()["criterion"].upper())), None)
     if column is None:
         return []
     out = []
@@ -197,7 +217,7 @@ def _table_correct(block: list[str]) -> list[str]:
 def _continues(line: str, indent: int, bullet: bool) -> bool:
     """A line that goes on with the CORRECT line above it: deeper in, or (for a bare `CORRECT:` that is
     no list item) the list items right under it."""
-    if not line.strip() or line.lstrip().startswith("|") or _CORRECT_HEAD.match(line):
+    if not line.strip() or line.lstrip().startswith("|") or _correct_head().match(line):
         return False
     here = len(line) - len(line.lstrip())
     return here > indent or (not bullet and here == indent and bool(_ITEM.match(line)))
@@ -218,7 +238,7 @@ def _bullet_correct(lines: list[str]) -> list[str]:
     """Each `CORRECT:` criterion with what goes on under it."""
     out, i = [], 0
     while i < len(lines):
-        head = _CORRECT_HEAD.match(lines[i])
+        head = _correct_head().match(lines[i])
         i += 1
         if not head:
             continue
@@ -281,7 +301,7 @@ def _requirement_lines(repo_dir: Path) -> list[tuple[str, str]]:
     """The floors and anti-patterns of the method, a line each: `(file, line)`."""
     out = []
     for name in ("floors.md", "anti-patterns.md"):
-        for raw in _read(repo_dir / FOLDER / name).splitlines():
+        for raw in _read(repo_dir / folder() / name).splitlines():
             line = _BULLET.sub("", raw)
             if any(c.isalpha() for c in line) and len(line) > 3 and not set(line) <= set("-|: "):
                 out.append((name, line))
@@ -308,7 +328,7 @@ def _measured_lines(repo_dir: Path, tool: str) -> list[str]:
         lines.append(entry)
     if left:
         lines.append(f"{left} of the floor and anti-pattern lines did not fit here: read "
-                     f"`{(FOLDER / 'floors.md').as_posix()}` and `{(FOLDER / 'anti-patterns.md').as_posix()}`.")
+                     f"`{(folder() / 'floors.md').as_posix()}` and `{(folder() / 'anti-patterns.md').as_posix()}`.")
     if unmatched:
         lines.append(f"{unmatched} of the floor and anti-pattern lines name nothing {tool} measures: judge "
                      "them from the step or the rendered text.")
@@ -354,11 +374,11 @@ def verifier_lines(repo_dir: Path, text: str, measures: tuple[str, ...] = ()) ->
     if not present(repo_dir):
         return []
     correct, more = criteria(repo_dir, text)
-    catalogue = _read(repo_dir / FOLDER / "anti-patterns.md")
+    catalogue = _read(repo_dir / folder() / "anti-patterns.md")
     if not correct and not catalogue and not (measures and _requirement_lines(repo_dir)):
         return []
     out = [f"This repository follows the TRACER method: judge the change as the audience in "
-           f"`{FOLDER.as_posix()}/audiences.md` would. A CORRECT line below that does not hold, or an anti-pattern "
+           f"`{folder().as_posix()}/audiences.md` would. A CORRECT line below that does not hold, or an anti-pattern "
            "of the catalogue the change shows, is a finding, shown with the step or the rendered text that proves it."]
     if correct:
         out.append("CORRECT lines of the flows this request names. Each is a criterion: answer every one in "

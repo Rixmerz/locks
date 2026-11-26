@@ -50,7 +50,7 @@ CRITERIA_SHOWN = 30
 FILES_READ = 50
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 _KEYS = frozenset({"format", "name", "description", "when", "tools", "brief", "criteria", "check", "ending",
-                   "source", "evidence"})
+                   "source", "evidence", "method"})
 #: The extensions locks ships: the neighbours it hands from the person's installed plugins (`locks.plugins`).
 BUNDLED = Path(__file__).resolve().parent / "extensions_bundled"
 
@@ -85,6 +85,10 @@ class Extension:
     #: What a passing writing attempt owes of its tools (`locks.evidence`): its words, and whether only a UI
     #: change owes it.
     evidence: Mapping[str, Any] | None = None
+    #: How a method's files are laid out in a repository (TRACER's, `locks.tracer`): its folder, the files a
+    #: worker reads first with their titles, its flows' folder, its capability map, its slices and the word
+    #: that opens a criterion. An updated method says its own layout here; locks reads it as it is.
+    method: Mapping[str, Any] | None = None
     path: str = field(default="", compare=False)
 
     def applies(self, kind: str, paths: Sequence[str], repo_dir: Path | None) -> bool:
@@ -152,6 +156,16 @@ def parse(raw: Any, path: str = "") -> Extension:
             raise ExtensionError("`source` names the installed `plugin` and its `server`")
         if source.get("guard") and source["guard"] not in mcp_guard.POLICIES:
             raise ExtensionError(f"`source.guard` is one of {', '.join(sorted(mcp_guard.POLICIES))}")
+    laid = _section(raw, "method") or None
+    if laid is not None:
+        for key in ("folder", "flows", "capabilities", "slices", "criterion"):
+            if not isinstance(laid.get(key), str) or not laid[key].strip():
+                raise ExtensionError(f"`method.{key}` is a name")
+        _safe(laid["folder"], "`method.folder`")
+        files = laid.get("files")
+        if not isinstance(files, list) or not all(isinstance(f, list) and len(f) == 2 and all(
+                isinstance(x, str) for x in f) for f in files):
+            raise ExtensionError("`method.files` is a list of [file, title] pairs")
     owed = _section(raw, "evidence") or None
     if owed is not None and not (isinstance(owed.get("what"), str) and owed["what"].strip()):
         raise ExtensionError("`evidence.what` says what a passing attempt must show")
@@ -187,7 +201,8 @@ def parse(raw: Any, path: str = "") -> Extension:
                              for p in _strings(criteria.get("files"), "`criteria.files`")),
         criteria_pattern=pattern, check=command.strip(), offer=offer.strip(), source=source,
         on_request=bool(tools.get("on_request", False)),
-        after_failure=_strings(tools.get("after_failure"), "`tools.after_failure`"), evidence=owed, path=path)
+        after_failure=_strings(tools.get("after_failure"), "`tools.after_failure`"), evidence=owed,
+        method=laid, path=path)
 
 
 def load(home: Path) -> tuple[list[Extension], list[str]]:
@@ -206,6 +221,15 @@ def load(home: Path) -> tuple[list[Extension], list[str]]:
             continue
         found.append(ext)
     return found, refused
+
+
+def method(name: str, home: Path | None = None) -> Mapping[str, Any] | None:
+    """A method's layout (`method`): the person's extension of that name over the one locks ships."""
+    if home is not None:
+        mine = next((e for e in load(home)[0] if e.name == name and e.method), None)
+        if mine is not None:
+            return mine.method
+    return next((e.method for e in bundled() if e.name == name and e.method), None)
 
 
 def bundled() -> list[Extension]:

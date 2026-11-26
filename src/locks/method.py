@@ -85,7 +85,7 @@ class State:
 
     def lines(self) -> list[str]:
         if not self.present:
-            return [f"no `{tracer.FOLDER}/` here: the project has not started TRACER (its first phase is the "
+            return [f"no `{tracer.folder()}/` here: the project has not started TRACER (its first phase is the "
                     f"expectation contract: `locks workflow run tracer-contract`)"]
         out = []
         for p in PHASES:
@@ -139,7 +139,7 @@ def _status(text: str) -> str:
 def slices(repo_dir: Path) -> list[Slice]:
     """The slices `slices.md` plans: a table's rows (a status cell read by its words) or checkbox entries."""
     try:
-        body = (repo_dir / tracer.FOLDER / "slices.md").read_text(encoding="utf-8", errors="replace")
+        body = (repo_dir / tracer.folder() / tracer.layout()["slices"]).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
     out: list[Slice] = []
@@ -165,7 +165,7 @@ def slices(repo_dir: Path) -> list[Slice]:
 
 
 def state(repo_dir: Path, *, is_on: bool = True) -> State:
-    folder = repo_dir / tracer.FOLDER
+    folder = repo_dir / tracer.folder()
     found = State(on=is_on, present=folder.is_dir())
     if found.present:
         found.missing = {p.id: [n for n in p.needs if not _has(folder, n)] for p in PHASES}
@@ -229,7 +229,7 @@ def unready(repo_dir: Path, text: str, *, has: Callable[[Path, str], bool] = _ha
     the empathy round, one capability of the map it lands on, its audience, at least one critical flow and
     the component floors. An empty list is ready; a slice only one rule cannot tell (no map to land on) is
     not held for it. Never a model's word: a slice that reads ready here may still be the worker's to stop."""
-    folder = repo_dir / tracer.FOLDER
+    folder = repo_dir / tracer.folder()
     missing = []
     if not _specs(repo_dir):
         missing.append(f"its requirements with scenarios (`{OPENSPEC}/` holds none)")

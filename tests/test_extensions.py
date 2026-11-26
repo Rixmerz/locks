@@ -276,7 +276,7 @@ def test_locks_ships_its_neighbours_as_extensions_and_reads_them_as_before():
     from locks import evidence, plugins
 
     shipped = {e.name: e for e in extensions.bundled()}
-    assert set(shipped) == {"layout-inspector", "rastro"}
+    assert set(shipped) == {"layout-inspector", "rastro", "tracer"}
     assert [n.server for n in plugins.KNOWN] == ["layout-inspector", "rastro"]
     layout = next(n for n in plugins.KNOWN if n.server == "layout-inspector")
     assert layout.measures and layout.browser and layout.touches == caps.UI_FILES and "detect_issues" in layout.tools
@@ -314,3 +314,25 @@ def test_the_person_s_extension_may_take_its_server_from_an_installed_plugin_and
     owed = evidence.handed(["graph", "layout-inspector"])
     assert {r.capability for r in owed} == {"graph", "layout-inspector"}
     assert next(r for r in owed if r.capability == "graph").what == "a call of the graph before the change"
+
+
+def test_an_updated_tracer_is_read_by_the_layout_its_extension_names(tmp_path: Path):
+    from locks import tracer
+
+    assert tracer.layout()["criterion"] == "CORRECT" and tracer.folder() == Path("docs/tracer")
+    flows = tmp_path / "method" / "journeys"
+    flows.mkdir(parents=True)
+    (flows / "checkout.md").write_text("Flow: pay for the order\n- EXPECTED: the receipt shows the total\n")
+    assert tracer.flows_for(tmp_path, "pay for the order faster") == []  # where TRACER used to keep them
+    _install({"format": 1, "name": "tracer", "method": {
+        "folder": "method", "files": [["people.md", "Audience"]], "flows": "journeys",
+        "capabilities": "map.md", "slices": "plan.md", "criterion": "EXPECTED"}})
+    assert [p.stem for p in tracer.flows_for(tmp_path, "pay for the order faster")] == ["checkout"]
+    assert tracer.present(tmp_path) and tracer.files() == (("people.md", "Audience"),)
+    assert [line for _, line in tracer.criteria(tmp_path, "pay for the order faster")[0]] == [
+        "checkout: the receipt shows the total"]
+    with pytest.raises(extensions.ExtensionError, match=r"method\.flows"):
+        extensions.parse({"format": 1, "name": "t", "method": {"folder": "m"}})
+    with pytest.raises(extensions.ExtensionError, match=r"method\.files"):
+        extensions.parse({"format": 1, "name": "t", "method": {
+            "folder": "m", "flows": "f", "capabilities": "c", "slices": "s", "criterion": "X", "files": ["a"]}})

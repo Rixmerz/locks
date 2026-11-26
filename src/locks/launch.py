@@ -70,7 +70,7 @@ REPORT_CHARS = 60_000
 NETWORK_DOWN = re.compile(
     r"\b(ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ERR_INTERNET_DISCONNECTED|getaddrinfo\b[^\n]{0,40}|"
     r"could not resolve host|temporary failure in name resolution|name or service not known|"
-    r"network is unreachable|npm ERR! network)", re.IGNORECASE)
+    r"network is unreachable|npm ERR! network|can't reach the api server|unable to connect to api)", re.IGNORECASE)
 #: What else drops a session's own call to the API for a moment: a reset, a
 #: timeout, an overload. Read only where the session itself errored, never in a
 #: check's output, where a test may well print it.

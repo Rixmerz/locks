@@ -52,10 +52,21 @@ NOT_RENDERED = re.compile(
     r"|\.(test|spec|stories)\.\w+$|(^|/)test_[^/]*$|_test\.\w+$")
 
 
+#: The folders of `UI_FILES` a backend names too (an Express `routes/`, a `components/` of services): a file
+#: there is UI only when its own type is one a page is drawn from (#207: `src/routes/x.routes.ts` was held
+#: to a layout measurement 28 times of 41).
+FOLDER_ONLY = ("components/**", "islands/**", "routes/**", "pages/**")
+UI_TYPES = (".tsx", ".jsx", ".vue", ".svelte", ".astro", ".html", ".css", ".scss", ".sass", ".less", ".mdx")
+
+
 def renders(path: str) -> bool:
     """Whether a changed path is rendered UI: it matches `UI_FILES` and is not a test, a fixture,
-    an example, documentation or a tool's output (`NOT_RENDERED`)."""
-    return matches(path, UI_FILES) and not NOT_RENDERED.search(path)
+    an example, documentation or a tool's output (`NOT_RENDERED`); under a folder a backend names too
+    (`FOLDER_ONLY`), only a file of a type a page is drawn from (`UI_TYPES`)."""
+    if NOT_RENDERED.search(path) or not matches(path, UI_FILES):
+        return False
+    by_type = tuple(p for p in UI_FILES if p not in FOLDER_ONLY)
+    return matches(path, by_type) or path.lower().endswith(UI_TYPES)
 
 
 def matches(path: str, patterns: Sequence[str]) -> bool:
@@ -294,6 +305,17 @@ def notices(path: Path) -> list[str]:
     return lines
 
 
+def runnable(server: Mapping[str, Any]) -> bool:
+    """Whether a server's command can start: a path that names no file cannot (#207, B3: handed so, its
+    worker ended in `environment` and was still held to measuring with it). A bare name or a relative path is
+    resolved where the worker runs, and is taken as it is."""
+    command = server.get("command")
+    if not isinstance(command, str) or not command:
+        return False
+    path = Path(command).expanduser()
+    return not path.is_absolute() or path.exists()
+
+
 def select(
     registry: Mapping[str, Capability],
     kind: str,
@@ -310,7 +332,8 @@ def select(
     the work names or changed (a review's: the diff it reads); `reading` work gets
     by them only what measures. `asked`: the request asks to browse, or was sent with a service."""
     chosen = [c for c in registry.values()
-              if every or c.applies(kind, failed_before=failed_before, paths=paths, reading=reading, asked=asked)]
+              if (every or c.applies(kind, failed_before=failed_before, paths=paths, reading=reading, asked=asked))
+              and runnable(c.server)]
     values = {"workdir": str(workdir) if workdir else ""}
     servers = {c.name: _fill(c.server, values) for c in chosen}
     hints = tuple(f"{c.name}: {_fill(c.hint, values)}" + _why_touched(c, kind, paths, asked) for c in chosen if c.hint)

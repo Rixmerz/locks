@@ -228,7 +228,29 @@ def probation_arm(store: Store, repo: str | None, kind: str, band: int, start: C
 
 # --- what the record says --------------------------------------------------------------------------
 
+#: A token of code in a finding's words: what a reviewer names whatever language it writes in (`@spec`, a path,
+#: `snake_case`, `camelCase`, `a.b`, a backticked name). Words of prose are a language's; these are the code's.
+_CODE = re.compile(r"`([^`\s]{2,60})`|(@[\w-]+|[\w-]+/[\w./-]+|\w+_\w+|[a-z]+[A-Z]\w*|\w+\.\w+)")
+#: Code tokens two blockers share, at least, to be one problem met again in another place.
+REPEAT_CODES = 2
+
+
+def _codes(text: str) -> set[str]:
+    return {(a or b).lower().strip(".") for a, b in _CODE.findall(text)}
+
+
 def _repeats(blocker: Mapping[str, str], earlier: Sequence[Mapping[str, str]]) -> bool:
+    """Whether a blocker is one an earlier task already got: the same finding, the same place with most of its
+    words, or the code it names shared (#207, B4: a verifier writing in two languages matched 0 of 143 by
+    words alone)."""
+    codes = _codes(str(blocker.get("what") or ""))
+    for other in earlier:
+        theirs = _codes(str(other.get("what") or ""))
+        shared = codes & theirs
+        same_place = findings_mod.place(str(blocker.get("where") or "")) and findings_mod.place(
+            str(blocker.get("where") or "")) == findings_mod.place(str(other.get("where") or ""))
+        if len(shared) >= REPEAT_CODES or (same_place and shared):
+            return True
     mine = set(words(str(blocker.get("what") or "")))
     for other in earlier:
         if findings_mod.key(blocker) == findings_mod.key(other):  # type: ignore[arg-type]

@@ -1320,14 +1320,18 @@ class Store:
                                 "nature": data.get(f"{key.removesuffix('_arm')}_nature")}
         for task_id, row in out.items():
             first = self._conn.execute(
-                "SELECT passed, input_tokens, duration_s FROM attempts WHERE task_id = ? AND seq = 1",
+                "SELECT passed, input_tokens, duration_s, failure FROM attempts WHERE task_id = ? AND seq = 1",
                 (task_id,)).fetchone()
+            if first is not None and not first[0] and first[3] in ("environment", "permission"):
+                # A first try the machine turned away (a tool missing, the network down, a refusal) says
+                # nothing of the arm it drew (#207, B5): read as a failure, it made arms read worse by noise.
+                row["noise"] = True
             tools = [r[0] for r in self._conn.execute(
                 "SELECT tool FROM tool_events WHERE task_id = ? AND attempt = 1 ORDER BY id", (task_id,))]
             edit = next((i for i, tool in enumerate(tools) if tool in EDIT_TOOLS), None)
             row.update(passed_first=bool(first and first[0]), input_tokens=int(first[1]) if first else 0,
                        duration_s=float(first[2] or 0) if first else 0.0, calls_before_edit=edit)
-        return [r for r in out.values() if r["input_tokens"] or r["passed_first"]]
+        return [r for r in out.values() if (r["input_tokens"] or r["passed_first"]) and not r.get("noise")]
 
     def verifier_record(self, repo: str | None) -> list[dict]:
         """Every independent check (`verified`) and every pass its sampling let through unchecked

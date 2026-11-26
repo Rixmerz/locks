@@ -8,6 +8,17 @@
 
 locks is closed enough to work on its own and open enough to take any tool into its flow: every tool that is not locks' own comes in as an extension (`docs/extensions.md`).
 
+
+### Fixed (field reports #207, #208)
+
+- A backend's `routes/`, `pages/` or `components/` file is no rendered UI unless its own type is one a page is drawn from: `src/routes/x.routes.ts` was held to a layout measurement in 28 of 41 such endings, and `ui_check` raised 12 of 21 tasks to high for it.
+- An MCP server whose command is an absolute path that names no file is not handed, nor owed: 41 attempts ended in `environment` and were still held to measuring with it.
+- A verifier blocker repeats an earlier one when both name the same code (`@spec`, a path, an identifier), whatever language each is written in: the word comparison matched 0 of 143.
+- A first try the machine turned away (`environment`, `permission`) is no sample of a trial: it read arms worse by noise.
+- A starved worker at level 1 records no halving 1 → 1, as a loaded machine already did; every `level_changed` names its release.
+- `busiest` reads `ps` where there is no `/proc` (macOS), and a sleep is read from how the clocks' difference grows, which on macOS starts below zero.
+- "Can't reach the API server" is the network, not a worker's failure.
+
 ### Added
 
 - The web board is an optional part (`board`, on by default): off, `locks ui` starts nothing and says where the terminal shows the same.

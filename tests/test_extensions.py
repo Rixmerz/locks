@@ -143,7 +143,7 @@ def test_a_writing_worker_is_briefed_with_what_an_extension_brings(git_repo, sto
 def test_a_section_or_a_path_of_the_wrong_kind_and_an_unreadable_file_cost_nothing(tmp_path: Path, monkeypatch):
     with pytest.raises(extensions.ExtensionError, match="`brief` is an object"):
         extensions.parse({**GRAPH, "brief": ["docs"]})
-    with pytest.raises(extensions.ExtensionError, match="`when.exists` is a path"):
+    with pytest.raises(extensions.ExtensionError, match=r"`when\.exists` is a path"):
         extensions.parse({**GRAPH, "when": {"exists": 3}})
     assert extensions.parse({**GRAPH, "when": {"kinds": "implement"}}).kinds == ("implement",)
     (tmp_path / "docs").mkdir()

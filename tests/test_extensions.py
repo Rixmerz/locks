@@ -245,7 +245,8 @@ def test_a_plugin_is_inspected_from_its_files_and_never_run(tmp_path: Path, caps
         "name": "graph", "version": "1.2.0", "description": "a code graph",
         "mcpServers": {"Graph Server": {"command": "${CLAUDE_PLUGIN_ROOT}/bin/graph"}, "bad": "x"}}))
     (root / "skills" / "callers").mkdir(parents=True)
-    (root / "skills" / "callers" / "SKILL.md").write_text("---\nname: callers\ndescription: 'who calls what'\n---\nbody")
+    (root / "skills" / "callers" / "SKILL.md").write_text(
+        "---\nname: callers\ndescription: 'who calls what'\n---\nbody")
     (root / "agents").mkdir()
     (root / "agents" / "mapper.md").write_text("no frontmatter")
     (root / "commands").mkdir()

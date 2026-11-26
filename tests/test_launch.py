@@ -692,6 +692,7 @@ def test_a_pass_that_leaves_criteria_or_rows_unanswered_failed_only_its_form(tmp
     # A criterion said not met is the work's failure, not the answer's form.
     unmet = parse(proc(envelope(block(**ok, criteria=[{"id": "S1", "met": True}, {"id": "S2", "met": False}]))), asked)
     assert unmet.failure is Failure.CODE_BUG and unmet.shape == ""
+    assert unmet.not_met == ("S2",) and launch.unmet_ids(unmet.summary) == unmet.not_met
     rows = spec(tmp_path, verdicts=("F1", "F2"), verdict_words=("fixed", "open"))
     undecided = parse(proc(envelope(block(**ok, verdicts=[{"id": "F1", "verdict": "fixed"}]))), rows)
     assert undecided.failure is Failure.INCONCLUSIVE and undecided.shape == f"{launch.VERDICTS_SHAPE}: F2"
@@ -734,3 +735,10 @@ def test_a_worker_is_launched_with_the_person_s_other_plugins_off(git_repo, monk
     launch.run(LaunchSpec("task", Cell("sonnet", "low"), git_repo), runner=runner)
     at = seen["argv"].index("--settings")
     assert json.loads(seen["argv"][at + 1]) == {"enabledPlugins": {"graph@market": False}}
+
+
+def test_the_unmet_criteria_ids_round_trip_through_the_summary_format():
+    both = launch.NOT_MET_SUMMARY.format(ids="S18, S22") + "worker words: is not met: x"
+    assert launch.unmet_ids(both) == ("S18", "S22")
+    assert launch.unmet_ids("2 tests fail") == () and launch.unmet_ids("") == ()
+    assert launch.unmet_ids("claimed a pass, but says is not met: x") == ()

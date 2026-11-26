@@ -37,7 +37,7 @@ from enum import StrEnum
 
 from locks import findings as findings_mod
 from locks.matrix import EFFORT_PURPOSE, MODELS, Cell
-from locks.text import few, reads_alike
+from locks.text import clip, few, reads_alike
 
 
 class Failure(StrEnum):
@@ -149,6 +149,8 @@ class Attempt:
     #: The test files outside the task's surfaces that are the only place locks' check fails
     #: (`surfaces.failing_outside`): a climb cannot fix what its surfaces keep it from.
     outside: tuple[str, ...] = ()
+    #: The criteria ids it says are not met (`WorkerResult.not_met`).
+    not_met: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -339,6 +341,15 @@ def _met_worker_guard(last: Attempt) -> bool:
     return WORKER_GUARD in last.evidence or WORKER_GUARD in last.summary
 
 
+def _unmet_again(last: Attempt, before: Sequence[Attempt]) -> Attempt | None:
+    """The earlier attempt that left every criterion `last` leaves unmet unmet too, when `last` failed
+    only for saying so and changed nothing; None otherwise (a first unmet criterion, or real work, climbs)."""
+    if (last.failure is not Failure.CODE_BUG or not last.not_met or last.changed or last.failing
+            or last.blockers or last.denied or last.check_tail):
+        return None
+    return next((a for a in reversed(before) if a.not_met and set(last.not_met) <= set(a.not_met)), None)
+
+
 def decide(
     ladder: Sequence[Cell],
     attempts: Sequence[Attempt],
@@ -347,12 +358,15 @@ def decide(
     reading: bool = False,
     several: str = "",
     skips: Mapping[tuple[str, str], Skip] | None = None,
+    earlier: Sequence[Attempt] = (),
 ) -> Decision:
     """The move after the last attempt, with the evidence it rests on. `reading`
     is a task that only finds out: its answer is what it is for. `several` says why the
     plan sized it as several workers' work: out of turns, it is split, never given more.
-    `skips` are the standards' skips here: a climb they name goes past its rung."""
-    decision = _decide(ladder, attempts, allow_approval=allow_approval, reading=reading, several=several)
+    `skips` are the standards' skips here: a climb they name goes past its rung. `earlier` are
+    the attempts of the task's earlier runs, which `attempts` (this run's) does not hold."""
+    decision = _decide(ladder, attempts, allow_approval=allow_approval, reading=reading, several=several,
+                       earlier=earlier)
     return _skipping(ladder, decision, attempts[-1].cell, skips or {}, allow_approval)
 
 
@@ -363,6 +377,7 @@ def _decide(
     allow_approval: bool,
     reading: bool,
     several: str,
+    earlier: Sequence[Attempt] = (),
 ) -> Decision:
     if not attempts:
         raise ValueError("decide() needs at least one attempt")
@@ -428,6 +443,19 @@ def _decide(
                            f"({few(list(last.outside))}), and the base does not fail them",
                      "a climb cannot change a file its surfaces keep it from: it repeats the same failure",
                      "the work stays on its branch; a resume with those files as surfaces goes on from it"))
+
+    if (said := _unmet_again(last, [*earlier, *attempts[:-1]])) is not None:
+        # The work changed nothing and says, again, that a criterion is not met: no cell meets
+        # what the work says it cannot, so a climb repeats it. The point is the orchestrator's.
+        return Decision(Move.DECIDE, reason=f"the work is unchanged and still says {', '.join(last.not_met)} is not "
+                                            f"met (as on {said.cell.label}); its work is kept and the point goes "
+                                            f"to the orchestrator: \"{clip(last.summary, 300, one_line=True)}\"",
+                        because=(seen, "it changed no file, its check shows no failure and no blocker stands: the "
+                                       "only thing against it is a criterion it says it cannot meet",
+                                 f"the same criteria ({', '.join(last.not_met)}) were left unmet on "
+                                 f"{said.cell.label} and on {last.cell.label}: unchanged work",
+                                 "no cell meets a criterion the work says it cannot: more effort or another model "
+                                 "repeats it, so it goes to the orchestrator, work kept"))
 
     if failure is Failure.ENVIRONMENT and last.network:
         # The network dropped under the work: no fault of the work, the cell or the

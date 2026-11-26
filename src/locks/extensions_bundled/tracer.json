@@ -1,12 +1,38 @@
 {
   "format": 1,
   "name": "tracer",
-  "description": "the TRACER method, where a repository keeps it: its files, flows and CORRECT lines, read as its template writes them",
-  "when": {"exists": "docs/tracer"},
+  "description": "the TRACER method (0.14), where a repository keeps it: its files, flows and CORRECT lines, read as its templates write them",
+  "when": {
+    "exists": "docs/tracer"
+  },
   "method": {
     "folder": "docs/tracer",
-    "files": [["audiences.md", "Audience profiles"], ["identity.md", "Identity guideline"],
-              ["floors.md", "Component floors"], ["anti-patterns.md", "Anti-pattern catalogue"]],
+    "files": [
+      [
+        "audiences.md",
+        "Audience profiles"
+      ],
+      [
+        "identity.md",
+        "Identity guideline"
+      ],
+      [
+        "design-system.md",
+        "Design system"
+      ],
+      [
+        "content.md",
+        "Client content"
+      ],
+      [
+        "floors.md",
+        "Component floors"
+      ],
+      [
+        "anti-patterns.md",
+        "Anti-pattern catalogue"
+      ]
+    ],
     "flows": "flows",
     "capabilities": "capabilities.md",
     "slices": "slices.md",

@@ -3473,7 +3473,19 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
         wrote = ", ".join(generated[:20]) + (f" and {len(generated) - 20} more" if len(generated) > 20 else "")
         parts.append(f"Written by the project's own check when locks ran it, not by the worker, and committed as "
                      f"its output: {wrote}. They are no change of the work: never a finding by themselves.")
+    from locks.adapters.livespec import REQUIREMENT_PREFIX
+
     links = [line.removeprefix(specs_mod.LINK_PREFIX) for line in impact if line.startswith(specs_mod.LINK_PREFIX)]
+    owed = [line.removeprefix(REQUIREMENT_PREFIX) for line in impact if line.startswith(REQUIREMENT_PREFIX)]
+    impact = [line for line in impact if not line.startswith(REQUIREMENT_PREFIX)]
+    if owed:
+        # The spec requirements the changed code implements (livespec's index): each one is checked again, since
+        # the edit may have broken it; one it no longer meets is a finding, shown with the case that breaks it.
+        parts.append("The changed code implements these spec requirements. Check each one still holds on the "
+                     "change and say so for each in your summary; one it no longer meets is a finding, shown "
+                     "with the case that breaks it:\n" + "\n".join(f"- L{n} {line}" for n, line in
+                                                                  enumerate(owed[:30], 1))
+                     + (f"\n({len(owed) - 30} more not shown)" if len(owed) > 30 else ""))
     if reach := [line for line in impact if not line.startswith(specs_mod.LINK_PREFIX)]:
         # What the code index (livespec) says the change reaches beyond its own files: where to probe.
         parts.append("What the code index says this change reaches, and what a plan before it said could go wrong "

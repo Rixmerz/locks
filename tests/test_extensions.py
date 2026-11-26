@@ -336,3 +336,16 @@ def test_an_updated_tracer_is_read_by_the_layout_its_extension_names(tmp_path: P
     with pytest.raises(extensions.ExtensionError, match=r"method\.files"):
         extensions.parse({"format": 1, "name": "t", "method": {
             "folder": "m", "flows": "f", "capabilities": "c", "slices": "s", "criterion": "X", "files": ["a"]}})
+
+
+def test_the_spec_requirements_a_change_reaches_are_criteria_of_the_check(tmp_path: Path):
+    from locks.adapters.livespec import REQUIREMENT_PREFIX
+
+    brief = verifier_brief("Fix totals", "implement", tmp_path, "abc", ["src/a.py"],
+                           impact=[f"{REQUIREMENT_PREFIX}SPEC-7 Totals round half up [high]",
+                                   "livespec: 1 file(s) outside the change call what it changed: src/b.py"])
+    assert "- L1 SPEC-7 Totals round half up [high]" in brief and "still holds" in brief
+    assert REQUIREMENT_PREFIX not in brief and "src/b.py" in brief
+    many = verifier_brief("x", "implement", tmp_path, "abc", ["a"],
+                          impact=[f"{REQUIREMENT_PREFIX}S-{n} r" for n in range(35)])
+    assert "5 more not shown" in many

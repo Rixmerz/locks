@@ -923,7 +923,9 @@ yields the default kind, not a guess.
   files do not meet the slice's Definition of Ready (`method.unready`); the phases' writing steps are held to
   `docs/tracer/` and `openspec/` by their surfaces, and the person's decisions are question steps.
 - What livespec's index says a change reaches (`adapter.assess`: specs touched, callers outside it) goes in
-  the independent check's brief as where to probe, data, never findings (`orchestrate._impact`); whether
+  the independent check's brief as where to probe, data, never findings (`orchestrate._impact`); and each spec
+  requirement the changed code implements (its `REQUIREMENT_PREFIX` lines) is a criterion `L#` the check says
+  still holds, one it no longer meets a finding: an edit may have broken a spec its code was linked to; whether
   workers handed livespec call it is counted from the tool-call log (`Store.capability_use`), observed, never
   a trial.
 - livespec is a step before the worker, never only a tool it may ignore: a plan whose repository has no

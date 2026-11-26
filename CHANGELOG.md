@@ -8,6 +8,8 @@
 
 ### Added
 
+- Each spec requirement the changed code implements (livespec's index) is a criterion the independent check answers: an edit may have broken a spec its code was linked to.
+- The bundled TRACER layout reads 0.14's `design-system.md` and `content.md` into a writing brief, beside its audiences, identity, floors and anti-patterns.
 - TRACER's layout is an extension's `method` (folder, files, flows, capability map, slices, the criterion's word): a `tracer` extension of the person's makes locks read an updated TRACER by its own layout.
 - layout-inspector and rastro are extensions locks ships (`src/locks/extensions_bundled/`), read as before; a person's extension may take its server from an installed plugin (`source`, behind a guard policy that only narrows) and hold a pass to evidence of its use (`evidence`).
 - `/locks:integrate` and `locks extensions inspect`: what an installed plugin holds, read and never run, with a draft extension per MCP server, proposed to the person and installed only on their yes.

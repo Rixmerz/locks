@@ -171,6 +171,9 @@ FRESH, BUILT, LATE, FAILED = "fresh", "built", "late", "failed"
 POLL_S = 0.5
 #: Stands for a started refresh whose `Popen` handed nothing back: its lock is looked at instead.
 _STARTED = object()
+#: An `assess` line that names a spec requirement the changed code implements: the independent check
+#: answers it (`orchestrate.verifier_brief`), where the other lines are where to probe.
+REQUIREMENT_PREFIX = "livespec-requirement: "
 
 
 @dataclass(frozen=True)
@@ -966,6 +969,8 @@ class Livespec:
         return specs, callers
 
     def assess(self, changed: Sequence[str], repo_dir: Path, status: Status) -> tuple[str, ...]:
+        """What a change reaches: the specs its code implements (each also as a requirement line,
+        `REQUIREMENT_PREFIX`), the files outside it that call what it changed, and the tests that do."""
         if not status.present or not changed:
             return ()
         changed_set = set(changed)
@@ -977,6 +982,9 @@ class Livespec:
         if specs:
             lines.append("livespec: the change touches specs " + ", ".join(
                 f"{s[0]} {s[1]} [{s[2]}]" for s in specs[:8]))
+            # Each requirement the changed code implements: a criterion of the independent check, which says
+            # whether it still holds (`orchestrate.verifier_brief`'s spec requirements), never only data.
+            lines += [f"{REQUIREMENT_PREFIX}{s[0]} {s[1]} [{s[2]}]" for s in specs]
         outside = [p for (p,) in callers if p not in changed_set]
         code = [p for p in outside if not is_test_path(p)]
         tests = [p for p in outside if is_test_path(p)]

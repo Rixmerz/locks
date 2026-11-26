@@ -78,6 +78,7 @@ from locks import criteria as criteria_mod
 from locks import critique as critique_mod
 from locks import dossier as dossier_mod
 from locks import evidence as evidence_mod
+from locks import extensions as extensions_mod
 from locks import findings as findings_mod
 from locks import ledger as ledger_mod
 from locks import method as method_mod
@@ -884,6 +885,12 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
         context += method
         neighbour_notes.append(f"tracer: this repository follows TRACER; its audience, floors, anti-patterns "
                                f"and {len(tracer_mod.flows_for(repo_dir, text))} named flow(s) go in the brief")
+    # What the extensions the person installed bring a writing worker (`locks.extensions`): files, as data.
+    if kind not in READ_ONLY_KINDS and (extended := extensions_mod.applying(
+            extensions_mod.load(home())[0], kind, touched_paths(text, options), repo_dir)) and (
+            given := extensions_mod.brief_lines(extended, repo_dir)):
+        context += given
+        neighbour_notes.append("extensions: " + ", ".join(e.name for e in extended))
     # A repository that keeps OpenSpec specs: its writing workers keep the ones they reach.
     if kind not in READ_ONLY_KINDS and config.enabled("specs", os.environ) and (
             drifted := specs_mod.drift(repo_dir, options.base or "HEAD")):
@@ -3417,7 +3424,7 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                    rules: Sequence[Mapping[str, Any]] = (), rows: Sequence[str] = (), running: str = "",
                    impact: Sequence[str] = (), method: Sequence[str] = (),
                    since: tuple[str, Sequence[str]] | None = None, generated: Sequence[str] = (),
-                   instruction: str = "", ui: Sequence[str] = ()) -> str:
+                   instruction: str = "", required: Sequence[str] = ()) -> str:
     """What the verifier is given: the request in its words, the change, why it is checked
     (the risk's reasons, in the router's words) and the constraints the project keeps —
     never the worker's account. A resume's instruction (`resume_instruction`) is the one thing of
@@ -3467,7 +3474,7 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                      "the case that breaks it.")
     if method and kind not in READ_ONLY_KINDS:
         parts += method
-    parts += ui
+    parts += required
     if rows:
         # A fix of ledger rows: its answers per row decide the re-check after it (`workflows._ledger`).
         parts.append(f"The request is a fix of the ledger rows {', '.join(rows)}. Answer every one in `verdicts`, "
@@ -4050,8 +4057,10 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
                                     method=tracer_mod.verifier_lines(workdir, text, tuple(measuring))
                                     if config.enabled("tracer", os.environ) else (), since=since,
                                     generated=generated, instruction=instruction,
-                                    ui=evidence_mod.ui_check_lines(changed, tuple(measuring))
-                                    if config.enabled("ui_check", os.environ) else ()),
+                                    required=[*(evidence_mod.ui_check_lines(changed, tuple(measuring))
+                                          if config.enabled("ui_check", os.environ) else ()),
+                                        *extensions_mod.verifier_lines(extensions_mod.applying(
+                                            extensions_mod.load(home())[0], kind, changed, workdir), workdir)]),
         verdicts=fixing, verdict_words=ledger_mod.WORDS["recheck"] if fixing else (),
         cell=vcell, max_turns=min(spec.max_turns, VERIFIER_TURNS),
         # Its calls are never the worker's: the log keeps them under no attempt, so what a worker used

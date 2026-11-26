@@ -16,6 +16,7 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/classify.py` | rules first, Haiku for the rest; `frontier` only by tag |
 | `src/locks/escalate.py` | failure kind → move (retry, more effort, next model, more turns, replan) |
 | `src/locks/launch.py` | one attempt as `claude -p`: argv, the result contract, parsing, git-read changes |
+| `src/locks/extensions.py`, `docs/extensions.md` | extensions: a tool that is not locks' own, declared in the person's locks home (`extensions/<name>.json`, `locks extensions add|list|show|rm`), never in a repository: when it applies (kinds, files touched, a path the repository holds), its MCP server as a capability, the repository's files it briefs a writing worker as data, and the lines it reads by a pattern as the independent check's requirements; words, files and a server only, never a rule; the plan to move every neighbour out of the core |
 | `src/locks/capabilities.py` | which MCP servers a worker gets, from the user-level registry |
 | `src/locks/mcp_guard.py` | a JSON-RPC guard between a worker and an MCP server: the calls a policy refuses never reach the server, a line it cannot parse or whose keys collide by case is answered and never forwarded, and what it forwards is rebuilt from the protocol's keys; stdlib, imports nothing of locks |
 | `src/locks/masking.py` | the one pattern locks masks secrets with: `SECRET` for the trace and kept transcripts (git commit ids stay), `SECRET_STRICT` for the notes (long hex runs too); linear on any input; stdlib, imports nothing of locks |
@@ -1829,6 +1830,12 @@ yields the default kind, not a guess.
   capability that `measures` (never changes anything), and the independent
   verifier gets every measuring one its change touches, even when the work had
   none. The plan's hint says when it came by touch.
+- An extension (`locks.extensions`) is the person's, read from their locks home only, checked whole when added
+  and refused with its reason when it is not of the contract (`docs/extensions.md`). It brings words, files of
+  the repository and an MCP server, never a rule: its server is a capability as a registry entry is (one of the
+  same name in the registry wins), its brief is data to a writing worker, bounded, and its criteria are
+  requirements of the independent check, where breaking one is a finding. Its paths are inside the repository,
+  never absolute or upward, and a file a link takes outside it is not read.
 - The capability registry is read from the user's locks home only. A
   repository must never be able to add an MCP server by committing a file.
   Installed neighbours (`plugins.KNOWN`) are read from the person's Claude

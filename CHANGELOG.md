@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.116.0] - 2026-11-25
+
+### Added
+
+- Extensions: a tool that is not locks' own, declared in the locks home (`locks extensions add|list|show|rm`, `docs/extensions.md`): when it applies, its MCP server as a capability, the repository's files it briefs a writing worker, and the lines it reads by a pattern as the independent check's requirements. The first phase of moving every neighbour out of the core.
+
 ## [0.115.0] - 2026-11-24
 
 ### Changed

@@ -217,8 +217,13 @@ def load_all(path: Path, env: Mapping[str, str] | None = None) -> dict[str, Capa
     from locks import config, plugins
 
     env = os.environ if env is None else env
+    from locks import extensions
+
     found = plugins.capabilities(env) if config.enabled("plugins", env) else {}
-    return {**found, **_inherit(load(path))}
+    # The tools of the extensions the person installed (`locks.extensions`), under a registry entry of the
+    # same name, which wins as it does over a neighbour.
+    extended = extensions.capabilities(extensions.load(path.parent)[0])
+    return {**found, **extended, **_inherit(load(path))}
 
 
 def _neighbours() -> dict[str, Any]:

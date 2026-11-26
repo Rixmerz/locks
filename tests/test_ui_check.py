@@ -38,5 +38,5 @@ def test_the_check_of_rendered_ui_measures_it_or_says_what_it_could_not_render()
 def test_the_verifier_brief_carries_the_ui_lines(tmp_path: Path):
     lines = evidence.ui_check_lines(["src/components/Card.tsx"], ())
     brief = orchestrate.verifier_brief("Add a card", "implement", tmp_path, "abc", ["src/components/Card.tsx"],
-                                       ui=lines)
+                                       required=lines)
     assert lines[0] in brief

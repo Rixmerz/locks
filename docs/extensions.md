@@ -35,6 +35,13 @@ add FILE` checks it and copies it there; `list`, `show NAME` and `rm NAME` read 
 | tools | `tools.server`, `measures`, `hint` | an MCP server handed as a capability to the worker; to the independent check too only when it `measures` |
 | brief | `brief.files`, `chars` | the repository's files, given to a writing worker as data, never instructions, bounded, the rest said by count |
 | criteria | `criteria.files`, `pattern` | lines read by the pattern (its first group, or the line) become requirements of the independent check: one the change breaks is a finding |
+| check | `check.command` | runs after the task's own check, and must pass for a writing task to pass: its failure is read as any check's, against the base |
+| ending | `ending.offer` | the line a passing task's ending offers; nothing is started |
+
+Each extension is tried per repository: a task that it applies to takes it or goes without it, in
+turns, until each arm has six first tries; then it is kept only where its tasks passed no less
+often (`briefed.ext_<name>_arm`, pooled from every repository while a repository's own arms are
+short). The independent check's requirements stay whatever the arm, as livespec's index does.
 
 What an extension cannot do: choose a cell, grant a permission, write outside a task's surfaces,
 change a guard, or block a pass by its own word. A file of the wrong shape is refused whole, with
@@ -45,8 +52,8 @@ its reason, and costs only itself. Paths are inside the repository, never absolu
 | Phase | What | State |
 |---|---|---|
 | 1 | the contract above: `locks.extensions`, `locks extensions`, tools as capabilities, brief and criteria | done (0.116.0) |
-| 1b | `check`: a command that must pass before a task is verified; `ending`: what to offer and record | next |
-| 1c | a trial per extension: with and without it, kept where its tasks pass no less often | next |
+| 1b | `check` and `ending` | done (0.116.0) |
+| 1c | a trial per extension: with and without it, kept where its tasks pass no less often | done (0.116.0) |
 | 2 | workers start with no plugin or MCP server of the session (`--strict-mcp-config`), only what applies; `locks footprint` measures the listing before and after; for the person's own sessions locks proposes what to hide, never writes their settings | |
 | 3 | `/locks:integrate`: reads an installed Claude Code plugin (skills, agents, MCP servers, hooks) without running it, proposes an extension (and roles from its agents, `locks roles import`), installs it on the person's yes, in trial | |
 | 4a | layout-inspector and rastro as bundled extensions; `plugins.KNOWN` goes | |

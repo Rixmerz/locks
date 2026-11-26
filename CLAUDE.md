@@ -1834,7 +1834,10 @@ yields the default kind, not a guess.
   and refused with its reason when it is not of the contract (`docs/extensions.md`). It brings words, files of
   the repository and an MCP server, never a rule: its server is a capability as a registry entry is (one of the
   same name in the registry wins), its brief is data to a writing worker, bounded, and its criteria are
-  requirements of the independent check, where breaking one is a finding. Its paths are inside the repository,
+  requirements of the independent check, where breaking one is a finding; its `check` runs after the task's own
+  and must pass, and its `ending` is offered, never started. Each is tried per repository (`extensions.choose`,
+  `briefed.ext_<name>_arm`): a task takes it or goes without it until each arm has `extensions.TRIAL` first tries,
+  then it stays where its arm passed no less often; the check's requirements stay whatever the arm. Its paths are inside the repository,
   never absolute or upward, and a file a link takes outside it is not read.
 - The capability registry is read from the user's locks home only. A
   repository must never be able to add an MCP server by committing a file.

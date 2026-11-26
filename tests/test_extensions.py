@@ -129,7 +129,12 @@ def test_add_checks_first_never_replaces_and_rm_removes(tmp_path: Path, capsys):
     assert cli.main(["extensions"]) == 0 and "no extensions installed" in capsys.readouterr().out
 
 
-def test_a_writing_worker_is_briefed_with_what_an_extension_brings(git_repo, store: Store):
+def _taken(monkeypatch):
+    monkeypatch.setattr(extensions, "choose", lambda store, repo, found, seed: (list(found), {}))
+
+
+def test_a_writing_worker_is_briefed_with_what_an_extension_brings(git_repo, store: Store, monkeypatch):
+    _taken(monkeypatch)
     (git_repo / "docs").mkdir()
     (git_repo / "docs" / "rules.md").write_text("- MUST: prices never go negative\n")
     _install({"format": 1, "name": "rules", "description": "house rules",
@@ -160,3 +165,55 @@ def test_a_section_or_a_path_of_the_wrong_kind_and_an_unreadable_file_cost_nothi
 
     monkeypatch.setattr(Path, "read_text", unreadable)
     assert extensions.criteria([ext], tmp_path) == [] and extensions.brief_lines([ext], tmp_path) == []
+
+
+def test_a_check_and_an_ending_join_a_writing_task(git_repo, store: Store, monkeypatch):
+    _taken(monkeypatch)
+    with pytest.raises(extensions.ExtensionError, match=r"check\.command"):
+        extensions.parse({**GRAPH, "check": {"command": " "}})
+    with pytest.raises(extensions.ExtensionError, match=r"ending\.offer"):
+        extensions.parse({**GRAPH, "ending": {"offer": 3}})
+    gate = extensions.parse({"format": 1, "name": "gate", "check": {"command": "true"},
+                             "ending": {"offer": "run the gate in CI too"}})
+    assert extensions.verify("make test", [gate]) == "(make test) && (true)"
+    assert extensions.verify(None, [gate]) == "(true)" and extensions.verify("x", []) == "x"
+    assert extensions.offers([gate]) == ["gate: run the gate in CI too"]
+    _install({"format": 1, "name": "gate", "check": {"command": "true"}, "ending": {"offer": "run it in CI"}})
+    script = Script(WorkerResult(True, None, "done", "1 passed", cost_usd=0.1), write="x.txt")
+    report = run("Add a discount", git_repo, store, registry={}, launcher=script, classifier=kind("implement"))
+    assert report.status == "done" and "gate: run it in CI" in report.impact
+    _install({"format": 1, "name": "wall", "check": {"command": "exit 3"}})
+    worked = WorkerResult(True, None, "done", "1 passed", cost_usd=0.1)
+    script = Script(*[worked] * 8, write="y.txt")
+    report = run("Add a refund", git_repo, store, registry={}, launcher=script, classifier=kind("implement"))
+    assert report.status != "done"  # the extension's check failed, so the work did not pass
+
+
+def test_an_extension_is_tried_with_and_without_and_kept_where_it_pays(store: Store):
+    ext = extensions.parse({"format": 1, "name": "rules", "brief": {"files": ["docs/*.md"]}})
+    assert extensions.choose(store, None, [ext], 1) == ([ext], {})
+    kept, record = extensions.choose(store, "r", [ext], 1)
+    assert record["ext_rules_arm"] in ("with", "without") and "ext_rules_why" in record
+    assert (kept == [ext]) == (record["ext_rules_arm"] == "with")
+    # Six first tries each: with it every one passed, without it none did; it is kept.
+    for n in range(12):
+        t = store.create_task(f"t{n}", status="done", source="locks", repo="r")
+        store.add_event(t["id"], "briefed", ext_rules_arm="with" if n < 6 else "without")
+        store.add_attempt(t["id"], cell="sonnet/medium", max_turns=10, passed=int(n < 6), input_tokens=100)
+    tally = extensions.trial(store, "r", ext)
+    assert tally["with"]["passed"] == 6 and tally["without"]["passed"] == 0
+    assert all(extensions.choose(store, "r", [ext], seed)[0] == [ext] for seed in range(5))
+
+
+def test_a_task_records_its_arm_and_one_left_out_brings_nothing(git_repo, store: Store, monkeypatch):
+    (git_repo / "docs").mkdir()
+    (git_repo / "docs" / "rules.md").write_text("- MUST: prices never go negative\\n")
+    _install({"format": 1, "name": "rules", "brief": {"files": ["docs/*.md"]},
+              "tools": {"server": {"command": "rules-mcp"}}})
+    monkeypatch.setattr(extensions, "choose", lambda store, repo, found, seed: (
+        [], {"ext_rules_arm": "without", "ext_rules_why": "on trial"}))
+    script = Script(WorkerResult(True, None, "done", "1 passed", cost_usd=0.1), write="x.txt")
+    report = run("Add a discount", git_repo, store, launcher=script, classifier=kind("implement"))
+    assert "From the `rules` extension" not in script.specs[0].prompt
+    assert "rules" not in script.specs[0].mcp_servers
+    assert store.events_of(report.task_id, "briefed")[0]["data"]["ext_rules_arm"] == "without"

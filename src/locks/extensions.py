@@ -48,7 +48,7 @@ CRITERIA_SHOWN = 30
 #: The files one extension may read for its brief or criteria, at most.
 FILES_READ = 50
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
-_KEYS = frozenset({"format", "name", "description", "when", "tools", "brief", "criteria"})
+_KEYS = frozenset({"format", "name", "description", "when", "tools", "brief", "criteria", "check", "ending"})
 
 
 class ExtensionError(ValueError):
@@ -69,6 +69,8 @@ class Extension:
     brief_chars: int = BRIEF_CHARS
     criteria_files: tuple[str, ...] = ()
     criteria_pattern: str = ""
+    check: str = ""
+    offer: str = ""
     path: str = field(default="", compare=False)
 
     def applies(self, kind: str, paths: Sequence[str], repo_dir: Path | None) -> bool:
@@ -121,7 +123,13 @@ def parse(raw: Any, path: str = "") -> Extension:
     name = raw.get("name")
     if not isinstance(name, str) or not _NAME.match(name):
         raise ExtensionError("`name` is lowercase letters, digits, - or _, up to 40")
-    when, tools, brief, criteria = (_section(raw, k) for k in ("when", "tools", "brief", "criteria"))
+    when, tools, brief, criteria, check, ending = (
+        _section(raw, k) for k in ("when", "tools", "brief", "criteria", "check", "ending"))
+    command, offer = check.get("command", ""), ending.get("offer", "")
+    if not isinstance(command, str) or (check and not command.strip()):
+        raise ExtensionError("`check.command` is the command a writing task's check also runs")
+    if not isinstance(offer, str):
+        raise ExtensionError("`ending.offer` is the line a passing task's ending says")
     touches = when.get("touches")
     touched = capabilities.UI_FILES if touches == "ui" else _strings(touches, "`when.touches`")
     exists = when.get("exists") or ""
@@ -149,7 +157,7 @@ def parse(raw: Any, path: str = "") -> Extension:
         brief_chars=chars,
         criteria_files=tuple(_safe(p, "`criteria.files`")
                              for p in _strings(criteria.get("files"), "`criteria.files`")),
-        criteria_pattern=pattern, path=path)
+        criteria_pattern=pattern, check=command.strip(), offer=offer.strip(), path=path)
 
 
 def load(home: Path) -> tuple[list[Extension], list[str]]:
@@ -253,6 +261,58 @@ def verifier_lines(found: Sequence[Extension], repo_dir: Path) -> list[str]:
     return ["Requirements the repository's files set, read by extensions the person installed: a change that "
             "breaks one that applies to it is a finding, shown with the case that breaks it.\n"
             + "\n".join(f"- [{name}] {text}" for name, text in shown) + rest]
+
+
+#: First tries each arm of an extension's trial runs before it decides, per repository.
+TRIAL = 6
+ARMS = ("with", "without")
+
+
+def arm_key(ext: Extension) -> str:
+    return f"ext_{ext.name}_arm"
+
+
+def trial(store: Any, repo: str | None, ext: Extension) -> dict[str, dict[str, Any]]:
+    from locks import arms
+
+    rows = [{"arm": r["arm"], "tries": 1, "passed": int(bool(r["passed_first"])), "duration_s": r.get("duration_s")}
+            for r in store.arm_trial(repo, arm_key(ext))]
+    return arms.tally(rows, ARMS)
+
+
+def choose(store: Any, repo: str | None, found: Sequence[Extension],
+           seed: int) -> tuple[list[Extension], dict[str, str]]:
+    """The extensions this task takes, each by its trial (with it, without it, in turns until each arm
+    has `TRIAL` first tries, then where its arm passed no less often), and the arms and why for the
+    brief's record. With no repository there is no trial, and every applying extension is taken."""
+    from locks import arms
+
+    kept: list[Extension] = []
+    record: dict[str, str] = {}
+    for ext in found:
+        if repo is None:
+            kept.append(ext)
+            continue
+        side, why = arms.pick(trial(store, repo, ext), ARMS, seed, TRIAL, f"extension {ext.name}", repo,
+                              pooled=trial(store, None, ext))
+        record[arm_key(ext)], record[f"ext_{ext.name}_why"] = side, why
+        if side == "with":
+            kept.append(ext)
+    return kept, record
+
+
+def verify(command: str | None, found: Sequence[Extension]) -> str | None:
+    """A writing task's check with the applying extensions' checks after it: every one must pass, and
+    each runs only once the one before did, so a failure is read as any check's (and against the base)."""
+    added = [e.check for e in found if e.check]
+    if not added:
+        return command
+    return " && ".join(f"({c})" for c in [*([command] if command else []), *added])
+
+
+def offers(found: Sequence[Extension]) -> list[str]:
+    """What the applying extensions' endings say on a pass: offered, never started."""
+    return [f"{e.name}: {e.offer}" for e in found if e.offer]
 
 
 def applying(found: Sequence[Extension], kind: str, paths: Sequence[str],

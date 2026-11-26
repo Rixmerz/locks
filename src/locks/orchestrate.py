@@ -312,6 +312,9 @@ class Plan:
     #: The start raised one rung on this repository's record of the task's shape (`locks.predict`), with
     #: its evidence; None when the start came from the rules alone.
     predicted: dict[str, Any] | None = None
+    #: The extensions this task takes (`locks.extensions`), by their trials, and the arms each drew.
+    extensions: tuple[Any, ...] = ()
+    extension_arms: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -885,12 +888,15 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
         context += method
         neighbour_notes.append(f"tracer: this repository follows TRACER; its audience, floors, anti-patterns "
                                f"and {len(tracer_mod.flows_for(repo_dir, text))} named flow(s) go in the brief")
-    # What the extensions the person installed bring a writing worker (`locks.extensions`): files, as data.
-    if kind not in READ_ONLY_KINDS and (extended := extensions_mod.applying(
-            extensions_mod.load(home())[0], kind, touched_paths(text, options), repo_dir)) and (
-            given := extensions_mod.brief_lines(extended, repo_dir)):
-        context += given
+    # The extensions the person installed (`locks.extensions`) that apply, each taken by its trial; a writing
+    # worker gets their files, as data.
+    extended, extension_arms = extensions_mod.choose(
+        store, key, extensions_mod.applying(extensions_mod.load(home())[0], kind, touched_paths(text, options),
+                                            repo_dir), int(hashlib.sha256(text.encode()).hexdigest()[:8], 16))
+    if extended:
         neighbour_notes.append("extensions: " + ", ".join(e.name for e in extended))
+    if kind not in READ_ONLY_KINDS and (given := extensions_mod.brief_lines(extended, repo_dir)):
+        context += given
     # A repository that keeps OpenSpec specs: its writing workers keep the ones they reach.
     if kind not in READ_ONLY_KINDS and config.enabled("specs", os.environ) and (
             drifted := specs_mod.drift(repo_dir, options.base or "HEAD")):
@@ -957,7 +963,8 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 risk, turns, size, standard.data() if standard is not None else None, race,
                 probation={"arm": arm, "cell": PROBATION[kind].label} if arm else None,
                 withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None,
-                dossier=dossier_stats, dossier_text=dossier_text, predicted=predicted)
+                dossier=dossier_stats, dossier_text=dossier_text, predicted=predicted,
+                extensions=tuple(extended), extension_arms=extension_arms)
 
 
 #: The most tests outside a task's surfaces its plan names.
@@ -1354,6 +1361,15 @@ def run(
     repo_dir = repo_dir.resolve()
     the_plan = plan(text, repo_dir, store, options, registry, classifier=classifier, adapters=adapters,
                     say=progress)
+    # The checks the extensions this task took add to a writing task's (`locks.extensions`); the tools of one
+    # its trial left out are not handed.
+    extended = list(the_plan.extensions) if the_plan.kind not in READ_ONLY_KINDS else []
+    left_out = {k.removeprefix("ext_").removesuffix("_arm") for k, v in the_plan.extension_arms.items()
+                if k.endswith("_arm") and v == "without"}
+    registry = {name: c for name, c in registry.items() if name not in left_out}
+    if (checked := extensions_mod.verify(options.verify, extended)) != options.verify:
+        the_plan.reasons.append(f"extensions: the check also runs {', '.join(e.name for e in extended if e.check)}'s")
+        options = dataclasses.replace(options, verify=checked)
     plan_s = time.monotonic() - clock
     if options.dry_run:
         if options.verify:
@@ -1679,6 +1695,7 @@ def run(
         worn_brief = roles.brief(the_plan.role, held=held_files) if the_plan.role is not None else None
         store.add_event(task["id"], "briefed", session=got, dead_ends=len(dead), areas=list(reach),
                         context_chars=sum(len(line) for line in context), kind=the_plan.kind,
+                        **the_plan.extension_arms,
                         system_chars=len(worn_brief.system_prompt) if worn_brief is not None else 0,
                         skills=len(worn_brief.skills) if worn_brief is not None else 0,
                         # The dossier locks read from the index and briefed (`Livespec.dossier`): its size,
@@ -2479,6 +2496,8 @@ def run(
         size = _realized(store, task["id"], report, workspace, time.monotonic() - clock)
         drifted = specs_mod.drift(workspace.repo_dir if workspace else repo_dir) \
             if status == "done" and writes and report.changed and config.enabled("specs", os.environ) else None
+        if status == "done":
+            report.impact += extensions_mod.offers(extended)
         if drifted is not None:
             # The report a `locks run` prints is its ending: it offers the catch-up as the hooks' ending does.
             report.impact += [line.strip() for line in specs_mod.ending_lines(

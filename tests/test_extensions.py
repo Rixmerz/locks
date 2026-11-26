@@ -217,3 +217,22 @@ def test_a_task_records_its_arm_and_one_left_out_brings_nothing(git_repo, store:
     assert "From the `rules` extension" not in script.specs[0].prompt
     assert "rules" not in script.specs[0].mcp_servers
     assert store.events_of(report.task_id, "briefed")[0]["data"]["ext_rules_arm"] == "without"
+
+
+def test_a_worker_runs_without_the_person_s_other_plugins(tmp_path: Path, monkeypatch):
+    from locks import launch, plugins
+
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    env = {"CLAUDE_CONFIG_DIR": str(config_dir), "LOCKS_LEAN_PLUGINS": "on"}
+    assert plugins.enabled(env) == []
+    (config_dir / "settings.json").write_text(json.dumps({"enabledPlugins": {
+        "graph@market": True, "locks@locks": True, "old@market": False, "cauce@x": True}}))  # legacy-name
+    assert plugins.enabled(env) == ["cauce@x", "graph@market", "locks@locks"]  # legacy-name
+    assert plugins.off_for_workers(env) == ["graph@market"]
+    assert plugins.off_for_workers({**env, "LOCKS_LEAN_PLUGINS": "off"}) == []
+    (config_dir / "settings.json").write_text("[]")
+    assert plugins.enabled(env) == []
+    (config_dir / "settings.json").write_text(json.dumps({"enabledPlugins": {"graph@market": True}}))
+    assert launch.plugins_off("claude", env, help_text=lambda _: "--settings <file-or-json>") == ["graph@market"]
+    assert launch.plugins_off("claude", env, help_text=lambda _: "an older CLI") == []

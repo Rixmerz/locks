@@ -54,7 +54,7 @@ its reason, and costs only itself. Paths are inside the repository, never absolu
 | 1 | the contract above: `locks.extensions`, `locks extensions`, tools as capabilities, brief and criteria | done (0.116.0) |
 | 1b | `check` and `ending` | done (0.116.0) |
 | 1c | a trial per extension: with and without it, kept where its tasks pass no less often | done (0.116.0) |
-| 2 | workers start with no plugin or MCP server of the session (`--strict-mcp-config`), only what applies; `locks footprint` measures the listing before and after; for the person's own sessions locks proposes what to hide, never writes their settings | |
+| 2 | workers start with no MCP server of the session (`--strict-mcp-config`), no skill listing and no subagent tool (`lean`), and from 0.116.0 with every plugin the person turned on switched off but locks (`lean_plugins`, a `--settings` overlay): what applies comes from locks alone. For the person's own sessions `/locks:integrate` proposes what to hide, never writes their settings | done (0.116.0) |
 | 3 | `/locks:integrate`: reads an installed Claude Code plugin (skills, agents, MCP servers, hooks) without running it, proposes an extension (and roles from its agents, `locks roles import`), installs it on the person's yes, in trial | |
 | 4a | layout-inspector and rastro as bundled extensions; `plugins.KNOWN` goes | |
 | 4b | TRACER as an extension whose format lives in its own manifest, so an updated TRACER is read as it is | |

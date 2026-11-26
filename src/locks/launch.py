@@ -562,6 +562,16 @@ def setting_sources_flag(claude_bin: str, env: Mapping[str, str], *,
     return (SETTING_SOURCES_FLAG,) if SETTING_SOURCES_FLAG in said else ()
 
 
+def plugins_off(claude_bin: str, env: Mapping[str, str], *,
+                help_text: Callable[[str], str] | None = None) -> list[str]:
+    """The person's plugins a worker runs without (`plugins.off_for_workers`), when the installed CLI
+    takes `--settings`: an older one never gets the flag."""
+    from locks import plugins
+
+    off = plugins.off_for_workers(env)
+    return off if off and "--settings" in (help_text or _cli_help)(claude_bin) else []
+
+
 def build_argv(spec: LaunchSpec, *, claude_bin: str = "claude", mcp_config_path: Path | None = None,
                prompt_path: Path | None = None, lean: Sequence[str] = ()) -> list[str]:
     argv = [
@@ -662,6 +672,8 @@ def run(
         spec = dataclasses.replace(spec, setting_sources=None)  # an older CLI has no such flag
     argv = build_argv(spec, claude_bin=claude_bin, mcp_config_path=mcp_path, prompt_path=prompt_path,
                       lean=lean_flags(claude_bin, os.environ))
+    if off := plugins_off(claude_bin, os.environ):
+        argv[1:1] = ["--settings", json.dumps({"enabledPlugins": {p: False for p in off}})]
     placed = None
     if spec.session_copy and spec.resume_session:
         from locks import host_fork

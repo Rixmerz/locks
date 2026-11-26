@@ -721,3 +721,16 @@ def test_a_brief_a_hook_turned_away_is_the_environment_never_the_worker(tmp_path
     assert parse(proc(json.dumps(limited)), spec(tmp_path)).limited
     worked = parse(proc(json.dumps({"num_turns": 3, "total_cost_usd": 0.1, "result": "no block"})), spec(tmp_path))
     assert worked.shape and "never reached" not in worked.summary
+
+
+def test_a_worker_is_launched_with_the_person_s_other_plugins_off(git_repo, monkeypatch):
+    seen = {}
+
+    def runner(argv, **kwargs):
+        seen["argv"] = argv
+        return proc(envelope(block(verdict="pass", summary="ok", evidence="ok")))
+
+    monkeypatch.setattr(launch, "plugins_off", lambda claude_bin, env: ["graph@market"])
+    launch.run(LaunchSpec("task", Cell("sonnet", "low"), git_repo), runner=runner)
+    at = seen["argv"].index("--settings")
+    assert json.loads(seen["argv"][at + 1]) == {"enabledPlugins": {"graph@market": False}}

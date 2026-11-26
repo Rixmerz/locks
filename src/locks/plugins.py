@@ -121,6 +121,31 @@ def claude_dir(env: Mapping[str, str]) -> Path:
     return Path(configured) if configured else Path(env.get("HOME", "~")).expanduser() / ".claude"
 
 
+def enabled(env: Mapping[str, str]) -> list[str]:
+    """The plugins the person turned on (`enabledPlugins` in their user settings, `name@marketplace`),
+    sorted; none when the file cannot be read."""
+    import json
+
+    try:
+        raw = json.loads((claude_dir(env) / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    on = raw.get("enabledPlugins") if isinstance(raw, dict) else None
+    return sorted(k for k, v in on.items() if v is True and isinstance(k, str)) if isinstance(on, dict) else []
+
+
+def off_for_workers(env: Mapping[str, str]) -> list[str]:
+    """The plugins a worker runs without (`lean_plugins`, on by default): every one the person turned on but locks.
+    A worker's tools come from `--mcp-config` and its skills from its brief, so another plugin there adds
+    only what its hooks inject and what it lists to the model, read on every turn of every worker."""
+    from locks import config, legacy
+
+    if not config.enabled("lean_plugins", env):
+        return []
+    ours = (legacy.NEW, legacy.OLD)  # legacy-name: an install from before the rename is locks itself
+    return [p for p in enabled(env) if p.split("@", 1)[0] not in ours]
+
+
 def _version(text: str) -> tuple[int, ...]:
     return tuple(int(n) for n in re.findall(r"\d+", text)[:3]) or (0,)
 

@@ -101,6 +101,10 @@ DEFAULTS: dict[str, Any] = {
     # runs, and that check renders and measures it (layout, tokens, states, keyboard, composition); a
     # worker of UI work is told what done means for UI (`evidence.UI_DONE`). Off: only by its risk.
     "ui_check": True,
+    # A worker runs without the Claude Code plugins the person turned on, locks aside (`plugins.off_for_workers`):
+    # its tools come from `--mcp-config` and its skills from its brief, so another plugin adds only what its
+    # hooks inject and lists, read on every turn. Off: workers load every plugin the person's sessions do.
+    "lean_plugins": True,
     # A repository that keeps OpenSpec specs (`openspec/`): a writing worker is told to keep the
     # ones its change reaches, and an ending whose change touched none, where the specs are behind
     # the code, offers the task that catches them up (`locks.specs`). Off: specs are only read.

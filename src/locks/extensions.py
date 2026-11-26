@@ -54,6 +54,8 @@ _KEYS = frozenset({"format", "name", "description", "when", "tools", "brief", "c
 #: Neighbours locks reads through code of its own (`locks.adapters`, `locks.specs`), the contract's second
 #: tier: what they do (an index read, a server's health, a spec gate) takes more than words and files.
 ADAPTERS = ("livespec", "engram", "openspec")
+#: Parts of locks a person may turn off whole, each by its setting: the web board (`board`).
+OPTIONAL = ("board",)
 #: The extensions locks ships: the neighbours it hands from the person's installed plugins (`locks.plugins`).
 BUNDLED = Path(__file__).resolve().parent / "extensions_bundled"
 

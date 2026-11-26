@@ -10,6 +10,8 @@ locks is closed enough to work on its own and open enough to take any tool into 
 
 ### Added
 
+- The web board is an optional part (`board`, on by default): off, `locks ui` starts nothing and says where the terminal shows the same.
+- `docs/extensions/livespec-stale.json`: an extension that holds a writing task to no spec requirement its change left stale (`livespec stale`, from the livespec release that adds `verify` and `stale`).
 - Each spec requirement the changed code implements (livespec's index) is a criterion the independent check answers: an edit may have broken a spec its code was linked to.
 - The bundled TRACER layout reads 0.14's `design-system.md` and `content.md` into a writing brief, beside its audiences, identity, floors and anti-patterns.
 - TRACER's layout is an extension's `method` (folder, files, flows, capability map, slices, the criterion's word): a `tracer` extension of the person's makes locks read an updated TRACER by its own layout.

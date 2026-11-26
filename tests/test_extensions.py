@@ -376,3 +376,13 @@ def test_the_list_says_what_locks_ships(capsys):
     assert cli.main(["extensions"]) == 0
     out = capsys.readouterr().out
     assert "shipped with locks: layout-inspector, rastro, tracer" in out and "livespec, engram, openspec" in out
+
+
+def test_the_extensions_to_copy_are_of_the_contract():
+    for path in sorted((Path(__file__).resolve().parents[1] / "docs" / "extensions").glob("*.json")):
+        assert extensions.parse(json.loads(path.read_text(encoding="utf-8"))).name == path.stem
+
+
+def test_the_board_is_an_optional_part_a_setting_turns_off(monkeypatch, capsys):
+    monkeypatch.setenv("LOCKS_BOARD", "off")
+    assert cli.main(["ui"]) == 2 and "the web board is off" in capsys.readouterr().err

@@ -171,6 +171,12 @@
       "description": "Each worker runs with the Claude Code plugins you turned on switched off, locks aside: its tools come from locks and its skills from its brief, so another plugin would only add what its hooks inject and what it lists to the model on every turn. Your own sessions keep every plugin. Off: workers load all of them.",
       "default": true
     },
+    "board": {
+      "type": "boolean",
+      "title": "Web board",
+      "description": "The local web board (`/locks:ui`). It costs no token either way: off, nothing of it starts, and `locks tasks`, `locks stats` and `locks show N` say the same in the terminal.",
+      "default": true
+    },
     "ui_check": {
       "type": "boolean",
       "title": "Check rendered UI rendered",

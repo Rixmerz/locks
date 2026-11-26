@@ -952,7 +952,8 @@ def cmd_extensions(args: argparse.Namespace) -> int:
         print(f"no extensions installed (`locks extensions add FILE`; they live in {extensions.home_dir(where)})")
     shipped = [e.name for e in extensions.bundled()]
     print(f"shipped with locks: {', '.join(shipped)}; adapters with code of their own: "
-          + ", ".join(extensions.ADAPTERS))
+          + ", ".join(extensions.ADAPTERS) + "; optional parts, each off by its setting: "
+          + ", ".join(extensions.OPTIONAL))
     for ext in found:
         brings = [w for w, on in (("tools", ext.server is not None), ("brief", bool(ext.brief_files)),
                                   ("criteria", bool(ext.criteria_pattern))) if on]
@@ -2764,7 +2765,14 @@ def cmd_habit_run(args: argparse.Namespace) -> int:
 
 
 def cmd_ui(args: argparse.Namespace) -> int:
+    from locks import config
     from locks.ui import server
+
+    if not config.enabled("board", os.environ):
+        # The board is an optional part (`docs/extensions.md`, 4e): off, nothing of it starts.
+        print("locks: the web board is off (`locks config board on` turns it on); `locks tasks`, `locks stats` "
+              "and `locks show N` say the same in the terminal", file=sys.stderr)
+        return 2
 
     try:
         ui = server.serve(args.port)

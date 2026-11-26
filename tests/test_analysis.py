@@ -641,8 +641,11 @@ def test_the_suspend_clock_reads_a_sleep_only_within_one_boot():
 
     assert suspend.slept(10.0, 3610.0) == 3600.0 and suspend.slept(10.0, 10.4) == 0.0
     assert suspend.slept(500.0, 10.0) is None and suspend.slept(None, 10.0) is None
-    reading = suspend.suspended()
-    assert reading is None or reading >= 0
+    # A reading is a difference of two clocks and may be negative (macOS, #208); only its growth is a sleep.
+    before = suspend.suspended()
+    assert before is None or isinstance(before, float)
+    if before is not None:
+        assert suspend.slept(before, suspend.suspended()) == 0.0
 
 
 def test_the_suspend_clock_says_nothing_where_no_pair_of_clocks_reads(monkeypatch):

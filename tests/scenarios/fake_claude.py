@@ -17,8 +17,8 @@ worker was given. An action:
 - `{"die": true}`: kills the process that started it (locks' `run-queued`) and itself, as a
   machine that ran out of memory would. With `"session": "id"` it first leaves what a real worker
   killed mid-turn leaves: a call in the hooks' log and its transcript.
-- `{"crash": "Error: what"}`: writes a traceback ending in that line to the log of the process that
-  started it (its stderr), then kills it and itself: a `run-queued` that died of an exception.
+- `{"crash": "Error: what"}`: writes a traceback ending in that line to the task's log, where the process that
+  started it writes its stderr, then kills it and itself: a `run-queued` that died of an exception.
 - `{"limit": "text"}`: writes, then ends as the CLI does when the account's usage limit turns
   the session away (`is_error`, subtype `success`, the text as its result).
 
@@ -123,7 +123,8 @@ def main() -> int:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(text)
     if action.get("crash"):
-        with open(f"/proc/{os.getppid()}/fd/2", "a") as log:
+        # The parent's stderr is the task's log (`flow.task_log`): open it by path, as macOS has no /proc.
+        with open(Path(os.environ["LOCKS_HOME"]) / "work" / f"task-{os.environ['LOCKS_WORKER_TASK']}.log", "a") as log:
             log.write(f"Traceback (most recent call last):\n  File \"x.py\", line 1\n{action['crash']}\n")
         os.kill(os.getppid(), signal.SIGKILL)
         os.kill(os.getpid(), signal.SIGKILL)

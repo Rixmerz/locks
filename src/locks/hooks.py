@@ -340,9 +340,8 @@ def _route(store: Store, task_id: int, text: str, cwd: str | None, transcript: s
 
         share, tokens = None, None
         if transcript:
-            context = compaction.read_context(
-                Path(transcript), model_hint=store.meta(compaction.MODEL_META + str(session_id)) if session_id
-                else None, env=os.environ)
+            context = compaction.read_session_context(
+                store, str(session_id) if session_id else None, Path(transcript), env=os.environ)
             tokens = context.tokens
             share = context.tokens / context.window if context.tokens else None
         key = repo.key(cwd)

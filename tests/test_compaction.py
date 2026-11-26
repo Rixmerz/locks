@@ -690,3 +690,37 @@ def test_locks_advises_at_most_once_per_prompt_of_the_person(store: Store, pendi
     assert store.last_prompt_task("s1")["id"] != before
     _own(store, pending_decision)
     assert step(store, "orchestrator")["action"] == "advise"
+
+
+def boundary(tokens: int, at: datetime) -> dict:
+    return {"type": "system", "subtype": "compact_boundary", "timestamp": iso(at),
+            "compactMetadata": {"trigger": "manual", "preTokens": tokens}}
+
+
+def test_the_largest_context_a_session_showed_is_remembered_and_never_lowered(store: Store, tmp_path):
+    """Field sequence: 761,750 once, manual compactions at ~180k, then 179k: a 1M window."""
+    big = write(tmp_path, [user("a", NOW - timedelta(hours=3)), assistant(761_750, NOW - timedelta(hours=3))],
+                name="big.jsonl")
+    assert compaction.read_session_context(store, "s1", big).window == compaction.WINDOW_1M
+    assert store.meta(compaction.PEAK_META + "s1") == "761750"
+    later = write(tmp_path, [boundary(180_135, NOW - timedelta(hours=1)), user("b", NOW - timedelta(minutes=2)),
+                             assistant(178_973, NOW)], name="later.jsonl")
+    old = compaction.read_context(later)  # no memory: the tail alone says 200k
+    assert old.window == compaction.WINDOW and compaction.worth(old)
+    found = compaction.read_session_context(store, "s1", later)
+    assert found.window == compaction.WINDOW_1M and found.peak == 761_750
+    assert not compaction.worth(found) and found.tokens == 178_973
+    assert store.meta(compaction.PEAK_META + "s1") == "761750"  # a compaction never lowers it
+    assert compaction.read_session_context(store, "s1", later).window == compaction.WINDOW_1M
+
+
+def test_a_200k_session_stays_200k_and_a_boundary_above_it_is_enough(store: Store, tmp_path):
+    small = write(tmp_path, [assistant(150_000, NOW)], name="small.jsonl")
+    assert compaction.read_session_context(store, "s2", small).window == compaction.WINDOW
+    assert store.meta(compaction.PEAK_META + "s2") == "150000"
+    cut = write(tmp_path, [boundary(400_000, NOW - timedelta(hours=1)), assistant(150_000, NOW)], name="cut.jsonl")
+    assert compaction.read_session_context(store, "s3", cut).window == compaction.WINDOW_1M
+    assert compaction.read_session_context(store, "s4", small).window == compaction.WINDOW  # per session
+    assert compaction.window_of("claude-opus-5-5[1m]", 0) == compaction.WINDOW_1M
+    capped = compaction.read_session_context(store, "s3", cut, env={compaction.AUTO_WINDOW_ENV: "200000"})
+    assert capped.window == compaction.WINDOW

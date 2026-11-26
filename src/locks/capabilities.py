@@ -32,7 +32,9 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import re
+import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -306,14 +308,22 @@ def notices(path: Path) -> list[str]:
 
 
 def runnable(server: Mapping[str, Any]) -> bool:
-    """Whether a server's command can start: a path that names no file cannot (#207, B3: handed so, its
-    worker ended in `environment` and was still held to measuring with it). A bare name or a relative path is
-    resolved where the worker runs, and is taken as it is."""
+    """Whether a server's command can start (#207, B3: handed one that could not, its worker ended in
+    `environment` and was still held to measuring with it). An absolute path must name a file; a bare name
+    (no separator) must be found by `shutil.which` on the PATH the server would get, its own `env["PATH"]`
+    when it sets one, else this process's; a relative path with a separator is resolved where the worker
+    runs, and is taken as it is."""
     command = server.get("command")
     if not isinstance(command, str) or not command:
         return False
     path = Path(command).expanduser()
-    return not path.is_absolute() or path.exists()
+    if path.is_absolute():
+        return path.exists()
+    if "/" in command or os.sep in command:
+        return True
+    env = server.get("env")
+    own = env.get("PATH") if isinstance(env, Mapping) else None
+    return shutil.which(command, path=own if isinstance(own, str) else os.environ.get("PATH", os.defpath)) is not None
 
 
 def select(

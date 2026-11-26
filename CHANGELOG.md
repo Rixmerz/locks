@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-26
+
+Fixes from a day of running locks on a real delivery: work held behind a dismissed run, MCP servers named by a bare command, effort spent climbing on a decision, the context window after a compaction, and a suite that failed on macOS.
+
+### Fixed
+
+- `dismiss` abandons the work held `--after run:<N>` when the dismissed task is the run's latest step task: that work no longer waits forever on a run nobody will finish.
+- An MCP server whose command is a bare name (`layout-inspector`, `mail-mcp`) is runnable when that name resolves on the server's own `env` PATH, or on the process PATH when it sets none; relative and absolute commands are read as before.
+- Unchanged work that again leaves the same criteria unmet, in this run or an earlier one, ends in a DECIDE that keeps the work and quotes the point, instead of climbing effort or model on a point no model can settle.
+- The context window of a session is read from the largest context it ever showed, remembered per session across compactions: a 1M session no longer looks like a 200k one after its first compaction and is no longer pushed to compact again.
+- The suite passes on macOS: the suspend-clock test reads a clock that may be `None` there, and the fake worker's crash writes its traceback under `LOCKS_HOME/work/` instead of `/proc`.
+- The side-by-side plan test measures that its two waits overlap instead of bounding wall time, which a loaded machine (`pytest -n auto`) pushed past 1.1 s in 10 of 10 runs.
+
+### Added
+
+- A scenario test for dismissing a run's step task, and an opt-in `on_path` fixture for tests that register bare MCP commands.
+
 ## [1.0.0] - 2026-11-26
 
 locks is closed enough to work on its own and open enough to take any tool into its flow: every tool that is not locks' own comes in as an extension (`docs/extensions.md`).

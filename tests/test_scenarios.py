@@ -342,6 +342,27 @@ def test_work_queued_after_a_task_that_is_dismissed_leaves_the_queue_with_it(wor
     world.healthy()
 
 
+def test_work_queued_after_a_run_whose_step_task_is_dismissed_leaves_the_queue_with_it(world):
+    world.script([{"match": "Plan, without changing any file", "do": [
+        {"block": {"verdict": "fail", "failure": "spec_bug", "summary": "the schema it names does not exist"}}]}])
+    world.locks("workflow", "run", "feature-parallel", "write the schema file for the totals")
+    world.locks("queue", "add", "--kind", "implement", "--after", "run:1", "use the schema in the report")
+    stopped = world.wait(_task(("blocked", "failed", "review", "replan")), "the step's task to stop")
+    assert stopped["workflow_run"] == 1
+    said = world.locks("dismiss", str(stopped["id"]), "--why", "the schema is not needed")
+    assert "off the queue" in said
+    store = Store(world.home / "locks.db")
+    try:
+        held = next(t for t in store.list_tasks(limit=10) if t["workflow_run"] is None)
+        assert held["status"] == "cancelled"
+        assert json.loads(held["options"]).get("after") is None
+        assert store.final_event(held["id"])["data"]["stop"]["cause"] == "after"
+        assert store.get_run(1)["status"] == "active"  # not cancelled: `workflow retry` stays possible
+    finally:
+        store.close()
+    world.healthy()
+
+
 def test_a_task_the_usage_limit_stopped_resumes_on_its_own_after_the_reset(world):
     resets = int(time.time()) + 3
     world.script([{"match": "make the greeting", "do": [

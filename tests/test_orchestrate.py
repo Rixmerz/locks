@@ -2548,22 +2548,31 @@ def test_the_kind_and_the_neighbours_indexes_are_found_side_by_side(git_repo, st
 
     seen: dict[str, int] = {}
 
+    spans: dict[str, tuple[float, float]] = {}
+
     def indexing(adapter, status, repo_dir, options, say):
         seen["index"] = threading.get_ident()
+        start = time.monotonic()
         time.sleep(0.6)
+        spans["index"] = (start, time.monotonic())
         return status, ["slow: indexed"]
 
     def classifying(text):
         seen["classify"] = threading.get_ident()
+        start = time.monotonic()
         time.sleep(0.6)
+        spans["classify"] = (start, time.monotonic())
         return Classification("implement", "medium", "rule", "test")
 
     monkeypatch.setattr(orchestrate, "_bring_current", indexing)
     monkeypatch.setattr(orchestrate, "adopted", lambda options, adapters: list(adapters or ()))
-    began = time.monotonic()
     found = orchestrate.plan("Rename the helper in notes", git_repo, store, Options(), {}, classifier=classifying,
                              adapters=[Neighbour()])
-    assert time.monotonic() - began < 1.1 and seen["index"] != seen["classify"]
+    # The waits overlap, measured on themselves: wall time around plan() also counts the git work
+    # in the repo, and a loaded machine (pytest -n auto) pushed it past any fixed bound.
+    (index_start, index_end), (classify_start, classify_end) = spans["index"], spans["classify"]
+    assert index_start < classify_end and classify_start < index_end
+    assert seen["index"] != seen["classify"]
     assert found.kind == "implement"
 
 

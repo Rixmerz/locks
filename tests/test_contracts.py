@@ -4,6 +4,7 @@ rewrote a task's options without its workflow part)."""
 import dataclasses
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -240,7 +241,8 @@ def test_the_evidence_arm_a_brief_keeps_is_the_one_its_trial_reads_back(git_repo
 
     monkeypatch.setenv("LOCKS_EVIDENCE", "on")
     monkeypatch.setattr(evidence, "arm", lambda store, repo, task_id: ("free", "free for the test"))
-    registry = {"layout-inspector": caps.Capability("layout-inspector", {"command": "li"}, hint="measure the page")}
+    registry = {"layout-inspector": caps.Capability(
+        "layout-inspector", {"command": sys.executable}, hint="measure the page")}
     report = run("Rename the helper in notes", git_repo, store, registry=registry,
                  launcher=Script(passing(), write="notes.txt"), classifier=kind("implement"))
     task = store.get_task(report.task_id)

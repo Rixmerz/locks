@@ -11,7 +11,7 @@ from locks import capabilities as caps
 
 @pytest.fixture(autouse=True)
 def stub_commands(tmp_path_factory, monkeypatch):
-    """The bare commands these tests register (`x`, `m`, `d`, `b`, `layout-inspector`) are on the PATH, as a real install's."""
+    """The bare commands these tests register are on the PATH, as a real install's."""
     folder = tmp_path_factory.mktemp("stubs")
     for name in ("x", "m", "d", "b", "layout-inspector", "npx"):
         (folder / name).write_text("#!/bin/sh\n")

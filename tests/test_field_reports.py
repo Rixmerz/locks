@@ -17,10 +17,15 @@ def test_a_backend_route_is_no_rendered_ui_and_a_page_component_still_is():
 def test_a_server_whose_command_is_a_missing_path_is_not_handed(tmp_path):
     there = tmp_path / "graph"
     there.write_text("")
+    program = tmp_path / "bin" / "some-program-on-path"
+    program.parent.mkdir()
+    program.write_text("#!/bin/sh\n")
+    program.chmod(0o755)
     registry = {
         "gone": capabilities.Capability("gone", {"command": str(tmp_path / "nowhere")}),
         "here": capabilities.Capability("here", {"command": str(there)}),
-        "path": capabilities.Capability("path", {"command": "some-program-on-path"}),
+        "path": capabilities.Capability(
+            "path", {"command": "some-program-on-path", "env": {"PATH": str(program.parent)}}),
         "blank": capabilities.Capability("blank", {"command": ""}),
     }
     assert set(capabilities.select(registry, "implement").servers) == {"here", "path"}

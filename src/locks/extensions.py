@@ -342,3 +342,57 @@ def remove(home: Path, name: str) -> bool:
     target.unlink()
     return True
 
+
+
+def _frontmatter(path: Path) -> dict[str, str]:
+    """The `name:` and `description:` of a markdown file's frontmatter, read as text."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    head = text.split("\n---", 1)[0]
+    out: dict[str, str] = {}
+    for key in ("name", "description"):
+        if hit := re.search(rf"^{key}:\s*(.+)$", head, re.MULTILINE):
+            out[key] = clip(hit.group(1).strip().strip("'\""), 200, one_line=True)
+    return out
+
+
+def inspect(root: Path) -> dict[str, Any]:
+    """What an installed Claude Code plugin holds, read from its files and never run: its skills,
+    agents and commands (name and description), its MCP servers, whether it has hooks, and a draft
+    extension per server for the person to review (`locks extensions add`)."""
+    from locks import plugins
+
+    def listed(pattern: str) -> list[dict[str, str]]:
+        rows = []
+        for path in sorted(root.glob(pattern)):
+            meta = _frontmatter(path)
+            name = meta.get("name") or (path.parent.name if path.name == "SKILL.md" else path.stem)
+            rows.append({"name": name, "description": meta.get("description", ""),
+                         "path": str(path.relative_to(root))})
+        return rows
+
+    manifest: dict[str, Any] = {}
+    try:
+        loaded = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        manifest = loaded if isinstance(loaded, dict) else {}
+    except (OSError, ValueError):
+        pass
+    name = str(manifest.get("name") or root.parent.name)
+    servers = plugins._servers_of(root)
+    drafts = []
+    for server, config in sorted(servers.items()):
+        if not isinstance(config, dict):
+            continue
+        slug = re.sub(r"[^a-z0-9_-]+", "-", f"{name}-{server}".lower()).strip("-")[:40] or "extension"
+        drafts.append({"format": FORMAT, "name": slug,
+                       "description": clip(str(manifest.get("description") or f"{server} from {name}"), 200),
+                       "when": {}, "tools": {"server": plugins._fill(config, root), "measures": False, "hint": ""}})
+    return {"plugin": name, "version": str(manifest.get("version") or root.name), "root": str(root),
+            "skills": listed("skills/*/SKILL.md"), "agents": listed("agents/*.md"),
+            "commands": listed("commands/*.md"), "servers": sorted(servers),
+            "hooks": (root / "hooks" / "hooks.json").is_file() or "hooks" in manifest,
+            "drafts": drafts}

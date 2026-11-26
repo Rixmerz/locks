@@ -928,6 +928,18 @@ def cmd_extensions(args: argparse.Namespace) -> int:
             return 2
         print(f"removed extension {args.name}")
         return 0
+    if args.ext_command == "inspect":
+        from locks import plugins
+
+        folder = Path(args.plugin).expanduser()
+        if not folder.is_dir():
+            newest = plugins.versions(os.environ, args.plugin)
+            if not newest:
+                print(f"locks: no installed plugin or folder named {args.plugin!r}", file=sys.stderr)
+                return 2
+            folder = newest[0]
+        print(json.dumps(extensions.inspect(folder.resolve()), indent=2))
+        return 0
     found, refused = extensions.load(where)
     if args.ext_command == "show":
         ext = next((e for e in found if e.name == args.name), None)
@@ -3810,6 +3822,9 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("show", "rm"):
         q = ext_sub.add_parser(name, help=f"{name} one installed extension")
         q.add_argument("name")
+    q = ext_sub.add_parser("inspect", help="what an installed Claude Code plugin holds, read and never run, "
+                                           "with a draft extension per MCP server")
+    q.add_argument("plugin", help="a plugin's name (its newest installed version) or its folder")
     p.set_defaults(func=cmd_extensions)
 
     p = sub.add_parser("ci", help="the repository's CI jobs as a plan reads them; quiet one known not to apply here")

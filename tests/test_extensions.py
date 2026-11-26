@@ -236,3 +236,36 @@ def test_a_worker_runs_without_the_person_s_other_plugins(tmp_path: Path, monkey
     (config_dir / "settings.json").write_text(json.dumps({"enabledPlugins": {"graph@market": True}}))
     assert launch.plugins_off("claude", env, help_text=lambda _: "--settings <file-or-json>") == ["graph@market"]
     assert launch.plugins_off("claude", env, help_text=lambda _: "an older CLI") == []
+
+
+def test_a_plugin_is_inspected_from_its_files_and_never_run(tmp_path: Path, capsys, monkeypatch):
+    root = tmp_path / "cache" / "market" / "graph" / "1.2.0"
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+        "name": "graph", "version": "1.2.0", "description": "a code graph",
+        "mcpServers": {"Graph Server": {"command": "${CLAUDE_PLUGIN_ROOT}/bin/graph"}, "bad": "x"}}))
+    (root / "skills" / "callers").mkdir(parents=True)
+    (root / "skills" / "callers" / "SKILL.md").write_text("---\nname: callers\ndescription: 'who calls what'\n---\nbody")
+    (root / "agents").mkdir()
+    (root / "agents" / "mapper.md").write_text("no frontmatter")
+    (root / "commands").mkdir()
+    (root / "hooks").mkdir()
+    (root / "hooks" / "hooks.json").write_text("{}")
+    found = extensions.inspect(root)
+    assert found["plugin"] == "graph" and found["version"] == "1.2.0" and found["hooks"]
+    assert found["skills"] == [{"name": "callers", "description": "who calls what", "path": "skills/callers/SKILL.md"}]
+    assert found["agents"] == [{"name": "mapper", "description": "", "path": "agents/mapper.md"}]
+    assert found["servers"] == ["Graph Server", "bad"]
+    draft = found["drafts"][0]
+    assert draft["name"] == "graph-graph-server" and draft["tools"]["server"]["command"] == f"{root}/bin/graph"
+    assert extensions.parse(draft).name == "graph-graph-server"  # a draft is a valid extension
+    bare = tmp_path / "bare" / "1"
+    bare.mkdir(parents=True)
+    assert extensions.inspect(bare)["plugin"] == "bare" and extensions.inspect(bare)["drafts"] == []
+    assert extensions._frontmatter(tmp_path / "missing.md") == {}
+    assert cli.main(["extensions", "inspect", str(root)]) == 0 and '"plugin": "graph"' in capsys.readouterr().out
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "cache").rename(tmp_path / "plugins" / "cache")
+    assert cli.main(["extensions", "inspect", "graph"]) == 0 and '"version": "1.2.0"' in capsys.readouterr().out
+    assert cli.main(["extensions", "inspect", "nothing"]) == 2

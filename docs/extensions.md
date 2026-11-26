@@ -55,7 +55,7 @@ its reason, and costs only itself. Paths are inside the repository, never absolu
 | 1b | `check` and `ending` | done (0.116.0) |
 | 1c | a trial per extension: with and without it, kept where its tasks pass no less often | done (0.116.0) |
 | 2 | workers start with no MCP server of the session (`--strict-mcp-config`), no skill listing and no subagent tool (`lean`), and from 0.116.0 with every plugin the person turned on switched off but locks (`lean_plugins`, a `--settings` overlay): what applies comes from locks alone. For the person's own sessions `/locks:integrate` proposes what to hide, never writes their settings | done (0.116.0) |
-| 3 | `/locks:integrate`: reads an installed Claude Code plugin (skills, agents, MCP servers, hooks) without running it, proposes an extension (and roles from its agents, `locks roles import`), installs it on the person's yes, in trial | |
+| 3 | `/locks:integrate` and `locks extensions inspect`: reads an installed Claude Code plugin (skills, agents, MCP servers, hooks) without running it, drafts an extension per server, proposes roles from its agents (`locks roles import`), installs on the person's yes, in trial | done (0.116.0) |
 | 4a | layout-inspector and rastro as bundled extensions; `plugins.KNOWN` goes | |
 | 4b | TRACER as an extension whose format lives in its own manifest, so an updated TRACER is read as it is | |
 | 4c | livespec as an extension, in the flow: the specs a change reaches as criteria, a spec owed on a change of behaviour, `livespec check --stale` before a pass, the verification recorded back | |

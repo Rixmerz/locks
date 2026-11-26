@@ -349,3 +349,30 @@ def test_the_spec_requirements_a_change_reaches_are_criteria_of_the_check(tmp_pa
     many = verifier_brief("x", "implement", tmp_path, "abc", ["a"],
                           impact=[f"{REQUIREMENT_PREFIX}S-{n} r" for n in range(35)])
     assert "5 more not shown" in many
+
+
+#: The core files that may still name a neighbour locks ships, and why. A new file that names one is
+#: a tool coded into the core: put it in an extension instead (`docs/extensions.md`).
+NAMING_ALLOWED = {
+    "plugins.py": "reads the shipped extensions into neighbours",
+    "evidence.py": "the UI check names the layout tools it measures with",
+    "capabilities.py": "the registry's documented example",
+    "config.py": "settings' descriptions",
+    "manifests.py": "a neighbour's own manifest, by its plugin name",
+    "mcp_guard.py": "the guard's policy for rastro, locks' code by rule",
+    "orchestrate.py": "the plan's install line when nothing measures a UI change",
+    "tracer.py": "which TRACER floor a measuring tool checks",
+}
+
+
+def test_the_core_names_no_shipped_neighbour_outside_its_allow_list():
+    src = Path(__file__).resolve().parents[1] / "src" / "locks"
+    naming = sorted(p.name for p in src.glob("*.py")
+                    if any(n in p.read_text(encoding="utf-8") for n in ("layout-inspector", "rastro")))
+    assert set(naming) <= set(NAMING_ALLOWED), set(naming) - set(NAMING_ALLOWED)
+
+
+def test_the_list_says_what_locks_ships(capsys):
+    assert cli.main(["extensions"]) == 0
+    out = capsys.readouterr().out
+    assert "shipped with locks: layout-inspector, rastro, tracer" in out and "livespec, engram, openspec" in out

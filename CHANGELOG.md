@@ -4,7 +4,9 @@
 
 ## [Unreleased]
 
-## [0.116.0] - 2026-11-25
+## [1.0.0] - 2026-11-26
+
+locks is closed enough to work on its own and open enough to take any tool into its flow: every tool that is not locks' own comes in as an extension (`docs/extensions.md`).
 
 ### Added
 

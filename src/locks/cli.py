@@ -950,6 +950,9 @@ def cmd_extensions(args: argparse.Namespace) -> int:
         return 0
     if not found and not refused:
         print(f"no extensions installed (`locks extensions add FILE`; they live in {extensions.home_dir(where)})")
+    shipped = [e.name for e in extensions.bundled()]
+    print(f"shipped with locks: {', '.join(shipped)}; adapters with code of their own: "
+          + ", ".join(extensions.ADAPTERS))
     for ext in found:
         brings = [w for w, on in (("tools", ext.server is not None), ("brief", bool(ext.brief_files)),
                                   ("criteria", bool(ext.criteria_pattern))) if on]

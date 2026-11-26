@@ -51,6 +51,9 @@ FILES_READ = 50
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 _KEYS = frozenset({"format", "name", "description", "when", "tools", "brief", "criteria", "check", "ending",
                    "source", "evidence", "method"})
+#: Neighbours locks reads through code of its own (`locks.adapters`, `locks.specs`), the contract's second
+#: tier: what they do (an index read, a server's health, a spec gate) takes more than words and files.
+ADAPTERS = ("livespec", "engram", "openspec")
 #: The extensions locks ships: the neighbours it hands from the person's installed plugins (`locks.plugins`).
 BUNDLED = Path(__file__).resolve().parent / "extensions_bundled"
 

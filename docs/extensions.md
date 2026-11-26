@@ -56,17 +56,17 @@ its reason, and costs only itself. Paths are inside the repository, never absolu
 
 | Phase | What | State |
 |---|---|---|
-| 1 | the contract above: `locks.extensions`, `locks extensions`, tools as capabilities, brief and criteria | done (0.116.0) |
-| 1b | `check` and `ending` | done (0.116.0) |
-| 1c | a trial per extension: with and without it, kept where its tasks pass no less often | done (0.116.0) |
-| 2 | workers start with no MCP server of the session (`--strict-mcp-config`), no skill listing and no subagent tool (`lean`), and from 0.116.0 with every plugin the person turned on switched off but locks (`lean_plugins`, a `--settings` overlay): what applies comes from locks alone. For the person's own sessions `/locks:integrate` proposes what to hide, never writes their settings | done (0.116.0) |
-| 3 | `/locks:integrate` and `locks extensions inspect`: reads an installed Claude Code plugin (skills, agents, MCP servers, hooks) without running it, drafts an extension per server, proposes roles from its agents (`locks roles import`), installs on the person's yes, in trial | done (0.116.0) |
-| 4a | layout-inspector and rastro as bundled extensions (`src/locks/extensions_bundled/`): `plugins.KNOWN` and `evidence.REQUIRED` are read from them; any extension may take its server from an installed plugin (`source`, its guard a `locks.mcp_guard` policy, which only narrows) and owe evidence (`evidence`) | done (0.116.0) |
-| 4b | TRACER's layout (its folder, files, flows, capability map, slices and the word that opens a criterion) is an extension's `method` (`extensions_bundled/tracer.json`); a person's `tracer` extension with its own `method` makes locks read an updated TRACER as it is | done (0.116.0) |
-| 4c | livespec in the flow: each spec requirement the changed code implements is a criterion `L#` the independent check answers (`REQUIREMENT_PREFIX` lines of `assess`), done (0.116.0). Still to come, in livespec itself: a verification record per requirement and symbol (commit, evidence, body hash), `livespec check --stale`, and a tool locks records a verification through; then locks runs the stale check before a pass and records what its check verified | locks' side done; livespec's waits on push access to its repository |
-| 4d | OpenSpec and engram as extensions | |
-| 4e | the web board as an optional extension | |
-| 5 | a test that the core names no tool; the core alone against the core with extensions on the speed bench; 1.0.0 | |
+| 1 | the contract above: `locks.extensions`, `locks extensions`, tools as capabilities, brief and criteria | done (1.0.0) |
+| 1b | `check` and `ending` | done (1.0.0) |
+| 1c | a trial per extension: with and without it, kept where its tasks pass no less often | done (1.0.0) |
+| 2 | workers start with no MCP server of the session (`--strict-mcp-config`), no skill listing and no subagent tool (`lean`), and from 0.116.0 with every plugin the person turned on switched off but locks (`lean_plugins`, a `--settings` overlay): what applies comes from locks alone. For the person's own sessions `/locks:integrate` proposes what to hide, never writes their settings | done (1.0.0) |
+| 3 | `/locks:integrate` and `locks extensions inspect`: reads an installed Claude Code plugin (skills, agents, MCP servers, hooks) without running it, drafts an extension per server, proposes roles from its agents (`locks roles import`), installs on the person's yes, in trial | done (1.0.0) |
+| 4a | layout-inspector and rastro as bundled extensions (`src/locks/extensions_bundled/`): `plugins.KNOWN` and `evidence.REQUIRED` are read from them; any extension may take its server from an installed plugin (`source`, its guard a `locks.mcp_guard` policy, which only narrows) and owe evidence (`evidence`) | done (1.0.0) |
+| 4b | TRACER's layout (its folder, files, flows, capability map, slices and the word that opens a criterion) is an extension's `method` (`extensions_bundled/tracer.json`); a person's `tracer` extension with its own `method` makes locks read an updated TRACER as it is | done (1.0.0) |
+| 4c | livespec in the flow: each spec requirement the changed code implements is a criterion `L#` the independent check answers (`REQUIREMENT_PREFIX` lines of `assess`), done (1.0.0). Still to come, in livespec itself: a verification record per requirement and symbol (commit, evidence, body hash), `livespec check --stale`, and a tool locks records a verification through; then locks runs the stale check before a pass and records what its check verified | locks' side done; livespec's waits on push access to its repository |
+| 4d | livespec, engram and OpenSpec stay adapters, the contract's second tier: what they do (an index read, a server's health and its guard, a spec gate) takes more than words and files; `locks extensions list` names them beside the shipped extensions | done (1.0.0) |
+| 4e | the web board stays where it is: it costs no token (its command is hidden from the model, and nothing of it runs unless `locks ui` does); moving its code into a package of its own is left for when someone asks for a locks without it | not done, on purpose |
+| 5 | a test that the core names no shipped neighbour outside an allow-list that says why each file still does (`tests/test_extensions.py`); 1.0.0. The speed bench of the core alone against it with extensions is not run: no extension is installed by default, so the core alone is what every person runs | done (1.0.0) |
 
 A bundled extension a person already uses is installed for them once, so nothing they rely on
 stops when its code leaves the core.

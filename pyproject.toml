@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locks"
-version = "0.115.0"
+version = "1.0.0"
 description = "One core for Claude Code: route each task to the right model, effort and capabilities, escalate on evidence, and remember what failed across repositories"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -24,7 +24,7 @@ cauce = "locks.cli:main"  # legacy-name: the old command keeps working
 where = ["src"]
 
 [tool.setuptools.package-data]
-"locks" = ["workflow_templates/*.json", "guides/*.md", "roles/*.md", "roles/CREDITS.txt", "roles_internal/*.md", "skills/*/*", "skills/*.md", "skills/LICENSE*"]
+"locks" = ["extensions_bundled/*.json", "workflow_templates/*.json", "guides/*.md", "roles/*.md", "roles/CREDITS.txt", "roles_internal/*.md", "skills/*/*", "skills/*.md", "skills/LICENSE*"]
 "locks.ui" = ["static/*"]
 
 [tool.pytest.ini_options]

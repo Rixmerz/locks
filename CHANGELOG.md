@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-26
+
+locks is closed enough to work on its own and open enough to take any tool into its flow: every tool that is not locks' own comes in as an extension (`docs/extensions.md`).
+
+
+### Fixed (field reports #207, #208)
+
+- A backend's `routes/`, `pages/` or `components/` file is no rendered UI unless its own type is one a page is drawn from: `src/routes/x.routes.ts` was held to a layout measurement in 28 of 41 such endings, and `ui_check` raised 12 of 21 tasks to high for it.
+- An MCP server whose command is an absolute path that names no file is not handed, nor owed: 41 attempts ended in `environment` and were still held to measuring with it.
+- A verifier blocker repeats an earlier one when both name the same code (`@spec`, a path, an identifier), whatever language each is written in: the word comparison matched 0 of 143.
+- A first try the machine turned away (`environment`, `permission`) is no sample of a trial: it read arms worse by noise.
+- A starved worker at level 1 records no halving 1 → 1, as a loaded machine already did; every `level_changed` names its release.
+- `busiest` reads `ps` where there is no `/proc` (macOS), and a sleep is read from how the clocks' difference grows, which on macOS starts below zero.
+- "Can't reach the API server" is the network, not a worker's failure.
+- A role's lessons get 30 days to fill their trial instead of 14: 8 of 9 candidates were dropped for too few tasks with their arms at 0 to 7 first tries of 10.
+
+### Added
+
+- The web board is an optional part (`board`, on by default): off, `locks ui` starts nothing and says where the terminal shows the same.
+- `docs/extensions/livespec-stale.json`: an extension that holds a writing task to no spec requirement its change left stale (`livespec stale`, from the livespec release that adds `verify` and `stale`).
+- Each spec requirement the changed code implements (livespec's index) is a criterion the independent check answers: an edit may have broken a spec its code was linked to.
+- The bundled TRACER layout reads 0.14's `design-system.md` and `content.md` into a writing brief, beside its audiences, identity, floors and anti-patterns.
+- TRACER's layout is an extension's `method` (folder, files, flows, capability map, slices, the criterion's word): a `tracer` extension of the person's makes locks read an updated TRACER by its own layout.
+- layout-inspector and rastro are extensions locks ships (`src/locks/extensions_bundled/`), read as before; a person's extension may take its server from an installed plugin (`source`, behind a guard policy that only narrows) and hold a pass to evidence of its use (`evidence`).
+- `/locks:integrate` and `locks extensions inspect`: what an installed plugin holds, read and never run, with a draft extension per MCP server, proposed to the person and installed only on their yes.
+- Workers run without the Claude Code plugins the person turned on, locks aside (`lean_plugins`, on by default): a plugin's hooks and listing no longer reach every turn of every worker. Their tools come from locks and their skills from their brief, as before.
+- Extensions: a tool that is not locks' own, declared in the locks home (`locks extensions add|list|show|rm`, `docs/extensions.md`): when it applies, its MCP server as a capability, the repository's files it briefs a writing worker, and the lines it reads by a pattern as the independent check's requirements. An extension may also add a `check` that must pass and an `ending` it offers, and each is tried per repository, with and without it, and kept where its tasks pass no less often. The first phase of moving every neighbour out of the core.
+
 ## [0.115.0] - 2026-11-24
 
 ### Changed

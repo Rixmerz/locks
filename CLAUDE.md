@@ -16,6 +16,8 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/classify.py` | rules first, Haiku for the rest; `frontier` only by tag |
 | `src/locks/escalate.py` | failure kind → move (retry, more effort, next model, more turns, replan) |
 | `src/locks/launch.py` | one attempt as `claude -p`: argv, the result contract, parsing, git-read changes |
+| `src/locks/extensions.py`, `docs/extensions.md` | extensions: a tool that is not locks' own, declared in the person's locks home (`extensions/<name>.json`, `locks extensions add|list|show|rm`), never in a repository: when it applies (kinds, files touched, a path the repository holds), its MCP server as a capability, the repository's files it briefs a writing worker as data, and the lines it reads by a pattern as the independent check's requirements; words, files and a server only, never a rule; the plan to move every neighbour out of the core |
+| `src/locks/extensions_bundled/` | the extensions locks ships: layout-inspector and rastro, from which `plugins.KNOWN` and `evidence.REQUIRED` are read, and TRACER's layout (`method`), which `tracer.layout` reads under a person's `tracer` extension |
 | `src/locks/capabilities.py` | which MCP servers a worker gets, from the user-level registry |
 | `src/locks/mcp_guard.py` | a JSON-RPC guard between a worker and an MCP server: the calls a policy refuses never reach the server, a line it cannot parse or whose keys collide by case is answered and never forwarded, and what it forwards is rebuilt from the protocol's keys; stdlib, imports nothing of locks |
 | `src/locks/masking.py` | the one pattern locks masks secrets with: `SECRET` for the trace and kept transcripts (git commit ids stay), `SECRET_STRICT` for the notes (long hex runs too); linear on any input; stdlib, imports nothing of locks |
@@ -42,11 +44,12 @@ treat `commands/` and every prompt string in `src/` with the same care as code.
 | `src/locks/progress.py` | how far a running task got: time against its kind's usual here, its stage (worker, locks' check, the independent check), what its worker wrote so far (its worktree's git: counts, names, `peek`'s diff, `texts` before and after), the request's items as its subtasks, a worker gone quiet; read only, no model |
 | `src/locks/roles_internal/` | roles locks runs itself and no team holds: the independent `verifier`, and the `surveyor` that investigates for `/locks:init` |
 | `skills/insight/` | `/locks:insight`: what locks claims against what its trace, analysis, evolution, trust and doctor show it did; read only, proposals for the person |
+| `skills/integrate/` | `/locks:integrate`: a plugin, skill, subagent or MCP server the person uses brought into locks' flow as an extension (`locks extensions inspect`, read and never run), roles from its agents, installed only on the person's yes; never edits their settings |
 | `skills/init/` | the plugin's one skill (`/locks:init`): scope and an estimate of its cost agreed with the person, `locks investigate` digs, and from the reports one team for every flow, one workflow per flow, and the memory of what was solved, through locks' own commands only |
 | `docs/images/`, `scripts/demo.py` | the README's screenshots of `locks ui`, taken on demo data with generic project names: `scripts/demo.py DIR --shots` writes it with locks' own commands and the scenarios' fake `claude` (no money), spreads times and costs to a real worker's size, and takes them with Playwright |
 | `src/locks/roles/`, `src/locks/skills/` | the bundled team and the skills it carries; every vendored skill keeps its license, and `skills/README.md` credits it and lists what locks changed |
 | `src/locks/adapters/` | neighbours the core *adopts*: read their data, brief, route and assess with it. `livespec.py` is the first; `engram.py` reads the team's engram memory over its server and writes to it only opt-in |
-| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `host_fork`, `overlap`, `resident`, `late_verifier`, `ui_check`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `read_handoff`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
+| `src/locks/config.py` | locks' settings (`livespec`, `parallel`, `autowork`, `names`, `notes`, `scribe`, `prune`, `plugins`, `verifier`, `trust`, `probation`, `evidence`, `race`, `route`, `primer`, `trunk`, `host_fork`, `overlap`, `resident`, `late_verifier`, `ui_check`, `lean_plugins`, `board`, `specs`, `tracer`, `habit_review`, `habit_auto`, `role_trials`, `note_trials`, `recall_fusion`, `methods`, `dossier_trial`, `read_handoff`, `predict`, `critique`, `engram`, `engram_write`, `delegate`, `trace`, `notes_fork`, all on/off; `compact`, a word; `max_parallel`, `auto` or a number; `livespec_wait`, seconds, 0 never waits), copied from plugin options by SessionStart |
 | `src/locks/ci.py` | what a repository's own checks run, read from its files: the scripts a command names (package.json, deno.json), whether its tests drive a headless browser, and its CI's jobs (`.github/workflows/*.yml`, a line reader, no YAML dependency) with the services and env each sets, and the jobs a person quieted per repository |
 | `src/locks/orchestrate.py` | the loop: plan, attempt, verify, move, remember |
 | `src/locks/trace.py` | the opt-in observability trace (`trace`, off by default): every hook event, tool call (input and output, secrets masked) and locks event of a session, tagged (`hook:`, `tool:`, `inject:`, `locks:`), each record with the release that wrote it, and what the hooks did to the session beyond injecting (`ACTIONS`: its launch, a hook skipped as a program's, the orchestrator role, a relay, notes filed from it, a dispatcher revived), in the locks home's `traces/<session>.jsonl`, the transcript copied beside it at each Stop; `locks trace` reads it, `skills/insight/` audits with it; stdlib, never fails what it watches |
@@ -730,7 +733,10 @@ yields the default kind, not a guess.
 - A worker is lean (`lean`, `launch.lean_flags`): no subagent tool (its description lists
   every agent defined, read each turn), no skill listing (its role's skills are in its
   brief), and the per-machine prompt sections after the shared part; only the flags the
-  installed CLI lists in its `--help` are passed. Tests run with `LOCKS_LEAN=off`.
+  installed CLI lists in its `--help` are passed. Tests run with `LOCKS_LEAN=off`. It also runs
+  without the plugins the person turned on, locks aside (`lean_plugins`, `plugins.off_for_workers`,
+  `launch.plugins_off`: a `--settings` overlay of `enabledPlugins`, only where the CLI takes `--settings`):
+  its tools come from `--mcp-config` and its skills from its brief. Tests run with `LOCKS_LEAN_PLUGINS=off`.
 - Merging is the person's: `locks merge` merges kept branches into the branch checked out
   only on their command, one merge commit each, aborts a conflict (never resolves it by
   guess) and stops where the check fails, the merge in place; `locks pr` pushes and opens a
@@ -917,7 +923,9 @@ yields the default kind, not a guess.
   files do not meet the slice's Definition of Ready (`method.unready`); the phases' writing steps are held to
   `docs/tracer/` and `openspec/` by their surfaces, and the person's decisions are question steps.
 - What livespec's index says a change reaches (`adapter.assess`: specs touched, callers outside it) goes in
-  the independent check's brief as where to probe, data, never findings (`orchestrate._impact`); whether
+  the independent check's brief as where to probe, data, never findings (`orchestrate._impact`); and each spec
+  requirement the changed code implements (its `REQUIREMENT_PREFIX` lines) is a criterion `L#` the check says
+  still holds, one it no longer meets a finding: an edit may have broken a spec its code was linked to; whether
   workers handed livespec call it is counted from the tool-call log (`Store.capability_use`), observed, never
   a trial.
 - livespec is a step before the worker, never only a tool it may ignore: a plan whose repository has no
@@ -1829,6 +1837,15 @@ yields the default kind, not a guess.
   capability that `measures` (never changes anything), and the independent
   verifier gets every measuring one its change touches, even when the work had
   none. The plan's hint says when it came by touch.
+- An extension (`locks.extensions`) is the person's, read from their locks home only, checked whole when added
+  and refused with its reason when it is not of the contract (`docs/extensions.md`). It brings words, files of
+  the repository and an MCP server, never a rule: its server is a capability as a registry entry is (one of the
+  same name in the registry wins), its brief is data to a writing worker, bounded, and its criteria are
+  requirements of the independent check, where breaking one is a finding; its `check` runs after the task's own
+  and must pass, and its `ending` is offered, never started. Each is tried per repository (`extensions.choose`,
+  `briefed.ext_<name>_arm`): a task takes it or goes without it until each arm has `extensions.TRIAL` first tries,
+  then it stays where its arm passed no less often; the check's requirements stay whatever the arm. Its paths are inside the repository,
+  never absolute or upward, and a file a link takes outside it is not read.
 - The capability registry is read from the user's locks home only. A
   repository must never be able to add an MCP server by committing a file.
   Installed neighbours (`plugins.KNOWN`) are read from the person's Claude

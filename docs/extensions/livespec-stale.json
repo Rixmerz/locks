@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "name": "livespec-stale",
+  "description": "no spec requirement left stale by the change (livespec verify / stale)",
+  "when": {"kinds": ["implement", "feature", "refactor", "debug-repro", "debug-unclear", "ui"], "exists": "openspec"},
+  "check": {"command": "livespec index . > /dev/null && livespec stale ."},
+  "ending": {"offer": "once its check confirmed the specs the change reaches, record them: `livespec verify . --spec <id> --by verifier`"}
+}

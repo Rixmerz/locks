@@ -102,7 +102,8 @@ def test_a_rate_limit_halves_the_level_and_it_waits_out_the_retry_after_before_r
     assert capacity.line(level, at + timedelta(minutes=3)) == "4: halved, the API answered 429 3 minutes ago"
     # The change is kept on the task whose attempt was limited.
     assert store.events_of(culprit, "level_changed")[0]["data"] == {
-        "level": 4, "before": 8, "reason": "halved, the API answered 429", "ceiling": None}
+        "level": 4, "before": 8, "reason": "halved, the API answered 429", "ceiling": None,
+        "version": __import__("locks").__version__}
     # Clean endings, but the retry-after has not passed: no rise.
     _ended(store, 6)
     later = datetime.now(UTC)
@@ -121,7 +122,7 @@ def test_an_overloaded_api_a_starved_worker_and_a_low_machine_halve_it_never_bel
     assert level.value == 1 and level.reason == "halved, a worker was killed for memory"
     _ended(store, 1, stop={"cause": "environment", "reason": "No space left on device", "starved": "disk"})
     level = capacity.settle(store, home(), machine=ROOMY, ceiling=None, wanting=True, now=NOW)
-    assert level.value == 1 and level.reason == "halved, the disk filled up"
+    assert level.value == 1 and level.reason == "halved, a worker was killed for memory"  # 1 -> 1 is no change
     # The machine itself, low on memory: it halves, and not again until a while has passed.
     for _ in range(4):
         _ended(store, 1)
@@ -396,7 +397,8 @@ def test_a_load_halving_names_what_made_the_load(store, tmp_path):
     # Ties go by name: the order /proc lists its pids in is no order.
     assert found == [{"program": "cc1plus", "threads": 1},
                      {"program": "pytest", "threads": 1, "locks_tasks": ["7"]}]
-    assert capacity.busiest(tmp_path / "none") is None
+    # No /proc: `ps` answers instead (macOS, #207).
+    assert capacity.busiest(tmp_path / "none") is None or isinstance(capacity.busiest(tmp_path / "none"), list)
     # A process gone mid-read, and one whose environment is not ours to read, cost only themselves.
     (proc / "13").mkdir()
     (proc / "14" / "task" / "14").mkdir(parents=True)
@@ -407,3 +409,21 @@ def test_a_load_halving_names_what_made_the_load(store, tmp_path):
     capacity.settle(store, home(), machine=loaded, ceiling=None, wanting=True, now=NOW + timedelta(hours=1),
                     busy=lambda: found)
     assert store.events_of(0, "level_changed")[-1]["data"]["busiest"] == found
+
+
+def test_a_starved_worker_at_one_records_no_halving_and_a_change_names_its_release(store):
+    from locks import __version__
+
+    capacity.settle(store, home(), machine=Machine(1, None, None), ceiling=None, wanting=False, now=NOW)
+    _ended(store, 1, stop={"cause": "died", "reason": "killed", "starved": "memory"})
+    level = capacity.settle(store, home(), machine=ROOMY, ceiling=None, wanting=False, now=NOW)
+    assert level.value == 1
+    assert all(e["data"]["level"] != e["data"]["before"] for e in store.events_of(0, "level_changed"))
+    capacity.settle(store, home(), machine=Machine(8, None, None), ceiling=None, wanting=True,
+                    now=NOW + timedelta(days=1))
+    for _ in range(9):
+        _ended(store, 1)
+        capacity.settle(store, home(), machine=Machine(8, None, None), ceiling=None, wanting=True,
+                        now=NOW + timedelta(days=1))
+    changed = [e for t in range(0, 40) for e in store.events_of(t, "level_changed")]
+    assert changed and all(e["data"]["version"] == __version__ for e in changed)

@@ -211,7 +211,7 @@ def busiest(proc: Path = Path("/proc")) -> list[dict[str, Any]] | None:
     try:
         pids = [p for p in proc.iterdir() if p.name.isdigit()]
     except OSError:
-        return None
+        return _busiest_ps()
     counts: dict[str, dict[str, Any]] = {}
     for pid in pids:
         try:
@@ -235,6 +235,27 @@ def busiest(proc: Path = Path("/proc")) -> list[dict[str, Any]] | None:
     top = sorted(counts.values(), key=lambda r: (-r["threads"], r["program"]))[:BUSIEST_SHOWN]
     return [{"program": r["program"], "threads": r["threads"],
              **({"locks_tasks": sorted(r["tasks"])} if r["tasks"] else {})} for r in top]
+
+
+def _busiest_ps(run: Callable[..., Any] | None = None) -> list[dict[str, Any]] | None:
+    """`busiest` where there is no /proc (macOS, #207 B2): `ps`'s running and uninterruptible processes by
+    program. Which locks task started one is not read here (`ps` shows no environment); None when `ps` fails."""
+    import subprocess
+
+    try:
+        done = (run or subprocess.run)(["ps", "-axo", "stat=,comm="], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if getattr(done, "returncode", 1) != 0:
+        return None
+    counts: dict[str, int] = {}
+    for line in str(done.stdout).splitlines():
+        state, _, command = line.strip().partition(" ")
+        if state[:1] in ("R", "U", "D") and command.strip():
+            name = Path(command.strip()).name
+            counts[name] = counts.get(name, 0) + 1
+    top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:BUSIEST_SHOWN]
+    return [{"program": name, "threads": n} for name, n in top]
 
 
 def loaded(m: Machine) -> bool:
@@ -348,8 +369,10 @@ def _when(stamp: str | None) -> datetime | None:
 def _changed(store: Store, level: Level, task_id: int, before: int, reason: str, at: datetime,
              ceiling: int | None, **extra: Any) -> None:
     level.reason, level.at, level.clean = reason, _iso(at), 0
+    from locks import __version__
+
     store.add_event(task_id, "level_changed", level=level.value, before=before, reason=reason, ceiling=ceiling,
-                    **extra)
+                    version=__version__, **extra)
 
 
 def _dropped(level: Level, before: int) -> None:
@@ -423,9 +446,11 @@ def settle(store: Store, root: Path, *, machine: Machine, ceiling: int | None, w
     elif hungry is not None:
         event, what = hungry
         level.value = max(1, level.value // 2)
-        if what != "memory":  # a disk frees and a load passes, and both can be read again; a worker
-            _dropped(level, before)  # killed for memory needs more than the reading shows: back by rounds
-        _changed(store, level, int(event["task_id"]), before, STARVED[what], _when(event["ts"]) or now, ceiling)
+        if level.value != before:  # halving 1 keeps 1: no change to record (#207, B6)
+            if what != "memory":  # a disk frees and a load passes, and both can be read again; a worker
+                _dropped(level, before)  # killed for memory needs more than the reading shows: back by rounds
+            _changed(store, level, int(event["task_id"]), before, STARVED[what], _when(event["ts"]) or now,
+                     ceiling)
     elif low is not None and ((_when(level.halved_at) or datetime.min.replace(tzinfo=UTC))
                               + timedelta(seconds=HALVE_EVERY_S) <= now):
         level.value, level.halved_at = max(1, level.value // 2), _iso(now)

@@ -1,6 +1,6 @@
 {
   "name": "locks",
-  "version": "0.115.0",
+  "version": "1.0.0",
   "description": "One core for Claude Code: routes each task to the right model, effort and capabilities, escalates on evidence, and remembers what failed across repositories.",
   "author": {
     "name": "Rixmerz"
@@ -163,6 +163,18 @@
       "type": "boolean",
       "title": "Run the independent check after the ending",
       "description": "A task that is no workflow step, answers no review rows and that no queued work waits on ends as soon as locks' own check passes; its independent verifier then reads the branch it kept. A blocker it shows reopens the task (stopped for review, its work kept), and the session hears of it as a new ending. Off: the ending waits for the verifier, and its blockers earn a correction in the same run.",
+      "default": true
+    },
+    "lean_plugins": {
+      "type": "boolean",
+      "title": "Workers run without your other plugins",
+      "description": "Each worker runs with the Claude Code plugins you turned on switched off, locks aside: its tools come from locks and its skills from its brief, so another plugin would only add what its hooks inject and what it lists to the model on every turn. Your own sessions keep every plugin. Off: workers load all of them.",
+      "default": true
+    },
+    "board": {
+      "type": "boolean",
+      "title": "Web board",
+      "description": "The local web board (`/locks:ui`). It costs no token either way: off, nothing of it starts, and `locks tasks`, `locks stats` and `locks show N` say the same in the terminal.",
       "default": true
     },
     "ui_check": {

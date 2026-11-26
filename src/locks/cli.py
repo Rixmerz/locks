@@ -908,6 +908,64 @@ def cmd_merge(args: argparse.Namespace) -> int:
     return 0 if not (done.conflict or done.failed) else 1
 
 
+def cmd_extensions(args: argparse.Namespace) -> int:
+    """The extensions the person installed (`locks.extensions`): list, show one, add one from a file
+    (checked first, never replacing one of the same name), remove one."""
+    from locks import extensions
+
+    where = home()
+    if args.ext_command == "add":
+        try:
+            ext = extensions.add(where, Path(args.file))
+        except extensions.ExtensionError as exc:
+            print(f"locks: {exc}", file=sys.stderr)
+            return 2
+        print(f"installed extension {ext.name}: it joins the next task it applies to")
+        return 0
+    if args.ext_command == "rm":
+        if not extensions.remove(where, args.name):
+            print(f"locks: no extension named {args.name!r}", file=sys.stderr)
+            return 2
+        print(f"removed extension {args.name}")
+        return 0
+    if args.ext_command == "inspect":
+        from locks import plugins
+
+        folder = Path(args.plugin).expanduser()
+        if not folder.is_dir():
+            newest = plugins.versions(os.environ, args.plugin)
+            if not newest:
+                print(f"locks: no installed plugin or folder named {args.plugin!r}", file=sys.stderr)
+                return 2
+            folder = newest[0]
+        print(json.dumps(extensions.inspect(folder.resolve()), indent=2))
+        return 0
+    found, refused = extensions.load(where)
+    if args.ext_command == "show":
+        ext = next((e for e in found if e.name == args.name), None)
+        if ext is None:
+            print(f"locks: no extension named {args.name!r}", file=sys.stderr)
+            return 2
+        print(json.dumps(json.loads(Path(ext.path).read_text(encoding="utf-8")), indent=2))
+        return 0
+    if not found and not refused:
+        print(f"no extensions installed (`locks extensions add FILE`; they live in {extensions.home_dir(where)})")
+    shipped = [e.name for e in extensions.bundled()]
+    print(f"shipped with locks: {', '.join(shipped)}; adapters with code of their own: "
+          + ", ".join(extensions.ADAPTERS) + "; optional parts, each off by its setting: "
+          + ", ".join(extensions.OPTIONAL))
+    for ext in found:
+        brings = [w for w, on in (("tools", ext.server is not None), ("brief", bool(ext.brief_files)),
+                                  ("criteria", bool(ext.criteria_pattern))) if on]
+        when = ", ".join([*ext.kinds, *(["touches " + ",".join(ext.touches[:3])] if ext.touches else []),
+                          *([f"needs {ext.exists}"] if ext.exists else [])]) or "always"
+        about = f" — {ext.description}" if ext.description else ""
+        print(f"{ext.name}: {', '.join(brings) or 'nothing'}; when {when}{about}")
+    for line in refused:
+        print(f"refused {line}")
+    return 1 if refused else 0
+
+
 def cmd_ci(args: argparse.Namespace) -> int:
     """The repository's CI jobs as a plan reads them, and the ones quieted here: a job known not
     to apply to its checks (one that needs a license the fork lacks) is named in no plan."""
@@ -2707,7 +2765,14 @@ def cmd_habit_run(args: argparse.Namespace) -> int:
 
 
 def cmd_ui(args: argparse.Namespace) -> int:
+    from locks import config
     from locks.ui import server
+
+    if not config.enabled("board", os.environ):
+        # The board is an optional part (`docs/extensions.md`, 4e): off, nothing of it starts.
+        print("locks: the web board is off (`locks config board on` turns it on); `locks tasks`, `locks stats` "
+              "and `locks show N` say the same in the terminal", file=sys.stderr)
+        return 2
 
     try:
         ui = server.serve(args.port)
@@ -3760,6 +3825,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="merge onto a new branch made from the one checked out, which stays as it is, then push it "
                         "and open one draft pull request (needs gh); a conflict or a failing check stops before")
     p.set_defaults(func=cmd_merge)
+
+    p = sub.add_parser("extensions", help="tools other than locks' own brought into its flow: list, show, add, rm")
+    ext_sub = p.add_subparsers(dest="ext_command")
+    q = ext_sub.add_parser("add", help="check an extension file and install it in the locks home")
+    q.add_argument("file")
+    for name in ("show", "rm"):
+        q = ext_sub.add_parser(name, help=f"{name} one installed extension")
+        q.add_argument("name")
+    q = ext_sub.add_parser("inspect", help="what an installed Claude Code plugin holds, read and never run, "
+                                           "with a draft extension per MCP server")
+    q.add_argument("plugin", help="a plugin's name (its newest installed version) or its folder")
+    p.set_defaults(func=cmd_extensions)
 
     p = sub.add_parser("ci", help="the repository's CI jobs as a plan reads them; quiet one known not to apply here")
     p.add_argument("--repo", help="the checkout (default: here)")

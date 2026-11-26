@@ -108,7 +108,11 @@ def test_the_assessment_names_specs_and_untouched_callers(tmp_path, git_repo):
     a = adapter(tmp_path)
     status = a.inspect(git_repo)
     lines = a.assess(["src/billing.py"], git_repo, status)
-    assert "SPEC-7" in lines[0] and "src/api.py" in lines[1]
+    assert "SPEC-7" in lines[0] and "src/api.py" in lines[2]
+    # Each spec the changed code implements is also a requirement the independent check answers.
+    from locks.adapters.livespec import REQUIREMENT_PREFIX
+
+    assert lines[1].startswith(REQUIREMENT_PREFIX) and "SPEC-7" in lines[1]
     tested = a.assess(["src/parse.py"], git_repo, status)
     assert any("tests that exercise" in line and "tests/test_parse.py" in line for line in tested)
     assert a.assess(["README.md"], git_repo, status) == ()

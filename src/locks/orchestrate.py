@@ -78,6 +78,7 @@ from locks import criteria as criteria_mod
 from locks import critique as critique_mod
 from locks import dossier as dossier_mod
 from locks import evidence as evidence_mod
+from locks import extensions as extensions_mod
 from locks import findings as findings_mod
 from locks import ledger as ledger_mod
 from locks import method as method_mod
@@ -311,6 +312,9 @@ class Plan:
     #: The start raised one rung on this repository's record of the task's shape (`locks.predict`), with
     #: its evidence; None when the start came from the rules alone.
     predicted: dict[str, Any] | None = None
+    #: The extensions this task takes (`locks.extensions`), by their trials, and the arms each drew.
+    extensions: tuple[Any, ...] = ()
+    extension_arms: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -884,6 +888,15 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
         context += method
         neighbour_notes.append(f"tracer: this repository follows TRACER; its audience, floors, anti-patterns "
                                f"and {len(tracer_mod.flows_for(repo_dir, text))} named flow(s) go in the brief")
+    # The extensions the person installed (`locks.extensions`) that apply, each taken by its trial; a writing
+    # worker gets their files, as data.
+    extended, extension_arms = extensions_mod.choose(
+        store, key, extensions_mod.applying(extensions_mod.load(home())[0], kind, touched_paths(text, options),
+                                            repo_dir), int(hashlib.sha256(text.encode()).hexdigest()[:8], 16))
+    if extended:
+        neighbour_notes.append("extensions: " + ", ".join(e.name for e in extended))
+    if kind not in READ_ONLY_KINDS and (given := extensions_mod.brief_lines(extended, repo_dir)):
+        context += given
     # A repository that keeps OpenSpec specs: its writing workers keep the ones they reach.
     if kind not in READ_ONLY_KINDS and config.enabled("specs", os.environ) and (
             drifted := specs_mod.drift(repo_dir, options.base or "HEAD")):
@@ -950,7 +963,8 @@ def plan(text: str, repo_dir: Path, store: Store, options: Options, registry: Ma
                 risk, turns, size, standard.data() if standard is not None else None, race,
                 probation={"arm": arm, "cell": PROBATION[kind].label} if arm else None,
                 withheld=tuple(int(n["id"]) for n in withheld), recalled=recalled or None,
-                dossier=dossier_stats, dossier_text=dossier_text, predicted=predicted)
+                dossier=dossier_stats, dossier_text=dossier_text, predicted=predicted,
+                extensions=tuple(extended), extension_arms=extension_arms)
 
 
 #: The most tests outside a task's surfaces its plan names.
@@ -1347,6 +1361,15 @@ def run(
     repo_dir = repo_dir.resolve()
     the_plan = plan(text, repo_dir, store, options, registry, classifier=classifier, adapters=adapters,
                     say=progress)
+    # The checks the extensions this task took add to a writing task's (`locks.extensions`); the tools of one
+    # its trial left out are not handed.
+    extended = list(the_plan.extensions) if the_plan.kind not in READ_ONLY_KINDS else []
+    left_out = {k.removeprefix("ext_").removesuffix("_arm") for k, v in the_plan.extension_arms.items()
+                if k.endswith("_arm") and v == "without"}
+    registry = {name: c for name, c in registry.items() if name not in left_out}
+    if (checked := extensions_mod.verify(options.verify, extended)) != options.verify:
+        the_plan.reasons.append(f"extensions: the check also runs {', '.join(e.name for e in extended if e.check)}'s")
+        options = dataclasses.replace(options, verify=checked)
     plan_s = time.monotonic() - clock
     if options.dry_run:
         if options.verify:
@@ -1672,6 +1695,7 @@ def run(
         worn_brief = roles.brief(the_plan.role, held=held_files) if the_plan.role is not None else None
         store.add_event(task["id"], "briefed", session=got, dead_ends=len(dead), areas=list(reach),
                         context_chars=sum(len(line) for line in context), kind=the_plan.kind,
+                        **the_plan.extension_arms,
                         system_chars=len(worn_brief.system_prompt) if worn_brief is not None else 0,
                         skills=len(worn_brief.skills) if worn_brief is not None else 0,
                         # The dossier locks read from the index and briefed (`Livespec.dossier`): its size,
@@ -2472,6 +2496,8 @@ def run(
         size = _realized(store, task["id"], report, workspace, time.monotonic() - clock)
         drifted = specs_mod.drift(workspace.repo_dir if workspace else repo_dir) \
             if status == "done" and writes and report.changed and config.enabled("specs", os.environ) else None
+        if status == "done":
+            report.impact += extensions_mod.offers(extended)
         if drifted is not None:
             # The report a `locks run` prints is its ending: it offers the catch-up as the hooks' ending does.
             report.impact += [line.strip() for line in specs_mod.ending_lines(
@@ -3417,7 +3443,7 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                    rules: Sequence[Mapping[str, Any]] = (), rows: Sequence[str] = (), running: str = "",
                    impact: Sequence[str] = (), method: Sequence[str] = (),
                    since: tuple[str, Sequence[str]] | None = None, generated: Sequence[str] = (),
-                   instruction: str = "", ui: Sequence[str] = ()) -> str:
+                   instruction: str = "", required: Sequence[str] = ()) -> str:
     """What the verifier is given: the request in its words, the change, why it is checked
     (the risk's reasons, in the router's words) and the constraints the project keeps —
     never the worker's account. A resume's instruction (`resume_instruction`) is the one thing of
@@ -3447,7 +3473,19 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
         wrote = ", ".join(generated[:20]) + (f" and {len(generated) - 20} more" if len(generated) > 20 else "")
         parts.append(f"Written by the project's own check when locks ran it, not by the worker, and committed as "
                      f"its output: {wrote}. They are no change of the work: never a finding by themselves.")
+    from locks.adapters.livespec import REQUIREMENT_PREFIX
+
     links = [line.removeprefix(specs_mod.LINK_PREFIX) for line in impact if line.startswith(specs_mod.LINK_PREFIX)]
+    owed = [line.removeprefix(REQUIREMENT_PREFIX) for line in impact if line.startswith(REQUIREMENT_PREFIX)]
+    impact = [line for line in impact if not line.startswith(REQUIREMENT_PREFIX)]
+    if owed:
+        # The spec requirements the changed code implements (livespec's index): each one is checked again, since
+        # the edit may have broken it; one it no longer meets is a finding, shown with the case that breaks it.
+        parts.append("The changed code implements these spec requirements. Check each one still holds on the "
+                     "change and say so for each in your summary; one it no longer meets is a finding, shown "
+                     "with the case that breaks it:\n" + "\n".join(f"- L{n} {line}" for n, line in
+                                                                  enumerate(owed[:30], 1))
+                     + (f"\n({len(owed) - 30} more not shown)" if len(owed) > 30 else ""))
     if reach := [line for line in impact if not line.startswith(specs_mod.LINK_PREFIX)]:
         # What the code index (livespec) says the change reaches beyond its own files: where to probe.
         parts.append("What the code index says this change reaches, and what a plan before it said could go wrong "
@@ -3467,7 +3505,7 @@ def verifier_brief(text: str, kind: str, workdir: Path, base: str | None, change
                      "the case that breaks it.")
     if method and kind not in READ_ONLY_KINDS:
         parts += method
-    parts += ui
+    parts += required
     if rows:
         # A fix of ledger rows: its answers per row decide the re-check after it (`workflows._ledger`).
         parts.append(f"The request is a fix of the ledger rows {', '.join(rows)}. Answer every one in `verdicts`, "
@@ -4050,8 +4088,10 @@ def _check_spec(*, text: str, kind: str, cell: Cell, spec: launch.LaunchSpec, wo
                                     method=tracer_mod.verifier_lines(workdir, text, tuple(measuring))
                                     if config.enabled("tracer", os.environ) else (), since=since,
                                     generated=generated, instruction=instruction,
-                                    ui=evidence_mod.ui_check_lines(changed, tuple(measuring))
-                                    if config.enabled("ui_check", os.environ) else ()),
+                                    required=[*(evidence_mod.ui_check_lines(changed, tuple(measuring))
+                                          if config.enabled("ui_check", os.environ) else ()),
+                                        *extensions_mod.verifier_lines(extensions_mod.applying(
+                                            extensions_mod.load(home())[0], kind, changed, workdir), workdir)]),
         verdicts=fixing, verdict_words=ledger_mod.WORDS["recheck"] if fixing else (),
         cell=vcell, max_turns=min(spec.max_turns, VERIFIER_TURNS),
         # Its calls are never the worker's: the log keeps them under no attempt, so what a worker used

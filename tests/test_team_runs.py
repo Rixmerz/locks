@@ -17,7 +17,8 @@ from .test_roles import write_role
 from .test_ui import call, ui  # noqa: F401  (the fixture)
 
 
-def test_a_worker_is_told_its_role_and_carries_its_skills(git_repo, store):
+def test_a_worker_is_told_its_role_and_carries_its_skills(git_repo, store, on_path):
+    on_path("pw")
     registry = {"browser": caps.Capability("browser", {"command": "pw"}, when=(), hint="open the page")}
     script = Script(ok())
     report = run("write tests for the parser", git_repo, store, registry=registry, launcher=script,

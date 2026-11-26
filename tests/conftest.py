@@ -157,3 +157,22 @@ def no_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
     else: the independent check (and its forms, beside the check and after the ending) is one
     more worker per pass, which the list does not script."""
     monkeypatch.setenv("LOCKS_VERIFIER", "off")
+
+
+@pytest.fixture
+def on_path(tmp_path, monkeypatch):
+    """Opt-in: `on_path("li", "m")` puts a stub program of each name on PATH, so a bare MCP server command is
+    runnable the way a real install's is (`capabilities.runnable`)."""
+    import os
+
+    folder = tmp_path / "stub-bin"
+
+    def put(*names: str) -> None:
+        folder.mkdir(exist_ok=True)
+        for name in names:
+            program = folder / name
+            program.write_text("#!/bin/sh\n")
+            program.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{folder}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    return put

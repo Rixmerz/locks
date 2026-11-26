@@ -454,3 +454,50 @@ def test_a_step_whose_run_changed_a_spec_is_not_told_the_specs_are_behind(store)
     store.add_event(spec["id"], "finished", status="done", changed=["openspec/specs/a/spec.md"])
     assert hooks._run_touched_specs(store, {**spec, "workflow_run": run_id})
     assert not hooks._run_touched_specs(store, {**spec, "workflow_run": None})
+
+
+def _step_task(store: Store, step: str, run_id: int, status: str = "blocked") -> dict:
+    return store.create_task(f"step {step}", status=status, source="locks", repo="r", cwd="/x",
+                             workflow_run=run_id, workflow_step=step)
+
+
+def _waiter(store: Store, wanted: dict) -> dict:
+    return store.enqueue("waits", repo="r", cwd="/x", options={"after": wanted})
+
+
+def _new_run(store: Store) -> dict:
+    return store.create_run(name="w", scope="user", source="s", definition="{}", status="active")
+
+
+def test_dismissing_a_runs_latest_step_task_abandons_the_work_held_after_the_run(store):
+    run = _new_run(store)
+    step = _step_task(store, "build", run["id"])
+    waiter = _waiter(store, {"run": run["id"]})
+    stop = stops.dismiss(store, store.get_task(step["id"]), via="cli")
+    assert stop is not None
+    assert stop.extra["took_along"] == [waiter["id"]]
+    gone = store.get_task(waiter["id"])
+    assert gone["status"] == "cancelled"
+    assert stops.of(store, gone).cause == "after"
+    assert store.get_run(run["id"])["status"] == "active"
+
+
+def test_dismissing_a_superseded_try_leaves_the_runs_waiters_queued(store):
+    run = _new_run(store)
+    old = _step_task(store, "build", run["id"])
+    _step_task(store, "build", run["id"], status="queued")  # the retry's newer try
+    waiter = _waiter(store, {"run": run["id"]})
+    stop = stops.dismiss(store, store.get_task(old["id"]), via="cli")
+    assert stop is not None
+    assert "took_along" not in stop.extra
+    assert store.get_task(waiter["id"])["status"] == "queued"
+    assert store.get_run(run["id"])["status"] == "active"
+
+
+def test_dismissing_a_plain_task_still_abandons_its_task_waiters(store):
+    task = store.create_task("plain", status="blocked", source="locks", repo="r", cwd="/x")
+    waiter = _waiter(store, {"task": task["id"]})
+    stop = stops.dismiss(store, store.get_task(task["id"]), via="cli")
+    assert stop is not None
+    assert stop.extra["took_along"] == [waiter["id"]]
+    assert stops.of(store, store.get_task(waiter["id"])).cause == "after"

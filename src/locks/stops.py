@@ -371,6 +371,15 @@ def dismiss(store: Any, task: dict[str, Any], *, via: str, why: str = "") -> Sto
         said = f"{said}: {why}"
     along = [] if after.held(task) else after.abandon(
         store, {"task": int(task["id"])}, f"it waited for #{task['id']} to pass, which left the board: {said}")
+    run_id = task.get("workflow_run")
+    run = store.get_run(int(run_id)) if run_id else None
+    if run is not None and run["status"] == "active" and any(
+            t["id"] == task["id"] for t in after._latest(store, int(run_id)).values()):
+        # The step's newest try left the board: nothing releases what waits for the run, which stays
+        # active so `locks workflow retry` still works. An older try a retry superseded holds nothing.
+        along += after.abandon(
+            store, {"run": int(run_id)},
+            f"it waited for run #{run_id} to pass, and its step task #{task['id']} left the board: {said}")
     stop = Stop("dismissed", said, by=by,
                 attempt=before.attempt if before else None,
                 extra={"via": via, "was": task["status"], **({"why": why} if why else {}),

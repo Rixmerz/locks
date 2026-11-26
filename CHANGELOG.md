@@ -18,6 +18,7 @@ locks is closed enough to work on its own and open enough to take any tool into 
 - A starved worker at level 1 records no halving 1 → 1, as a loaded machine already did; every `level_changed` names its release.
 - `busiest` reads `ps` where there is no `/proc` (macOS), and a sleep is read from how the clocks' difference grows, which on macOS starts below zero.
 - "Can't reach the API server" is the network, not a worker's failure.
+- A role's lessons get 30 days to fill their trial instead of 14: 8 of 9 candidates were dropped for too few tasks with their arms at 0 to 7 first tries of 10.
 
 ### Added
 

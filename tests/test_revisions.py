@@ -399,7 +399,8 @@ def test_a_trial_that_cannot_fill_its_arms_in_its_days_is_dropped_for_too_few_ta
     assert revisions.judge(store, "r", "implementer") == []
     later = datetime.now(UTC) + timedelta(days=revisions.TRIAL_DAYS)
     [found] = revisions.judge(store, "r", "implementer", now=later)
-    assert found["record"] == "dropped" and found["reason"].startswith("too few tasks here to judge it: in 14 days")
+    assert found["record"] == "dropped" and found["reason"].startswith(
+        f"too few tasks here to judge it: in {revisions.TRIAL_DAYS} days")
     assert revisions.state(store, "r", "implementer")["candidate"] is None
 
 

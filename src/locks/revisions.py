@@ -55,8 +55,10 @@ ADOPT_BY_TASKS = 1
 REVERT_AFTER = 10
 REVERT_MARGIN = 0.2
 #: A candidate whose trial has not filled its arms in this long is dropped for too few tasks here:
-#: a role that rarely works in a repository never holds a trial open for good.
-TRIAL_DAYS = 14
+#: a role that rarely works in a repository never holds a trial open for good. 14 days dropped 8 of 9
+#: candidates for too few tasks, their arms at 0 to 7 first tries of the 10 (#207, #208): the sample stays,
+#: the window is what was short.
+TRIAL_DAYS = 30
 #: Dead ends and verifier blockers a role's workers met here since its last revision before the editor
 #: is asked for one: fewer is anecdote.
 MIN_EVIDENCE = 3

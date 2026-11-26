@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "name": "layout-inspector",
+  "description": "the layout-inspector plugin, where the person installed it",
+  "when": {
+    "kinds": [
+      "ui"
+    ],
+    "touches": "ui"
+  },
+  "tools": {
+    "measures": true,
+    "hint": "measure the rendered page instead of judging it by eye: detect_issues (or compare_viewports for every breakpoint), element_context for the cause, then measure again after the fix; check_environment says why a browser will not start; check_design_system when the project names its design system (its token prefix and the brand overlay's values): values off its tokens and text contrast on the render. It measures a page that renders: the URL of a server this task started, else the repository's own build served or opened from a file:// path, or a small HTML fixture of the component",
+    "after_failure": [
+      "implement",
+      "feature"
+    ]
+  },
+  "source": {
+    "plugin": "layout-inspector",
+    "server": "layout-inspector",
+    "skill": "layout-inspection",
+    "on_path": [
+      "layout-inspector-mcp"
+    ],
+    "extra_args": [],
+    "tools": [
+      "accessibility_spatial",
+      "check_design_system",
+      "check_environment",
+      "compare_viewports",
+      "detect_issues",
+      "element_context",
+      "inspect_layout"
+    ],
+    "browser": true
+  },
+  "evidence": {
+    "ui_only": true,
+    "what": "a measurement of the rendered page by layout-inspector (detect_issues, or compare_viewports for every breakpoint), taken after your last change"
+  }
+}

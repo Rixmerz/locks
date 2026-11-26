@@ -57,11 +57,16 @@ class Requirement:
     what: str
 
 
-REQUIRED: tuple[Requirement, ...] = (
-    Requirement("layout-inspector", True,
-                "a measurement of the rendered page by layout-inspector (detect_issues, or compare_viewports for "
-                "every breakpoint), taken after your last change"),
-)
+def _required(found: Any = None) -> tuple[Requirement, ...]:
+    from locks import extensions
+
+    found = extensions.bundled() if found is None else found
+    return tuple(Requirement(e.source["server"] if e.source else e.name, bool(e.evidence.get("ui_only")),
+                             str(e.evidence["what"])) for e in found if e.evidence)
+
+
+#: What a worker handed a neighbour owes of it, read from the extensions locks ships (`evidence`).
+REQUIRED: tuple[Requirement, ...] = _required()
 
 
 def enabled(env: Mapping[str, str] | None = None) -> bool:
@@ -69,8 +74,14 @@ def enabled(env: Mapping[str, str] | None = None) -> bool:
 
 
 def handed(names: Sequence[str]) -> list[Requirement]:
-    """The requirements whose neighbour a worker was handed."""
-    return [r for r in REQUIRED if r.capability in names]
+    """The requirements whose neighbour a worker was handed: locks' own, and those of the person's
+    extensions (`locks.extensions`), one of the same name over locks'."""
+    from locks import extensions
+    from locks.store import home
+
+    theirs = {r.capability: r for r in _required(extensions.load(home())[0])}
+    every = {**{r.capability: r for r in REQUIRED}, **theirs}
+    return [r for name, r in every.items() if name in names]
 
 
 def brief_line(found: Sequence[Requirement]) -> str:

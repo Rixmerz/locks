@@ -33,6 +33,7 @@ costs only itself. Stdlib; no model.
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -48,7 +49,10 @@ CRITERIA_SHOWN = 30
 #: The files one extension may read for its brief or criteria, at most.
 FILES_READ = 50
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
-_KEYS = frozenset({"format", "name", "description", "when", "tools", "brief", "criteria", "check", "ending"})
+_KEYS = frozenset({"format", "name", "description", "when", "tools", "brief", "criteria", "check", "ending",
+                   "source", "evidence"})
+#: The extensions locks ships: the neighbours it hands from the person's installed plugins (`locks.plugins`).
+BUNDLED = Path(__file__).resolve().parent / "extensions_bundled"
 
 
 class ExtensionError(ValueError):
@@ -71,6 +75,16 @@ class Extension:
     criteria_pattern: str = ""
     check: str = ""
     offer: str = ""
+    #: Tools that come from an installed Claude Code plugin rather than a server written here: its name,
+    #: its server's, its skill, the program to run when only that is on PATH, the arguments locks adds,
+    #: the tools its hint names, whether it drives a browser, and the `locks.mcp_guard` policy it runs
+    #: behind (a policy only narrows, and is locks' code).
+    source: Mapping[str, Any] | None = None
+    on_request: bool = False
+    after_failure: tuple[str, ...] = ()
+    #: What a passing writing attempt owes of its tools (`locks.evidence`): its words, and whether only a UI
+    #: change owes it.
+    evidence: Mapping[str, Any] | None = None
     path: str = field(default="", compare=False)
 
     def applies(self, kind: str, paths: Sequence[str], repo_dir: Path | None) -> bool:
@@ -130,13 +144,27 @@ def parse(raw: Any, path: str = "") -> Extension:
         raise ExtensionError("`check.command` is the command a writing task's check also runs")
     if not isinstance(offer, str):
         raise ExtensionError("`ending.offer` is the line a passing task's ending says")
+    source = _section(raw, "source") or None
+    if source is not None:
+        from locks import mcp_guard
+
+        if not isinstance(source.get("plugin"), str) or not isinstance(source.get("server"), str):
+            raise ExtensionError("`source` names the installed `plugin` and its `server`")
+        if source.get("guard") and source["guard"] not in mcp_guard.POLICIES:
+            raise ExtensionError(f"`source.guard` is one of {', '.join(sorted(mcp_guard.POLICIES))}")
+    owed = _section(raw, "evidence") or None
+    if owed is not None and not (isinstance(owed.get("what"), str) and owed["what"].strip()):
+        raise ExtensionError("`evidence.what` says what a passing attempt must show")
+
     touches = when.get("touches")
     touched = capabilities.UI_FILES if touches == "ui" else _strings(touches, "`when.touches`")
     exists = when.get("exists") or ""
     if not isinstance(exists, str):
         raise ExtensionError("`when.exists` is a path")
     server = tools.get("server")
-    if tools and not isinstance(server, dict):
+    if server is not None and source is not None:
+        raise ExtensionError("`tools.server` and `source` both name a server: give one")
+    if server is not None and not isinstance(server, dict):
         raise ExtensionError("`tools.server` is an MCP server object")
     chars = brief.get("chars", BRIEF_CHARS)
     if not isinstance(chars, int) or isinstance(chars, bool) or not 0 < chars <= BRIEF_CHARS:
@@ -157,7 +185,9 @@ def parse(raw: Any, path: str = "") -> Extension:
         brief_chars=chars,
         criteria_files=tuple(_safe(p, "`criteria.files`")
                              for p in _strings(criteria.get("files"), "`criteria.files`")),
-        criteria_pattern=pattern, check=command.strip(), offer=offer.strip(), path=path)
+        criteria_pattern=pattern, check=command.strip(), offer=offer.strip(), source=source,
+        on_request=bool(tools.get("on_request", False)),
+        after_failure=_strings(tools.get("after_failure"), "`tools.after_failure`"), evidence=owed, path=path)
 
 
 def load(home: Path) -> tuple[list[Extension], list[str]]:
@@ -178,16 +208,27 @@ def load(home: Path) -> tuple[list[Extension], list[str]]:
     return found, refused
 
 
+def bundled() -> list[Extension]:
+    """The extensions locks ships, each checked as any; one that fails is locks' bug and raises."""
+    return [parse(json.loads(p.read_text(encoding="utf-8")), str(p)) for p in sorted(BUNDLED.glob("*.json"))]
+
+
 def capabilities(found: Sequence[Extension]) -> dict[str, Any]:
     """The tools of the extensions as capabilities, by the extension's name: by kind and touch as
     `when` says, measuring ones to the independent check too."""
+    from locks import plugins
     from locks.capabilities import Capability
 
     out: dict[str, Any] = {}
     for ext in found:
-        if ext.server is None:
+        server = ext.server
+        if ext.source is not None:
+            # From a Claude Code plugin the person installed: its own server entry, run as locks runs a neighbour.
+            got = plugins.find(plugins._neighbour(ext), os.environ)
+            server = got.server if got is not None else None
+        if server is None:
             continue
-        out[ext.name] = Capability(name=ext.name, server=ext.server, when=ext.kinds or "always",
+        out[ext.name] = Capability(name=ext.name, server=server, when=ext.kinds or "always",
                                    hint=ext.hint, touches=ext.touches, measures=ext.measures,
                                    declared=frozenset({"server", "when", "hint", "touches", "measures"}))
     return out

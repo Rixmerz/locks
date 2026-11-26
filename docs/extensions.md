@@ -43,6 +43,11 @@ turns, until each arm has six first tries; then it is kept only where its tasks 
 often (`briefed.ext_<name>_arm`, pooled from every repository while a repository's own arms are
 short). The independent check's requirements stay whatever the arm, as livespec's index does.
 
+An extension may also name `source` (an installed Claude Code plugin's server, its skill, the program on
+PATH, extra arguments, the tools its hint names, whether it needs a browser, and a guard policy of
+`locks.mcp_guard` by name) in place of `tools.server`, and `evidence` (what a passing writing attempt must
+show of its tools, `ui_only` for a UI change): the gate `locks.evidence` holds a pass to.
+
 What an extension cannot do: choose a cell, grant a permission, write outside a task's surfaces,
 change a guard, or block a pass by its own word. A file of the wrong shape is refused whole, with
 its reason, and costs only itself. Paths are inside the repository, never absolute or upward.
@@ -56,7 +61,7 @@ its reason, and costs only itself. Paths are inside the repository, never absolu
 | 1c | a trial per extension: with and without it, kept where its tasks pass no less often | done (0.116.0) |
 | 2 | workers start with no MCP server of the session (`--strict-mcp-config`), no skill listing and no subagent tool (`lean`), and from 0.116.0 with every plugin the person turned on switched off but locks (`lean_plugins`, a `--settings` overlay): what applies comes from locks alone. For the person's own sessions `/locks:integrate` proposes what to hide, never writes their settings | done (0.116.0) |
 | 3 | `/locks:integrate` and `locks extensions inspect`: reads an installed Claude Code plugin (skills, agents, MCP servers, hooks) without running it, drafts an extension per server, proposes roles from its agents (`locks roles import`), installs on the person's yes, in trial | done (0.116.0) |
-| 4a | layout-inspector and rastro as bundled extensions; `plugins.KNOWN` goes | |
+| 4a | layout-inspector and rastro as bundled extensions (`src/locks/extensions_bundled/`): `plugins.KNOWN` and `evidence.REQUIRED` are read from them; any extension may take its server from an installed plugin (`source`, its guard a `locks.mcp_guard` policy, which only narrows) and owe evidence (`evidence`) | done (0.116.0) |
 | 4b | TRACER as an extension whose format lives in its own manifest, so an updated TRACER is read as it is | |
 | 4c | livespec as an extension, in the flow: the specs a change reaches as criteria, a spec owed on a change of behaviour, `livespec check --stale` before a pass, the verification recorded back | |
 | 4d | OpenSpec and engram as extensions | |

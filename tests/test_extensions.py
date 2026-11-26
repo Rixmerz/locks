@@ -270,3 +270,47 @@ def test_a_plugin_is_inspected_from_its_files_and_never_run(tmp_path: Path, caps
     (tmp_path / "cache").rename(tmp_path / "plugins" / "cache")
     assert cli.main(["extensions", "inspect", "graph"]) == 0 and '"version": "1.2.0"' in capsys.readouterr().out
     assert cli.main(["extensions", "inspect", "nothing"]) == 2
+
+
+def test_locks_ships_its_neighbours_as_extensions_and_reads_them_as_before():
+    from locks import evidence, plugins
+
+    shipped = {e.name: e for e in extensions.bundled()}
+    assert set(shipped) == {"layout-inspector", "rastro"}
+    assert [n.server for n in plugins.KNOWN] == ["layout-inspector", "rastro"]
+    layout = next(n for n in plugins.KNOWN if n.server == "layout-inspector")
+    assert layout.measures and layout.browser and layout.touches == caps.UI_FILES and "detect_issues" in layout.tools
+    rastro = next(n for n in plugins.KNOWN if n.server == "rastro")
+    assert rastro.guard == "rastro" and rastro.extra_args == ("--routines=off",) and rastro.on_request
+    assert [r.capability for r in evidence.REQUIRED] == ["layout-inspector"] and evidence.REQUIRED[0].ui_only
+
+
+@pytest.mark.parametrize(("change", "why"), [
+    ({"source": {"plugin": "x"}}, "names the installed"),
+    ({"source": {"plugin": "x", "server": "y", "guard": "anything"}}, "source.guard"),
+    ({"evidence": {"what": " "}}, "evidence.what"),
+    ({"tools": {"server": {"command": "z"}}, "source": {"plugin": "x", "server": "y"}}, "give one"),
+])
+def test_a_source_or_evidence_of_the_wrong_shape_is_refused(change, why):
+    with pytest.raises(extensions.ExtensionError, match=why.replace(".", r"\.")):
+        extensions.parse({"format": 1, "name": "x", **change})
+
+
+def test_the_person_s_extension_may_take_its_server_from_an_installed_plugin_and_owe_evidence(tmp_path, monkeypatch):
+    from locks import evidence
+
+    root = tmp_path / "plugins" / "cache" / "market" / "graph" / "1.0.0"
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "graph", "mcpServers": {
+        "graph": {"command": "${CLAUDE_PLUGIN_ROOT}/bin/graph"}}}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    _install({"format": 1, "name": "graph", "tools": {"measures": True},
+              "source": {"plugin": "graph", "server": "graph", "guard": "livespec"},
+              "evidence": {"what": "a call of the graph before the change"}})
+    _install({"format": 1, "name": "absent", "source": {"plugin": "nowhere", "server": "none"}})
+    every = caps.load_all(home() / "capabilities.json", {"LOCKS_PLUGINS": "off"})
+    assert "absent" not in every
+    assert every["graph"].server["args"][:3] == ["-m", "locks.mcp_guard", "livespec"]
+    owed = evidence.handed(["graph", "layout-inspector"])
+    assert {r.capability for r in owed} == {"graph", "layout-inspector"}
+    assert next(r for r in owed if r.capability == "graph").what == "a call of the graph before the change"

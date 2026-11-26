@@ -8,6 +8,7 @@
 
 ### Added
 
+- layout-inspector and rastro are extensions locks ships (`src/locks/extensions_bundled/`), read as before; a person's extension may take its server from an installed plugin (`source`, behind a guard policy that only narrows) and hold a pass to evidence of its use (`evidence`).
 - `/locks:integrate` and `locks extensions inspect`: what an installed plugin holds, read and never run, with a draft extension per MCP server, proposed to the person and installed only on their yes.
 - Workers run without the Claude Code plugins the person turned on, locks aside (`lean_plugins`, on by default): a plugin's hooks and listing no longer reach every turn of every worker. Their tools come from locks and their skills from their brief, as before.
 - Extensions: a tool that is not locks' own, declared in the locks home (`locks extensions add|list|show|rm`, `docs/extensions.md`): when it applies, its MCP server as a capability, the repository's files it briefs a writing worker, and the lines it reads by a pattern as the independent check's requirements. An extension may also add a `check` that must pass and an `ending` it offers, and each is tried per repository, with and without it, and kept where its tasks pass no less often. The first phase of moving every neighbour out of the core.
